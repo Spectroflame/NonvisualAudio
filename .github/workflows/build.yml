@@ -1,0 +1,213 @@
+name: Build desktop apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+# The release step needs write access to create a GitHub Release; the
+# per-platform jobs only need read access.
+permissions:
+  contents: write
+
+jobs:
+  # ------------------------------------------------------------------ #
+  # macOS — Apple Silicon and Intel as a matrix.
+  # ------------------------------------------------------------------ #
+  macos:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Bundle static ffmpeg (Homebrew)
+        # Homebrew ships a native ffmpeg that matches the runner's
+        # architecture. We copy the raw binary into the resources tree
+        # so PyInstaller picks it up automatically.
+        run: |
+          set -eux
+          brew update --quiet || true
+          brew install ffmpeg
+          mkdir -p src/nonvisualaudio/resources/bin/darwin
+          cp "$(brew --prefix)/bin/ffmpeg" src/nonvisualaudio/resources/bin/darwin/ffmpeg
+          chmod +x src/nonvisualaudio/resources/bin/darwin/ffmpeg
+          file src/nonvisualaudio/resources/bin/darwin/ffmpeg
+
+      - name: Build .app bundle
+        run: pyinstaller --clean --noconfirm NonvisualAudio.spec
+
+      - name: Ad-hoc code sign
+        # Ad-hoc signing is enough for local execution; users still need
+        # to clear the quarantine attribute on first launch (documented
+        # in the README).
+        run: codesign --force --deep --sign - dist/NonvisualAudio.app
+
+      - name: Package as zip
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            NonvisualAudio.app NonvisualAudio-macOS-${{ matrix.arch }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NonvisualAudio-macOS-${{ matrix.arch }}
+          path: dist/NonvisualAudio-macOS-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------ #
+  # Windows x64.
+  # ------------------------------------------------------------------ #
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Bundle static ffmpeg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip'
+          $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'ffmpeg'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          $exe = Get-ChildItem -Path $extract -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $exe) { throw 'ffmpeg.exe not found in downloaded archive' }
+          New-Item -ItemType Directory -Force -Path src\nonvisualaudio\resources\bin\win | Out-Null
+          Copy-Item $exe.FullName src\nonvisualaudio\resources\bin\win\ffmpeg.exe
+
+      - name: Build .exe folder
+        run: pyinstaller --clean --noconfirm NonvisualAudio.spec
+
+      - name: Package as zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist\NonvisualAudio `
+            -DestinationPath dist\NonvisualAudio-Windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NonvisualAudio-Windows-x64
+          path: dist/NonvisualAudio-Windows-x64.zip
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------ #
+  # Linux x64 (Ubuntu 22.04).
+  #
+  # wxPython has no Linux wheel on PyPI, so we pull it from the
+  # official extras index that matches the runner's distribution.
+  # ------------------------------------------------------------------ #
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system libraries needed by wxPython
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-0 \
+            libsdl2-2.0-0 \
+            libnotify4 \
+            libsm6 \
+            libxxf86vm1 \
+            libgstreamer1.0-0 \
+            libgstreamer-plugins-base1.0-0 \
+            libwebkit2gtk-4.0-37
+
+      - name: Install Python dependencies (wxPython from extras index)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U \
+            -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 \
+            wxPython
+          pip install numpy scipy soundfile sounddevice pyloudnorm
+          pip install --no-deps -e .
+          pip install pyinstaller
+
+      - name: Bundle static ffmpeg
+        run: |
+          set -eux
+          curl -L --fail \
+            https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+            -o /tmp/ffmpeg.tar.xz
+          mkdir -p /tmp/ffmpeg-extract
+          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-extract --strip-components=1
+          mkdir -p src/nonvisualaudio/resources/bin/linux
+          cp /tmp/ffmpeg-extract/ffmpeg src/nonvisualaudio/resources/bin/linux/ffmpeg
+          chmod +x src/nonvisualaudio/resources/bin/linux/ffmpeg
+
+      - name: Build executable folder
+        run: pyinstaller --clean --noconfirm NonvisualAudio.spec
+
+      - name: Package as tar.gz
+        run: |
+          cd dist
+          tar -czf NonvisualAudio-Linux-x64.tar.gz NonvisualAudio
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NonvisualAudio-Linux-x64
+          path: dist/NonvisualAudio-Linux-x64.tar.gz
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------ #
+  # Attach the four artifacts to a GitHub Release when a v* tag is
+  # pushed. Manual (workflow_dispatch) runs skip this step.
+  # ------------------------------------------------------------------ #
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts into one directory
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( -name '*.zip' -o -name '*.tar.gz' \) \
+            -exec cp {} release-files/ \;
+          ls -la release-files
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*
+          generate_release_notes: true

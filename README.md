@@ -158,8 +158,23 @@ redistributed. For a friendlier distribution, package it into a DMG
 together with a `First Launch Helper.command` script that strips
 `com.apple.quarantine` on the recipient's Mac.
 
-Windows and Linux builds are planned but not yet produced — the codebase
-is fully portable, only the packaging matrix needs filling in.
+## Pre-built downloads
+
+Every release tag on GitHub triggers
+[a multi-platform build](.github/workflows/build.yml) that publishes
+self-contained archives under the matching GitHub Release:
+
+- `NonvisualAudio-macOS-arm64.zip` — Apple Silicon Macs
+- `NonvisualAudio-macOS-x86_64.zip` — Intel Macs
+- `NonvisualAudio-Windows-x64.zip` — Windows 10 and newer
+- `NonvisualAudio-Linux-x64.tar.gz` — Linux (glibc-based)
+
+The same workflow can be triggered manually from the Actions tab on
+GitHub to produce a development snapshot without cutting a release.
+
+On macOS the distributed app is ad-hoc signed; users need to clear
+the quarantine attribute on first launch, for example with
+`xattr -cr /Applications/NonvisualAudio.app`.
 
 ## Architecture
 

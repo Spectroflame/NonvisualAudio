@@ -1,18 +1,43 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for NonvisualAudio (macOS .app)."""
+"""PyInstaller spec for NonvisualAudio (macOS / Windows / Linux).
+
+The spec picks up the platform-specific bundled ffmpeg from
+``src/nonvisualaudio/resources/bin/<platform>/`` if present. On
+macOS the output is wrapped into an .app bundle; on Windows and
+Linux it stays a folder under ``dist/NonvisualAudio``.
+"""
+
+import sys
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 
-# Include the bundled static ffmpeg binary inside the app bundle so the
-# .app is self-contained on other Macs.
-datas = [
-    (
-        "src/nonvisualaudio/resources/bin/darwin/ffmpeg",
-        "nonvisualaudio/resources/bin/darwin",
-    ),
-]
+
+def _platform_dir() -> str:
+    if sys.platform == "darwin":
+        return "darwin"
+    if sys.platform.startswith("win"):
+        return "win"
+    return "linux"
+
+
+def _ffmpeg_binary_name() -> str:
+    return "ffmpeg.exe" if sys.platform.startswith("win") else "ffmpeg"
+
+
+_platform = _platform_dir()
+_ffmpeg_name = _ffmpeg_binary_name()
+_ffmpeg_src = Path("src") / "nonvisualaudio" / "resources" / "bin" / _platform / _ffmpeg_name
+_ffmpeg_dst = f"nonvisualaudio/resources/bin/{_platform}"
+
+# The bundled ffmpeg is only included if a static binary has actually been
+# placed in the resources folder. The CI build downloads it there before
+# running PyInstaller; local development normally relies on system ffmpeg.
+datas = []
+if _ffmpeg_src.is_file():
+    datas.append((str(_ffmpeg_src), _ffmpeg_dst))
 
 hiddenimports = (
     collect_submodules("scipy.signal")
@@ -46,6 +71,9 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
+    # The app is windowed on macOS and Windows; on Linux the
+    # ``console=False`` flag still produces a GUI executable because wx
+    # picks the native toolkit on its own.
     console=False,
     disable_windowed_traceback=False,
     target_arch=None,
@@ -64,18 +92,21 @@ coll = COLLECT(
     name="NonvisualAudio",
 )
 
-app = BUNDLE(
-    coll,
-    name="NonvisualAudio.app",
-    icon=None,
-    bundle_identifier="com.nonvisualaudio.app",
-    info_plist={
-        "CFBundleName": "NonvisualAudio",
-        "CFBundleDisplayName": "NonvisualAudio",
-        "CFBundleShortVersionString": "0.1.0",
-        "CFBundleVersion": "0.1.0",
-        "NSHighResolutionCapable": True,
-        # Accessibility: let the app participate in the a11y tree.
-        "NSAppleEventsUsageDescription": "NonvisualAudio does not send Apple events; this string is required by macOS when accessibility APIs are used.",
-    },
-)
+# Only wrap the collection into an .app bundle on macOS. On Windows and
+# Linux the ``dist/NonvisualAudio`` directory is the distributable.
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="NonvisualAudio.app",
+        icon=None,
+        bundle_identifier="com.nonvisualaudio.app",
+        info_plist={
+            "CFBundleName": "NonvisualAudio",
+            "CFBundleDisplayName": "NonvisualAudio",
+            "CFBundleShortVersionString": "0.1.0",
+            "CFBundleVersion": "0.1.0",
+            "NSHighResolutionCapable": True,
+            # Accessibility: let the app participate in the a11y tree.
+            "NSAppleEventsUsageDescription": "NonvisualAudio does not send Apple events; this string is required by macOS when accessibility APIs are used.",
+        },
+    )

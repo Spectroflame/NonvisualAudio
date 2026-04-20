@@ -165,7 +165,6 @@ Every release tag on GitHub triggers
 self-contained archives under the matching GitHub Release:
 
 - `NonvisualAudio-macOS-arm64.zip` — Apple Silicon Macs
-- `NonvisualAudio-macOS-x86_64.zip` — Intel Macs
 - `NonvisualAudio-Windows-x64.zip` — Windows 10 and newer
 - `NonvisualAudio-Linux-x64.tar.gz` — Linux (glibc-based)
 

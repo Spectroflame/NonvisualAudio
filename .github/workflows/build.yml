@@ -13,7 +13,9 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------ #
-  # macOS — Apple Silicon and Intel as a matrix.
+  # macOS — Apple Silicon only. Intel Macs are no longer part of the
+  # release matrix; if Intel support becomes relevant again it can be
+  # added back as a second matrix row on macos-13.
   # ------------------------------------------------------------------ #
   macos:
     name: macOS ${{ matrix.arch }}
@@ -23,8 +25,6 @@ jobs:
         include:
           - runner: macos-14
             arch: arm64
-          - runner: macos-13
-            arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4

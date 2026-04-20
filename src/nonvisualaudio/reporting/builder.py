@@ -228,6 +228,101 @@ def _overall_section(result: AnalysisResult) -> str:
     return "\n".join(lines)
 
 
+def _peak_fix_recommendation(peak: SpectralPeak) -> str:
+    """Turn a detected spectral peak into a concrete EQ starting point.
+
+    The wording names the frequency in Hz, proposes a cut amount derived
+    from the peak's prominence (roughly half, clamped to 1.5–4 dB), and
+    picks a Q value and technique suited to the frequency region — a
+    narrow notch for mains hum, a broad bell for midrange issues, a
+    shelf or de-esser for the top end, and a high pass filter for
+    sub-50 Hz rumble.
+    """
+    hz = peak.frequency_hz
+    # Half the prominence is a safe first move; clamp so a 10 dB peak
+    # does not immediately propose a surgical -5 dB cut.
+    cut = max(1.5, min(4.0, round(peak.prominence_db * 0.5, 1)))
+    cut_str = f"{cut:.1f}"
+
+    if hz < 50:
+        # Rumble, traffic, HVAC, or subsonic DC offset. A high-pass
+        # filter clears this more transparently than a notch.
+        hpf = max(20, int(hz) + 10)
+        return (
+            f"The peak at {fmt_hz(hz)} is in the rumble and sub-sonic range, "
+            f"often caused by traffic, HVAC noise, footsteps, or DC offset. "
+            f"A high pass filter at about {hpf} Hz with a 12 dB per octave "
+            f"slope is usually more transparent than a notch cut. Listen for "
+            f"unwanted thinning of the bass when you set the cutoff."
+        )
+    if hz <= 65:
+        # Mains hum territory (50 Hz in Europe, 60 Hz in North America).
+        return (
+            f"The peak at {fmt_hz(hz)} sits on the mains hum frequency. "
+            f"Start with a narrow notch, Q about 8, cutting around {cut_str} dB "
+            f"at exactly {fmt_hz(hz)}. If the peak is a musical note rather "
+            f"than a constant hum, widen the Q to about 3."
+        )
+    if hz < 120:
+        return (
+            f"For the low bass buildup at {fmt_hz(hz)}, start with a cut of "
+            f"about {cut_str} dB at that frequency, Q around 1.5 (roughly an "
+            f"octave wide). That typically tightens the low end without "
+            f"thinning the kick or bass."
+        )
+    if hz < 250:
+        return (
+            f"To reduce muddiness at {fmt_hz(hz)}, try a cut of about "
+            f"{cut_str} dB at that frequency with a medium Q of about 1.5. "
+            f"A/B the change on vocal and bass passages to avoid losing "
+            f"warmth."
+        )
+    if hz < 500:
+        return (
+            f"For the low midrange peak at {fmt_hz(hz)}, start with a cut of "
+            f"about {cut_str} dB, Q around 1.2, to open up the midrange and "
+            f"reduce boxiness without thinning the bass."
+        )
+    if hz < 1000:
+        return (
+            f"The peak at {fmt_hz(hz)} is in the hollow, cardboard range. "
+            f"A cut of about {cut_str} dB with Q around 1.5 is a safe starting "
+            f"point. If it is room resonance, the same EQ will help most "
+            f"material recorded in that room."
+        )
+    if hz < 2000:
+        return (
+            f"To tame the nasal or telephone-like quality at {fmt_hz(hz)}, "
+            f"try a cut of about {cut_str} dB with Q around 1.5. This region "
+            f"is very audible, so make small changes and compare often."
+        )
+    if hz < 4000:
+        return (
+            f"For the bite or harshness at {fmt_hz(hz)}, start with a cut of "
+            f"about {cut_str} dB, Q around 1.5. On vocals a dynamic EQ often "
+            f"works better than a static cut, because this range only gets "
+            f"harsh on the loudest syllables."
+        )
+    if hz < 7000:
+        return (
+            f"For the sibilance near {fmt_hz(hz)}, a narrow notch with Q "
+            f"about 3 and a cut of around {cut_str} dB is a good starting "
+            f"point. On vocal material a de-esser tuned to this frequency is "
+            f"usually cleaner than a static EQ cut."
+        )
+    if hz < 10000:
+        return (
+            f"The peak at {fmt_hz(hz)} is in the upper sibilance and air "
+            f"range. Try a cut of about {cut_str} dB, Q around 3, or a "
+            f"de-esser tuned to this frequency if it is a vocal problem."
+        )
+    return (
+        f"For the brightness peak at {fmt_hz(hz)}, a high shelf starting one "
+        f"octave below, pulled down by about {cut_str} dB, usually sounds "
+        f"more natural than a narrow cut at the exact frequency."
+    )
+
+
 def _recommendations_section(result: AnalysisResult) -> str:
     lines = [heading("Recommendations")]
     recs: list[str] = []
@@ -235,32 +330,40 @@ def _recommendations_section(result: AnalysisResult) -> str:
     loud = result.loudness
     if loud.true_peak_dbtp > -1.0:
         recs.append(
-            "Lower the true peak ceiling to minus 1 dBTP to prevent intersample clipping."
+            "Lower the true peak ceiling to minus 1 dBTP to prevent "
+            "intersample clipping. In most brickwall limiters this is the "
+            "Ceiling or Output Level parameter."
         )
     if loud.integrated_lufs > -9.0:
         recs.append(
-            "Consider reducing limiting to restore some dynamic range if the target platform allows it."
+            "Consider reducing limiting to restore some dynamic range if "
+            "the target platform allows it."
         )
 
+    # One actionable EQ starting point per detected prominent peak. The
+    # peaks are already prominence-filtered upstream, so everything in
+    # this list is worth a mention. Sorted low to high so the reader
+    # walks the spectrum in one direction.
+    for peak in sorted(result.spectrum.peaks, key=lambda p: p.frequency_hz):
+        recs.append(_peak_fix_recommendation(peak))
+
     b = result.spectrum.bands
-    if (b.low_mid_db - b.mid_db) > 4.0 and result.spectrum.peaks:
-        peak = result.spectrum.peaks[0]
-        if 200.0 <= peak.frequency_hz <= 600.0:
-            recs.append(
-                f"Consider a gentle cut of about 2 dB around {fmt_hz(peak.frequency_hz)} "
-                "with a wide Q to open up the midrange."
-            )
     if b.air_db < -22.0:
         recs.append(
-            "A small shelf boost of about 2 dB above 8 kHz can add clarity and air."
+            "A small shelf boost of about 2 dB above 8 kHz can add clarity "
+            "and air."
         )
     if b.sub_db < -25.0:
         recs.append(
-            "The very low end is almost absent. If this is music, consider checking the high pass filter."
+            "The very low end is almost absent. If this is music, check "
+            "whether the high pass filter on the mix or master bus is set "
+            "too high."
         )
     if b.sub_db > -6.0:
         recs.append(
-            "The sub bass is dominant. A gentle reduction below 60 Hz may improve mix clarity."
+            "The sub bass is dominant. A gentle reduction below 60 Hz with "
+            "a high pass filter or a low shelf of about 2 dB usually "
+            "improves overall mix clarity."
         )
 
     if not recs:

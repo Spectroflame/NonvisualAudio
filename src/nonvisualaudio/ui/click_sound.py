@@ -2,66 +2,89 @@
 
 The click samples live in ``_embedded_click.py`` as XOR-scrambled
 base64 data — they are unpacked into memory on first use and pushed
-to a ``QAudioSink`` through a ``QBuffer``. Nothing is ever written to
-disk, so there is no playable WAV file in the installed app bundle
+straight to PortAudio through ``sounddevice``. Nothing is ever written
+to disk, so there is no playable WAV file in the installed app bundle
 or in the user's temp directory.
+
+If no audio output is available (headless CI, disabled sound device,
+PortAudio not installed) the ticker silently degrades: the timer still
+fires so other consumers can hook into it, but no sound is produced.
+The analysis itself never depends on the click and must not be blocked
+by audio issues.
 """
 
 from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QObject, QTimer
-from PySide6.QtMultimedia import QAudioFormat, QAudioSink
+import numpy as np
+import wx
 
-from nonvisualaudio.ui._embedded_click import (
-    SAMPLE_RATE,
-    load_click_pcm,
-)
+from nonvisualaudio.ui._embedded_click import SAMPLE_RATE, load_click_pcm
 
 log = logging.getLogger("nonvisualaudio.ui.click")
 
 
-def _audio_format() -> QAudioFormat:
-    fmt = QAudioFormat()
-    fmt.setSampleRate(SAMPLE_RATE)
-    fmt.setChannelCount(1)
-    fmt.setSampleFormat(QAudioFormat.SampleFormat.Float)
-    return fmt
-
-
-class ClickTicker(QObject):
+class ClickTicker:
     """Plays a short click sound on a repeating timer, fully in memory."""
 
-    def __init__(self, parent: QObject | None = None, interval_ms: int = 700) -> None:
-        super().__init__(parent)
-        self._pcm = QByteArray(load_click_pcm())
-        self._sink = QAudioSink(_audio_format(), self)
-        self._sink.setVolume(0.35)
-        # A fresh QBuffer is opened for every tick — QAudioSink consumes
-        # the device sequentially and we simply give it a new view on the
-        # same bytes each time.
-        self._buffer: QBuffer | None = None
+    def __init__(self, parent: wx.Window, interval_ms: int = 700) -> None:
+        self._pcm = np.frombuffer(load_click_pcm(), dtype=np.float32).copy() * 0.35
+        self._timer = wx.Timer(parent)
+        parent.Bind(wx.EVT_TIMER, self._on_tick, self._timer)
+        self._interval_ms = interval_ms
+        self._sd = self._try_import_sounddevice()
+        self._available = self._sd is not None
 
-        self._timer = QTimer(self)
-        self._timer.setInterval(interval_ms)
-        self._timer.timeout.connect(self._play_once)
+    @staticmethod
+    def _try_import_sounddevice():
+        """Import ``sounddevice`` lazily and absorb any failure.
+
+        PortAudio may be missing on a freshly set up machine. The app
+        should still run — the click is a nice-to-have, not a
+        requirement.
+        """
+        try:
+            import sounddevice as sd
+        except Exception as exc:  # noqa: BLE001 — any import failure means no audio
+            log.warning("sounddevice unavailable; click sound disabled (%s)", exc)
+            return None
+        try:
+            # Probe the default output device. On machines with no audio at
+            # all this raises, and we disable the click proactively.
+            sd.check_output_settings(samplerate=SAMPLE_RATE, channels=1)
+        except Exception as exc:  # noqa: BLE001 — headless / broken device
+            log.warning("no usable audio output; click sound disabled (%s)", exc)
+            return None
+        return sd
+
+    def _on_tick(self, event: wx.TimerEvent) -> None:
+        self._play_once()
 
     def _play_once(self) -> None:
-        # Stop any in-flight playback first so we don't stack clicks.
-        self._sink.stop()
-        self._buffer = QBuffer(self)
-        self._buffer.setData(self._pcm)
-        self._buffer.open(QIODevice.OpenModeFlag.ReadOnly)
-        self._sink.start(self._buffer)
+        if self._sd is None:
+            return
+        try:
+            self._sd.stop()
+            self._sd.play(self._pcm, SAMPLE_RATE, blocking=False)
+        except Exception as exc:  # noqa: BLE001 — silently disable on first failure
+            log.warning("click playback failed once; disabling (%s)", exc)
+            self._sd = None
+            self._available = False
+
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
 
     def start(self) -> None:
         self._play_once()
-        self._timer.start()
+        self._timer.Start(self._interval_ms)
 
     def stop(self) -> None:
-        self._timer.stop()
-        self._sink.stop()
-        if self._buffer is not None:
-            self._buffer.close()
-            self._buffer = None
+        if self._timer.IsRunning():
+            self._timer.Stop()
+        if self._sd is not None:
+            try:
+                self._sd.stop()
+            except Exception:  # noqa: BLE001 — stopping silence is fine either way
+                pass

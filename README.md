@@ -29,11 +29,20 @@ tree contains zero network libraries.
   - Narrow spectral peaks called out in exact Hz with a character note
     ("boxiness", "sibilance", "nasal or telephone-like character", etc.)
 - **Screen-reader-first UI**:
-  - Modal results window with active VoiceOver announcement on macOS
-  - Checkbox-based genre picker (radios and checkboxes are the only Qt
-    controls that behave reliably with VoiceOver)
+  - Built on wxPython so every widget is a native control on its
+    platform (Cocoa on macOS, Win32 on Windows, GTK on Linux) and goes
+    straight through the platform's native accessibility bridge
+  - Modal results window focused on a read-only text control, where
+    the screen reader starts reading the report immediately
+  - Checkbox-based genre picker (the most reliably announced control
+    across VoiceOver, NVDA and Orca)
+  - Friendly error dialog with a clear headline, an explanation, and a
+    concrete next step — batch failures continue to process the other
+    files and summarise the problems in the report itself
   - Metronome-style click plays during analysis so the user has audio
-    feedback that work is progressing
+    feedback that work is progressing (nothing is written to disk; the
+    sample is held in memory and fed straight to PortAudio via
+    sounddevice)
   - Progress bar reports the current pipeline step
   - All numbers in the report are spelled out ("minus 21.4 LUFS" rather
     than "-21.4") so screen readers speak them naturally
@@ -156,13 +165,14 @@ is fully portable, only the packaging matrix needs filling in.
 
 ```
 src/nonvisualaudio/
-├── app.py                 # Qt application entry point
+├── app.py                 # wxPython application entry point
+├── errors.py              # UserFacingError — structured, friendly errors
 ├── audio/                 # Decoding (soundfile first, ffmpeg fallback)
 ├── analysis/              # Loudness, dynamics, spectrum — returns dataclasses
 ├── reporting/             # Templates, report builder, genre profiles,
 │                          # comparison sections
-├── ui/                    # PySide6 widgets, worker thread, click sound,
-│                          # results dialog, genre dialog
+├── ui/                    # wxPython widgets, background worker, click
+│                          # sound, results / genre / error dialogs
 └── resources/bin/darwin/  # Bundled ffmpeg (gitignored)
 ```
 
@@ -187,6 +197,8 @@ MIT.
 
 - ffmpeg's `ebur128` filter for the reference EBU R128 loudness
   implementation
-- PySide6 / Qt for the cross-platform accessibility bridge (NSAccessibility
-  on macOS, UIA on Windows, AT-SPI on Linux)
+- wxPython for the cross-platform accessibility bridge — native
+  controls on every platform, which gives NSAccessibility on macOS,
+  UIA on Windows, and AT-SPI on Linux without any extra glue
+- sounddevice / PortAudio for in-memory click playback
 - scipy.signal, numpy, soundfile

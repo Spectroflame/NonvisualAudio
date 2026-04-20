@@ -1,18 +1,30 @@
-"""Central place for accessibility labels and helpers.
+"""Central place for accessibility labels used across the UI.
 
-Keeping all strings here ensures consistent wording across the UI and makes
-translation or future tweaks trivial.
+Keeping all user-facing strings here ensures consistent wording across the
+windows and makes future translation or phrasing tweaks trivial.
+
+wxPython exposes accessibility through ``SetName`` (the short label a
+screen reader announces first), ``SetHelpText`` (the longer description)
+and ``SetLabel`` (the visible text). The ``set_a11y`` helper below sets
+all three sensibly from a single call.
 """
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QWidget
+from typing import Any
 
 
-def set_a11y(widget: QWidget, name: str, description: str = "") -> None:
-    widget.setAccessibleName(name)
-    if description:
-        widget.setAccessibleDescription(description)
+def set_a11y(widget: Any, name: str, description: str = "") -> None:
+    """Set screen-reader name and (optionally) description on a wx widget.
+
+    ``widget`` is typed loosely so this module does not force every caller
+    to import wx. All wx.Window subclasses implement ``SetName`` and
+    ``SetHelpText`` so duck typing is safe here.
+    """
+    if hasattr(widget, "SetName"):
+        widget.SetName(name)
+    if description and hasattr(widget, "SetHelpText"):
+        widget.SetHelpText(description)
 
 
 # Control labels.
@@ -33,7 +45,7 @@ LABEL_REFERENCE_FILE = "Reference audio file"
 HINT_REFERENCE_FILE = "Select a second audio file to use as the comparison reference."
 
 LABEL_ANALYZE = "Analyze"
-HINT_ANALYZE = "Run the analysis and display results below."
+HINT_ANALYZE = "Run the analysis and display results in a separate window."
 
 LABEL_RESULTS = "Analysis results"
 HINT_RESULTS = (
@@ -43,7 +55,8 @@ HINT_RESULTS = (
 
 LABEL_COPY = "Copy results to clipboard"
 
-STATUS_IDLE = 'Ready! Press "Analyze" to begin.'
+STATUS_IDLE = 'Ready. Press "Analyze" to begin.'
 STATUS_RUNNING = "Analyzing. Please wait."
-STATUS_DONE = "Analysis complete. Results are in the results area below."
+STATUS_DONE = "Analysis complete. Results are in the results window."
 STATUS_ERROR = "Analysis failed."
+STATUS_PARTIAL = "Analysis complete. Some files could not be processed."

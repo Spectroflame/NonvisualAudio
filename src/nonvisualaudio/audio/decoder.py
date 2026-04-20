@@ -4,18 +4,24 @@ Strategy:
 1. Try libsndfile (via ``soundfile``). Handles WAV, AIFF, FLAC, OGG natively.
 2. On failure, fall back to bundled ffmpeg which handles MP3, M4A/AAC, Opus
    and anything else ffmpeg knows about.
+
+All user-visible errors are raised as :class:`AudioDecodeError` so the UI
+can show a human-readable headline with file name and a concrete hint.
 """
 
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-import re
-
 from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
+from nonvisualaudio.errors import AudioDecodeError, MissingFFmpegError
+
+log = logging.getLogger("nonvisualaudio.decoder")
 
 
 @dataclass(frozen=True)
@@ -35,17 +41,21 @@ def _to_mono(samples: np.ndarray) -> np.ndarray:
 
 
 def _try_soundfile(path: Path) -> DecodedAudio | None:
+    """Return decoded audio on success, None if soundfile can't handle it."""
     try:
         import soundfile as sf
     except ImportError:
+        log.debug("soundfile not importable; skipping fast path")
         return None
     try:
         info = sf.info(str(path))
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — broad on purpose: fall back to ffmpeg
+        log.debug("soundfile.info rejected %s: %s", path.name, exc)
         return None
     try:
         data, sr = sf.read(str(path), dtype="float32", always_2d=True)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — same reason as above
+        log.debug("soundfile.read rejected %s: %s", path.name, exc)
         return None
     mono = _to_mono(data)
     bit_depth = _bit_depth_from_subtype(info.subtype)
@@ -106,7 +116,6 @@ _CHANNEL_LAYOUT_COUNTS: dict[str, int] = {
 
 def _parse_channel_layout(text: str) -> int:
     text = text.strip().lower()
-    # Forms like "2 channels" or "1 channels".
     m = re.match(r"(\d+)\s*channels?", text)
     if m:
         try:
@@ -117,12 +126,7 @@ def _parse_channel_layout(text: str) -> int:
 
 
 def _probe_via_ffmpeg(path: Path) -> tuple[int, int, float]:
-    """Return (sample_rate, channels, duration_seconds) using ffmpeg.
-
-    Runs a tiny ffmpeg decode of the first 1 ms and parses the stream
-    info from stderr. This avoids the need for a separate ``ffprobe``
-    binary in the app bundle.
-    """
+    """Return (sample_rate, channels, duration_seconds) using ffmpeg."""
     args = [
         find_ffmpeg(),
         "-hide_banner",
@@ -163,11 +167,73 @@ def _probe_via_ffmpeg(path: Path) -> tuple[int, int, float]:
     return sample_rate, channels, duration
 
 
+def _ffmpeg_error_to_user_error(exc: FFmpegError, path: Path) -> AudioDecodeError:
+    """Translate an internal FFmpegError into a user-facing AudioDecodeError."""
+    raw = str(exc)
+    name = path.name
+    if raw.startswith("timeout:"):
+        return AudioDecodeError(
+            title=f"Reading {name} took too long",
+            body=(
+                "The audio engine did not finish decoding this file within "
+                "the allowed time. The file may be extremely long, corrupt, "
+                "or stored on a slow drive."
+            ),
+            hint=(
+                "Try copying the file to your local disk first, or trim it "
+                "to a shorter segment."
+            ),
+        )
+    if raw.startswith("binary_not_found:"):
+        return AudioDecodeError(
+            title="Audio engine could not be started",
+            body=(
+                "FFmpeg is installed on the system path but the operating "
+                "system refused to launch it for decoding this file."
+            ),
+            hint=(
+                "Quit NonvisualAudio, reinstall ffmpeg, and open the app "
+                "again. If the problem persists, run NonvisualAudio from a "
+                "terminal with NVA_DEBUG=1 set to see the exact error."
+            ),
+        )
+    # Generic ffmpeg failure: include the most informative part of stderr.
+    stderr_tail = raw.split("\n", 1)[-1].strip()
+    snippet = stderr_tail.splitlines()
+    # ffmpeg often ends with the actionable line; take the last three non-empty.
+    tail = " ".join(ln.strip() for ln in snippet if ln.strip())[-400:]
+    return AudioDecodeError(
+        title=f"Could not decode {name}",
+        body=(
+            "The audio engine rejected this file. It may be corrupt, "
+            "encrypted (for example a DRM-protected iTunes purchase), or "
+            "in a format this ffmpeg build does not support."
+        ),
+        hint=(
+            "Try re-exporting the file as WAV or FLAC from your editor. "
+            f"Technical detail from ffmpeg: {tail}"
+            if tail
+            else "Try re-exporting the file as WAV or FLAC from your editor."
+        ),
+    )
+
+
 def _ffmpeg_decode(path: Path) -> DecodedAudio:
-    sample_rate, channels, duration = _probe_via_ffmpeg(path)
+    try:
+        sample_rate, channels, duration = _probe_via_ffmpeg(path)
+    except FFmpegError as exc:
+        raise _ffmpeg_error_to_user_error(exc, path) from exc
+
     if sample_rate == 0:
-        # Fall back to a sensible default; ffmpeg will still resample to this.
+        # ffmpeg accepted the input but reported no sample rate — treat as
+        # unknown format rather than silently defaulting, so the user gets
+        # told something is off.
+        log.warning(
+            "ffmpeg did not report a sample rate for %s; defaulting to 48000",
+            path.name,
+        )
         sample_rate = 48000
+
     args = [
         find_ffmpeg(),
         "-hide_banner",
@@ -185,11 +251,23 @@ def _ffmpeg_decode(path: Path) -> DecodedAudio:
         str(sample_rate),
         "-",
     ]
-    proc = run(args, timeout=600.0)
+    try:
+        proc = run(args, timeout=600.0)
+    except FFmpegError as exc:
+        raise _ffmpeg_error_to_user_error(exc, path) from exc
+
     raw = proc.stdout
     samples = np.frombuffer(raw, dtype=np.float32).copy()
     if samples.size == 0:
-        raise FFmpegError(f"ffmpeg returned no audio samples for {path.name}")
+        raise AudioDecodeError(
+            title=f"{path.name} contains no audio",
+            body=(
+                "The audio engine opened the file but produced no samples. "
+                "It may be an empty recording, a data-only container, or a "
+                "video file without an audio track."
+            ),
+            hint="Pick a different file, or check the export settings that produced this one.",
+        )
     return DecodedAudio(
         samples=samples,
         sample_rate=sample_rate,
@@ -201,11 +279,57 @@ def _ffmpeg_decode(path: Path) -> DecodedAudio:
 
 
 def decode(path: str | Path) -> DecodedAudio:
-    """Decode an audio file to mono float32 PCM."""
+    """Decode an audio file to mono float32 PCM.
+
+    Raises :class:`AudioDecodeError` for problems the user can act on
+    (missing or unreadable file, unsupported format, empty audio) and
+    :class:`MissingFFmpegError` if the audio engine itself is absent.
+    """
     p = Path(path)
+    if not p.exists():
+        raise AudioDecodeError(
+            title=f"{p.name} is not on disk anymore",
+            body=(
+                "The file you picked could not be found at the original "
+                "location. It was probably moved, renamed, or deleted after "
+                "you added it to the list."
+            ),
+            hint="Clear the file list and add the audio file again.",
+        )
     if not p.is_file():
-        raise FileNotFoundError(str(p))
+        raise AudioDecodeError(
+            title=f"{p.name} is not a regular file",
+            body=(
+                "The chosen path points to a folder, a device, or some other "
+                "non-file object instead of an audio file."
+            ),
+            hint="Pick an actual audio file such as a WAV, MP3, FLAC, or M4A.",
+        )
+    try:
+        if p.stat().st_size == 0:
+            raise AudioDecodeError(
+                title=f"{p.name} is empty",
+                body="The file has a size of zero bytes and cannot be decoded.",
+                hint="Re-export or re-download the file, then try again.",
+            )
+    except OSError as exc:
+        raise AudioDecodeError(
+            title=f"Cannot read {p.name}",
+            body=(
+                "The operating system refused to read this file. Permissions "
+                f"may be restricted, or the drive may have disconnected. "
+                f"Details: {exc.strerror or exc}."
+            ),
+            hint="Check that you have read access to the file and that the drive is available.",
+        ) from exc
+
     result = _try_soundfile(p)
     if result is not None:
         return result
-    return _ffmpeg_decode(p)
+    # Let MissingFFmpegError propagate as-is — it already carries good wording.
+    try:
+        return _ffmpeg_decode(p)
+    except MissingFFmpegError:
+        raise
+    except AudioDecodeError:
+        raise

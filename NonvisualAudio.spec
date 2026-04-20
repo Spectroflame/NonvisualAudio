@@ -18,6 +18,7 @@ hiddenimports = (
     collect_submodules("scipy.signal")
     + collect_submodules("scipy.special")
     + collect_submodules("soundfile")
+    + collect_submodules("sounddevice")
 )
 
 a = Analysis(

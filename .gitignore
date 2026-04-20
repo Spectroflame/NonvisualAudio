@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller build artefacts
+build/
+dist/
+*.spec.bak
+
+# Bundled ffmpeg binaries (platform-specific, 70-80 MB each, fetched
+# separately — see README for instructions).
+src/nonvisualaudio/resources/bin/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE / editor local state
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code workspace metadata
+.claude/
+
+# Logs and temp
+*.log
+*.tmp

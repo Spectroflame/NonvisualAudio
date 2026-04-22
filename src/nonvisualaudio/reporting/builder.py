@@ -203,12 +203,11 @@ def _frequency_section(spec: SpectrumMetrics) -> str:
         f"The loudest band in this file is the {loudest_name} region "
         f"({_band_range_str(loudest_lo, loudest_hi)})."
     )
-    # Walk the six bands in the natural low-to-high spectrum order, not
-    # ranked, so the listener's mental model matches an EQ plugin.
-    for attr, name, lo, hi in _BAND_LABELS:
-        value = getattr(b, attr)
-        if name == loudest_name:
-            continue
+    # List the other bands in order of loudness (next-loudest first),
+    # so each row shows a small step down from the one above. Walking in
+    # spectrum order instead makes the deltas jump around (e.g. 14 dB,
+    # then 1 dB, then 9 dB), which is harder to follow when read aloud.
+    for name, value, lo, hi in ranked[1:]:
         delta = loudest_db - value
         lines.append(
             _describe_band_vs_loudest(

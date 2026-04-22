@@ -10,6 +10,7 @@ from nonvisualaudio.analysis.loudness import measure_loudness
 from nonvisualaudio.analysis.result import AnalysisResult, FileInfo
 from nonvisualaudio.analysis.spectrum import compute_spectrum
 from nonvisualaudio.audio.decoder import decode
+from nonvisualaudio.localization import t
 
 ProgressCb = Callable[[int, str], None]
 
@@ -46,7 +47,7 @@ def analyze(
     emit = _make_emit(progress_cb, percent_start, percent_end)
     prefix = f"{label_prefix}: " if label_prefix else ""
 
-    emit(0, f"{prefix}Decoding audio")
+    emit(0, f"{prefix}{t('pipeline.decoding')}")
     decoded = decode(path)
     file_info = FileInfo(
         filename=decoded.filename,
@@ -56,16 +57,16 @@ def analyze(
         bit_depth=decoded.bit_depth,
     )
 
-    emit(25, f"{prefix}Measuring loudness")
+    emit(25, f"{prefix}{t('pipeline.loudness')}")
     loudness = measure_loudness(path)
 
-    emit(75, f"{prefix}Computing dynamics")
+    emit(75, f"{prefix}{t('pipeline.dynamics')}")
     dynamics = compute_dynamics(decoded.samples, decoded.sample_rate)
 
-    emit(85, f"{prefix}Computing spectrum")
+    emit(85, f"{prefix}{t('pipeline.spectrum')}")
     spectrum = compute_spectrum(decoded.samples, decoded.sample_rate)
 
-    emit(100, f"{prefix}Analysis done")
+    emit(100, f"{prefix}{t('pipeline.done')}")
     return AnalysisResult(
         file_info=file_info,
         loudness=loudness,

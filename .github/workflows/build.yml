@@ -33,6 +33,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Sync version with pushed git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        # Write the tag's version number (without the leading v) into
+        # pyproject.toml so the About dialog, CFBundleShortVersionString,
+        # and every artifact match the GitHub release tag exactly.
+        run: python scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
@@ -86,6 +93,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Sync version with pushed git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: python scripts/bump_version.py "$env:GITHUB_REF_NAME" --no-reinstall
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
@@ -136,6 +148,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Sync version with pushed git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
 
       - name: Install system libraries needed by wxPython
         run: |

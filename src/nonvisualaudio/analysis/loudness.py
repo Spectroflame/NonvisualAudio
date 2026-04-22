@@ -36,6 +36,7 @@ from pathlib import Path
 from nonvisualaudio.analysis.result import LoudnessMetrics
 from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
 from nonvisualaudio.errors import LoudnessMeasurementError
+from nonvisualaudio.localization import t
 
 log = logging.getLogger("nonvisualaudio.loudness")
 
@@ -49,13 +50,9 @@ def _parse(stderr_text: str, filename: str) -> LoudnessMetrics:
     summary_idx = stderr_text.rfind("Summary:")
     if summary_idx == -1:
         raise LoudnessMeasurementError(
-            title=f"Loudness measurement failed for {filename}",
-            body=(
-                "The audio engine finished, but did not emit the EBU R128 "
-                "summary that NonvisualAudio reads the numbers from. The "
-                "file may be silent or extremely short."
-            ),
-            hint="Check that the file is longer than a few seconds and actually contains audible audio.",
+            title=t("error.loudness.no_summary.title", name=filename),
+            body=t("error.loudness.no_summary.body"),
+            hint=t("error.loudness.no_summary.hint"),
         )
     progress = stderr_text[:summary_idx]
     summary = stderr_text[summary_idx:]
@@ -65,13 +62,9 @@ def _parse(stderr_text: str, filename: str) -> LoudnessMetrics:
     m_peak = _RE_PEAK.search(summary)
     if not (m_i and m_lra and m_peak):
         raise LoudnessMeasurementError(
-            title=f"Could not read loudness numbers for {filename}",
-            body=(
-                "The audio engine produced a summary but NonvisualAudio could "
-                "not find one of the expected loudness values in it. This "
-                "usually points to a non-standard or partial audio file."
-            ),
-            hint="Re-export the file as WAV or FLAC from your editor and try again.",
+            title=t("error.loudness.incomplete.title", name=filename),
+            body=t("error.loudness.incomplete.body"),
+            hint=t("error.loudness.incomplete.hint"),
         )
 
     short_max = -math.inf
@@ -121,22 +114,14 @@ def measure_loudness(path: str | Path) -> LoudnessMetrics:
         raw = str(exc)
         if raw.startswith("timeout:"):
             raise LoudnessMeasurementError(
-                title=f"Loudness scan of {p.name} took too long",
-                body=(
-                    "The audio engine did not finish the EBU R128 loudness "
-                    "scan within the allowed time. The file may be extremely "
-                    "long or stored on a slow drive."
-                ),
-                hint="Copy the file to a local drive or trim it to a shorter segment.",
+                title=t("error.loudness.timeout.title", name=p.name),
+                body=t("error.loudness.timeout.body"),
+                hint=t("error.loudness.timeout.hint"),
             ) from exc
         raise LoudnessMeasurementError(
-            title=f"Loudness measurement failed for {p.name}",
-            body=(
-                "The audio engine exited with an error during the loudness "
-                "scan. The file may be corrupt or in a format this ffmpeg "
-                "build does not fully support."
-            ),
-            hint="Re-export the file as WAV or FLAC and try again.",
+            title=t("error.loudness.generic.title", name=p.name),
+            body=t("error.loudness.generic.body"),
+            hint=t("error.loudness.generic.hint"),
         ) from exc
     stderr = proc.stderr.decode("utf-8", errors="replace")
     return _parse(stderr, p.name)

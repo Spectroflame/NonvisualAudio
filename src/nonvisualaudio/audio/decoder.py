@@ -20,6 +20,7 @@ import numpy as np
 
 from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
 from nonvisualaudio.errors import AudioDecodeError, MissingFFmpegError
+from nonvisualaudio.localization import t
 
 log = logging.getLogger("nonvisualaudio.decoder")
 
@@ -173,48 +174,30 @@ def _ffmpeg_error_to_user_error(exc: FFmpegError, path: Path) -> AudioDecodeErro
     name = path.name
     if raw.startswith("timeout:"):
         return AudioDecodeError(
-            title=f"Reading {name} took too long",
-            body=(
-                "The audio engine did not finish decoding this file within "
-                "the allowed time. The file may be extremely long, corrupt, "
-                "or stored on a slow drive."
-            ),
-            hint=(
-                "Try copying the file to your local disk first, or trim it "
-                "to a shorter segment."
-            ),
+            title=t("error.decoder.timeout.title", name=name),
+            body=t("error.decoder.timeout.body"),
+            hint=t("error.decoder.timeout.hint"),
         )
     if raw.startswith("binary_not_found:"):
         return AudioDecodeError(
-            title="Audio engine could not be started",
-            body=(
-                "FFmpeg is installed on the system path but the operating "
-                "system refused to launch it for decoding this file."
-            ),
-            hint=(
-                "Quit NonvisualAudio, reinstall ffmpeg, and open the app "
-                "again. If the problem persists, run NonvisualAudio from a "
-                "terminal with NVA_DEBUG=1 set to see the exact error."
-            ),
+            title=t("error.decoder.engine.title"),
+            body=t("error.decoder.engine.body"),
+            hint=t("error.decoder.engine.hint"),
         )
     # Generic ffmpeg failure: include the most informative part of stderr.
     stderr_tail = raw.split("\n", 1)[-1].strip()
     snippet = stderr_tail.splitlines()
     # ffmpeg often ends with the actionable line; take the last three non-empty.
     tail = " ".join(ln.strip() for ln in snippet if ln.strip())[-400:]
+    hint = (
+        t("error.decoder.generic.hint.tail", tail=tail)
+        if tail
+        else t("error.decoder.generic.hint.no_tail")
+    )
     return AudioDecodeError(
-        title=f"Could not decode {name}",
-        body=(
-            "The audio engine rejected this file. It may be corrupt, "
-            "encrypted (for example a DRM-protected iTunes purchase), or "
-            "in a format this ffmpeg build does not support."
-        ),
-        hint=(
-            "Try re-exporting the file as WAV or FLAC from your editor. "
-            f"Technical detail from ffmpeg: {tail}"
-            if tail
-            else "Try re-exporting the file as WAV or FLAC from your editor."
-        ),
+        title=t("error.decoder.generic.title", name=name),
+        body=t("error.decoder.generic.body"),
+        hint=hint,
     )
 
 
@@ -260,13 +243,9 @@ def _ffmpeg_decode(path: Path) -> DecodedAudio:
     samples = np.frombuffer(raw, dtype=np.float32).copy()
     if samples.size == 0:
         raise AudioDecodeError(
-            title=f"{path.name} contains no audio",
-            body=(
-                "The audio engine opened the file but produced no samples. "
-                "It may be an empty recording, a data-only container, or a "
-                "video file without an audio track."
-            ),
-            hint="Pick a different file, or check the export settings that produced this one.",
+            title=t("error.decoder.empty_output.title", name=path.name),
+            body=t("error.decoder.empty_output.body"),
+            hint=t("error.decoder.empty_output.hint"),
         )
     return DecodedAudio(
         samples=samples,
@@ -288,39 +267,30 @@ def decode(path: str | Path) -> DecodedAudio:
     p = Path(path)
     if not p.exists():
         raise AudioDecodeError(
-            title=f"{p.name} is not on disk anymore",
-            body=(
-                "The file you picked could not be found at the original "
-                "location. It was probably moved, renamed, or deleted after "
-                "you added it to the list."
-            ),
-            hint="Clear the file list and add the audio file again.",
+            title=t("error.decoder.missing.title", name=p.name),
+            body=t("error.decoder.missing.body"),
+            hint=t("error.decoder.missing.hint"),
         )
     if not p.is_file():
         raise AudioDecodeError(
-            title=f"{p.name} is not a regular file",
-            body=(
-                "The chosen path points to a folder, a device, or some other "
-                "non-file object instead of an audio file."
-            ),
-            hint="Pick an actual audio file such as a WAV, MP3, FLAC, or M4A.",
+            title=t("error.decoder.not_file.title", name=p.name),
+            body=t("error.decoder.not_file.body"),
+            hint=t("error.decoder.not_file.hint"),
         )
     try:
         if p.stat().st_size == 0:
             raise AudioDecodeError(
-                title=f"{p.name} is empty",
-                body="The file has a size of zero bytes and cannot be decoded.",
-                hint="Re-export or re-download the file, then try again.",
+                title=t("error.decoder.empty.title", name=p.name),
+                body=t("error.decoder.empty.body"),
+                hint=t("error.decoder.empty.hint"),
             )
     except OSError as exc:
         raise AudioDecodeError(
-            title=f"Cannot read {p.name}",
-            body=(
-                "The operating system refused to read this file. Permissions "
-                f"may be restricted, or the drive may have disconnected. "
-                f"Details: {exc.strerror or exc}."
+            title=t("error.decoder.unreadable.title", name=p.name),
+            body=t(
+                "error.decoder.unreadable.body", details=exc.strerror or exc
             ),
-            hint="Check that you have read access to the file and that the drive is available.",
+            hint=t("error.decoder.unreadable.hint"),
         ) from exc
 
     result = _try_soundfile(p)

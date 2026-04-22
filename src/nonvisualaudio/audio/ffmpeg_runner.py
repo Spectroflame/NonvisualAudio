@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Sequence
 
 from nonvisualaudio.errors import MissingFFmpegError
+from nonvisualaudio.localization import t
 
 log = logging.getLogger("nonvisualaudio.ffmpeg")
 
@@ -49,21 +50,10 @@ def _bundled_binary(name: str) -> Path | None:
 
 def _install_hint() -> str:
     if sys.platform == "darwin":
-        return (
-            "Install ffmpeg with Homebrew by running: brew install ffmpeg. "
-            "Alternatively, download a static build from evermeet.cx and place "
-            "the ffmpeg binary in your PATH."
-        )
+        return t("error.ffmpeg.install.darwin")
     if sys.platform.startswith("win"):
-        return (
-            "Download ffmpeg from ffmpeg.org or install it with winget "
-            "(winget install Gyan.FFmpeg) and make sure the ffmpeg.exe "
-            "is reachable from your command prompt."
-        )
-    return (
-        "Install ffmpeg with your package manager, for example "
-        "sudo apt install ffmpeg or sudo dnf install ffmpeg."
-    )
+        return t("error.ffmpeg.install.windows")
+    return t("error.ffmpeg.install.linux")
 
 
 def find_ffmpeg() -> str:
@@ -75,12 +65,8 @@ def find_ffmpeg() -> str:
     if path:
         return path
     raise MissingFFmpegError(
-        title="FFmpeg is missing",
-        body=(
-            "NonvisualAudio needs the ffmpeg audio engine to decode files and "
-            "to measure loudness. The bundled copy could not be found and "
-            "there is no ffmpeg on your system either."
-        ),
+        title=t("error.ffmpeg.missing.title"),
+        body=t("error.ffmpeg.missing.body"),
         hint=_install_hint(),
     )
 

@@ -27,6 +27,7 @@ from nonvisualaudio.errors import (
     MissingFFmpegError,
     UserFacingError,
 )
+from nonvisualaudio.localization import t
 from nonvisualaudio.reporting.builder import build_report
 from nonvisualaudio.reporting.comparison import (
     build_genre_comparison,
@@ -44,7 +45,7 @@ def _file_section_header(index: int, total: int, filename: str) -> str:
     avoid punctuation banners — just a clear heading line in the same
     style as the other section headings.
     """
-    return f"FILE {index} OF {total}: {filename}"
+    return t("ui.worker.file_section", index=index, total=total, filename=filename)
 
 
 def _error_section(failures: list[tuple[str, UserFacingError]]) -> str:
@@ -52,21 +53,18 @@ def _error_section(failures: list[tuple[str, UserFacingError]]) -> str:
     if not failures:
         return ""
     count = len(failures)
+    key = "ui.worker.error_count.one" if count == 1 else "ui.worker.error_count.other"
     lines = [
-        "ERRORS",
-        (
-            f"{count} file could not be analyzed."
-            if count == 1
-            else f"{count} files could not be analyzed."
-        ),
+        t("ui.worker.errors_heading"),
+        t(key, count=count),
         "",
     ]
     for filename, err in failures:
-        lines.append(f"File: {filename}")
+        lines.append(t("ui.worker.error_file_line", filename=filename))
         lines.append(err.title + ".")
         lines.append(err.body)
         if err.hint:
-            lines.append("What to do: " + err.hint)
+            lines.append(t("ui.worker.error_whatdo", hint=err.hint))
         lines.append("")
     # Trim trailing blank line.
     while lines and lines[-1] == "":
@@ -128,9 +126,9 @@ class AnalysisWorker:
             # selected — but report cleanly instead of crashing if it does.
             self._emit_error(
                 UserFacingError(
-                    title="No files to analyze",
-                    body="No audio files are currently in the list.",
-                    hint="Add at least one audio file, then press Analyze again.",
+                    title=t("worker.error.no_files.title"),
+                    body=t("worker.error.no_files.body"),
+                    hint=t("worker.error.no_files.hint"),
                 )
             )
             return
@@ -147,7 +145,7 @@ class AnalysisWorker:
                     progress_cb=self._emit_progress,
                     percent_start=0,
                     percent_end=15,
-                    label_prefix="Reference",
+                    label_prefix=t("ui.worker.reference_prefix"),
                 )
             except MissingFFmpegError as exc:
                 self._emit_error(exc)
@@ -156,14 +154,15 @@ class AnalysisWorker:
                 # A bad reference file is a hard stop: without the reference
                 # the comparison mode makes no sense, so we fail the run
                 # with a dedicated message rather than silently downgrading.
+                extra_hint = t("worker.error.bad_reference.extra_hint")
                 self._emit_error(
                     UserFacingError(
-                        title="Reference file could not be analyzed",
+                        title=t("worker.error.bad_reference.title"),
                         body=exc.body,
                         hint=(
                             (exc.hint + " ") if exc.hint else ""
                         )
-                        + "You can also clear the reference file to run the analysis without one.",
+                        + extra_hint,
                     )
                 )
                 return
@@ -183,7 +182,11 @@ class AnalysisWorker:
         for i, target_path in enumerate(self._targets):
             slice_start = targets_start + per_file * i
             slice_end = targets_end if i == n_targets - 1 else slice_start + per_file
-            prefix = f"File {i + 1} of {n_targets}" if n_targets > 1 else ""
+            prefix = (
+                t("ui.worker.file_prefix", index=i + 1, total=n_targets)
+                if n_targets > 1
+                else ""
+            )
             filename = Path(target_path).name
             try:
                 result = analyze(
@@ -201,7 +204,7 @@ class AnalysisWorker:
             except UserFacingError as exc:
                 log.warning("file %d/%d failed: %s", i + 1, n_targets, exc)
                 failures.append((filename, exc))
-                self._emit_progress(slice_end, f"{filename} skipped")
+                self._emit_progress(slice_end, t("ui.worker.skipped", filename=filename))
                 continue
             except Exception as exc:  # noqa: BLE001 — any other failure is unexpected
                 log.exception("unexpected error on %s", filename)
@@ -209,17 +212,13 @@ class AnalysisWorker:
                     (
                         filename,
                         UserFacingError(
-                            title=f"Unexpected error while analyzing {filename}",
-                            body=str(exc) or "The audio pipeline raised an unexpected error.",
-                            hint=(
-                                "Try re-exporting the file as WAV or FLAC. "
-                                "If the problem persists, relaunch the app "
-                                "with NVA_DEBUG=1 to capture a detailed log."
-                            ),
+                            title=t("worker.error.unexpected.title", filename=filename),
+                            body=str(exc) or t("worker.error.unexpected.body"),
+                            hint=t("worker.error.unexpected.hint"),
                         ),
                     )
                 )
-                self._emit_progress(slice_end, f"{filename} skipped")
+                self._emit_progress(slice_end, t("ui.worker.skipped", filename=filename))
                 continue
 
             log.info(
@@ -245,9 +244,11 @@ class AnalysisWorker:
                     (
                         filename,
                         UserFacingError(
-                            title=f"Could not format the report for {filename}",
+                            title=t(
+                                "worker.error.report_format.title", filename=filename
+                            ),
                             body=str(exc),
-                            hint="The underlying analysis succeeded; please try again.",
+                            hint=t("worker.error.report_format.hint"),
                         ),
                     )
                 )
@@ -266,7 +267,9 @@ class AnalysisWorker:
                     UserFacingError(
                         title=first_err.title
                         if len(failures) == 1
-                        else f"None of the {len(failures)} files could be analyzed",
+                        else t(
+                            "worker.error.all_failed.title", count=len(failures)
+                        ),
                         body=first_err.body,
                         hint=first_err.hint,
                     )
@@ -274,11 +277,10 @@ class AnalysisWorker:
             else:
                 self._emit_error(
                     UserFacingError(
-                        title=f"None of the {len(failures)} files could be analyzed",
-                        body=(
-                            "Each file failed for a different reason. Open "
-                            "the Details button to see them all."
+                        title=t(
+                            "worker.error.all_failed.title", count=len(failures)
                         ),
+                        body=t("worker.error.all_failed.body"),
                         hint="\n\n".join(
                             f"{name}: {err.title}. {err.body}"
                             + ((" " + err.hint) if err.hint else "")
@@ -288,7 +290,7 @@ class AnalysisWorker:
                 )
             return
 
-        self._emit_progress(92, "Assembling report")
+        self._emit_progress(92, t("ui.worker.assembling"))
         error_block = _error_section(failures)
 
         if len(report_parts) == 1 and not failures:
@@ -311,7 +313,7 @@ class AnalysisWorker:
             len(failures),
             time.time() - t0,
         )
-        self._emit_progress(100, "Done")
+        self._emit_progress(100, t("ui.worker.done"))
         self._emit_done(full_report, had_failures=bool(failures))
 
 

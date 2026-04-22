@@ -11,6 +11,8 @@ from __future__ import annotations
 import wx
 
 from nonvisualaudio.errors import UserFacingError
+from nonvisualaudio.localization import t
+from nonvisualaudio.ui import a11y, theme
 
 
 class ErrorDialog(wx.Dialog):
@@ -33,29 +35,29 @@ class ErrorDialog(wx.Dialog):
         title_font.SetWeight(wx.FONTWEIGHT_BOLD)
         title_font.SetPointSize(title_font.GetPointSize() + 2)
         title.SetFont(title_font)
-        title.SetName("Error headline")
+        title.SetName(t("ui.error_dialog.title_name"))
         root.Add(title, flag=wx.ALL, border=12)
 
         paragraphs = [error.body]
         if error.hint:
-            paragraphs.append("What to do: " + error.hint)
+            paragraphs.append(t("ui.error_dialog.hint_prefix") + error.hint)
 
         body = wx.TextCtrl(
             self,
             value="\n\n".join(paragraphs),
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.BORDER_NONE,
         )
-        body.SetName("Error details")
-        body.SetHelpText(
-            "Read through the explanation and the suggested next step, "
-            "then close the dialog."
+        a11y.set_a11y(
+            body,
+            t("ui.error_dialog.body_name"),
+            t("ui.error_dialog.body_hint"),
         )
         root.Add(body, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=12)
 
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         buttons.AddStretchSpacer(1)
-        close_btn = wx.Button(self, wx.ID_OK, label="Close")
-        close_btn.SetName("Close error dialog")
+        close_btn = wx.Button(self, wx.ID_OK, label=t("ui.btn.close"))
+        close_btn.SetName(t("ui.error_dialog.close_name"))
         close_btn.SetDefault()
         buttons.Add(close_btn)
         root.Add(buttons, flag=wx.ALL | wx.EXPAND, border=12)
@@ -65,6 +67,7 @@ class ErrorDialog(wx.Dialog):
         self.CentreOnParent()
 
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char)
+        theme.apply(self)
         body.SetFocus()
 
     def _on_char(self, event: wx.KeyEvent) -> None:

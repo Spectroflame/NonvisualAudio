@@ -12,6 +12,21 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_submodules
 
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
+
+
+def _project_version() -> str:
+    """Read the app version from pyproject.toml — single source of truth."""
+    with open("pyproject.toml", "rb") as fh:
+        data = tomllib.load(fh)
+    return data["project"]["version"]
+
+
+_VERSION = _project_version()
+
 block_cipher = None
 
 
@@ -38,6 +53,15 @@ _ffmpeg_dst = f"nonvisualaudio/resources/bin/{_platform}"
 datas = []
 if _ffmpeg_src.is_file():
     datas.append((str(_ffmpeg_src), _ffmpeg_dst))
+
+# JSON resources (genre profiles, localization catalogs). Bundled verbatim
+# at package root so importlib.resources finds them in the PyInstaller
+# tree the same way as in a source checkout.
+_resources_dir = Path("src") / "nonvisualaudio" / "resources"
+for json_path in _resources_dir.rglob("*.json"):
+    rel = json_path.relative_to(_resources_dir.parent.parent)
+    dst = str(rel.parent).replace("\\", "/")
+    datas.append((str(json_path), dst))
 
 hiddenimports = (
     collect_submodules("scipy.signal")
@@ -103,8 +127,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "NonvisualAudio",
             "CFBundleDisplayName": "NonvisualAudio",
-            "CFBundleShortVersionString": "0.1.0",
-            "CFBundleVersion": "0.1.0",
+            "CFBundleShortVersionString": _VERSION,
+            "CFBundleVersion": _VERSION,
             "NSHighResolutionCapable": True,
             # Accessibility: let the app participate in the a11y tree.
             "NSAppleEventsUsageDescription": "NonvisualAudio does not send Apple events; this string is required by macOS when accessibility APIs are used.",

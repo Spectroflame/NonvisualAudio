@@ -1,0 +1,566 @@
+{
+  "version": 2,
+  "categories": [
+    {"key": "audio_drama",   "display_name": {"en": "Audio Drama",        "de": "Hörspiel"}},
+    {"key": "podcast",       "display_name": {"en": "Podcast",            "de": "Podcast"}},
+    {"key": "spoken_word",   "display_name": {"en": "Spoken Word",        "de": "Wort"}},
+    {"key": "pop",           "display_name": {"en": "Pop",                "de": "Pop"}},
+    {"key": "rock",          "display_name": {"en": "Rock",               "de": "Rock"}},
+    {"key": "rap_hip_hop",   "display_name": {"en": "Rap and Hip Hop",    "de": "Rap und Hip-Hop"}},
+    {"key": "rnb_soul",      "display_name": {"en": "R and B and Soul",   "de": "R&B und Soul"}},
+    {"key": "reggae",        "display_name": {"en": "Reggae",             "de": "Reggae"}},
+    {"key": "jazz",          "display_name": {"en": "Jazz",               "de": "Jazz"}},
+    {"key": "folk_country",  "display_name": {"en": "Folk and Country",   "de": "Folk und Country"}},
+    {"key": "electronic",    "display_name": {"en": "Electronic",         "de": "Elektronik"}},
+    {"key": "classical",     "display_name": {"en": "Classical",          "de": "Klassik"}},
+    {"key": "film_cinema",   "display_name": {"en": "Film and Cinema",    "de": "Film und Kino"}}
+  ],
+  "profiles": [
+    {
+      "key": "audio_drama_classic",
+      "category_key": "audio_drama",
+      "display_name": {
+        "en": "Audio Drama — Classic Broadcast",
+        "de": "Hörspiel — Klassischer Rundfunk"
+      },
+      "target_lufs": -23.0, "lra_low": 10.0, "lra_high": 20.0,
+      "notes": {
+        "en": "wide dynamic range with rich midrange for dialogue, mastered to EBU R128 broadcast standards",
+        "de": "großer Dynamikumfang, kräftige Mitten für den Dialog, gemastert nach EBU-R128-Rundfunkstandard"
+      }
+    },
+    {
+      "key": "audio_drama_modern",
+      "category_key": "audio_drama",
+      "display_name": {
+        "en": "Audio Drama — Modern Commercial",
+        "de": "Hörspiel — modernes Streaming"
+      },
+      "target_lufs": -16.0, "lra_low": 6.0, "lra_high": 10.0,
+      "notes": {
+        "en": "loud, controlled master typical of modern commercial audio dramas released on streaming platforms",
+        "de": "lautes, kontrolliertes Master, wie es für moderne kommerzielle Streaming-Hörspiele üblich ist"
+      }
+    },
+    {
+      "key": "audio_drama_feature",
+      "category_key": "audio_drama",
+      "display_name": {
+        "en": "Audio Drama — Radio Feature",
+        "de": "Hörspiel — Radio-Feature"
+      },
+      "target_lufs": -20.0, "lra_low": 8.0, "lra_high": 14.0,
+      "notes": {
+        "en": "documentary style production with moderate dynamics and clear dialogue",
+        "de": "dokumentarische Produktion mit moderater Dynamik und klarem Dialog"
+      }
+    },
+    {
+      "key": "podcast_conversation",
+      "category_key": "podcast",
+      "display_name": {
+        "en": "Podcast — Conversational",
+        "de": "Podcast — Gespräch"
+      },
+      "target_lufs": -16.0, "lra_low": 5.0, "lra_high": 9.0,
+      "notes": {
+        "en": "voice forward, controlled dynamics, limited low end",
+        "de": "Stimme im Vordergrund, kontrollierte Dynamik, zurückhaltender Bassbereich"
+      }
+    },
+    {
+      "key": "podcast_narrative",
+      "category_key": "podcast",
+      "display_name": {
+        "en": "Podcast — Narrative (Scripted)",
+        "de": "Podcast — Erzählung (skripted)"
+      },
+      "target_lufs": -18.0, "lra_low": 6.0, "lra_high": 10.0,
+      "notes": {
+        "en": "cinematic storytelling style with music beds, wider dynamics than typical podcasts",
+        "de": "kinematografischer Erzählstil mit Musikbett, breitere Dynamik als im typischen Podcast"
+      }
+    },
+    {
+      "key": "podcast_news",
+      "category_key": "podcast",
+      "display_name": {
+        "en": "Podcast — News or Interview",
+        "de": "Podcast — Nachrichten oder Interview"
+      },
+      "target_lufs": -16.0, "lra_low": 4.0, "lra_high": 8.0,
+      "notes": {
+        "en": "tight, consistent voice level for commute and mobile listening",
+        "de": "straffer, gleichmäßiger Stimmpegel, passt für Pendler- und Unterwegs-Hören"
+      }
+    },
+    {
+      "key": "spoken_audiobook",
+      "category_key": "spoken_word",
+      "display_name": {
+        "en": "Spoken Word — Audiobook",
+        "de": "Wort — Hörbuch"
+      },
+      "target_lufs": -19.0, "lra_low": 6.0, "lra_high": 10.0,
+      "notes": {
+        "en": "narration oriented, midrange focused, minimal low end, Audible RMS target around minus 18 to minus 20 dB",
+        "de": "erzählerorientiert, mittenbetont, minimaler Bassanteil, Audible-RMS-Ziel rund minus 18 bis minus 20 dB"
+      }
+    },
+    {
+      "key": "spoken_poetry",
+      "category_key": "spoken_word",
+      "display_name": {
+        "en": "Spoken Word — Poetry or Performance",
+        "de": "Wort — Lyrik oder Performance"
+      },
+      "target_lufs": -18.0, "lra_low": 8.0, "lra_high": 14.0,
+      "notes": {
+        "en": "expressive delivery with room for dramatic dynamic shifts",
+        "de": "ausdrucksstarker Vortrag mit Raum für starke Dynamikwechsel"
+      }
+    },
+    {
+      "key": "spoken_lecture",
+      "category_key": "spoken_word",
+      "display_name": {
+        "en": "Spoken Word — Lecture or Talk",
+        "de": "Wort — Vortrag oder Talk"
+      },
+      "target_lufs": -20.0, "lra_low": 5.0, "lra_high": 9.0,
+      "notes": {
+        "en": "clear instructional voice, calm dynamics, broadcast compliant",
+        "de": "klare Lehrstimme, ruhige Dynamik, rundfunkkonform"
+      }
+    },
+    {
+      "key": "pop_modern",
+      "category_key": "pop",
+      "display_name": {
+        "en": "Pop — Modern Commercial",
+        "de": "Pop — moderner Mainstream"
+      },
+      "target_lufs": -9.0, "lra_low": 3.0, "lra_high": 6.0,
+      "notes": {
+        "en": "very loud master, heavily limited, bright and upfront vocals, tight low end",
+        "de": "sehr lautes Master, stark limitiert, helle Vocals in Front, straffer Bass"
+      }
+    },
+    {
+      "key": "pop_streaming",
+      "category_key": "pop",
+      "display_name": {
+        "en": "Pop — Streaming Target",
+        "de": "Pop — Streaming-Ziel"
+      },
+      "target_lufs": -14.0, "lra_low": 5.0, "lra_high": 8.0,
+      "notes": {
+        "en": "conservative master aimed at Spotify or Apple Music loudness normalization, with more breathing room",
+        "de": "konservatives Master für die Lautheitsnormalisierung von Spotify oder Apple Music, mit mehr Luft"
+      }
+    },
+    {
+      "key": "pop_8090",
+      "category_key": "pop",
+      "display_name": {
+        "en": "Pop — 80s or 90s",
+        "de": "Pop — 80er oder 90er"
+      },
+      "target_lufs": -14.0, "lra_low": 7.0, "lra_high": 12.0,
+      "notes": {
+        "en": "open dynamics, reverberant drums, bright presence, less aggressive limiting than today",
+        "de": "offene Dynamik, halligere Drums, helle Präsenz, weniger aggressives Limiting als heute"
+      }
+    },
+    {
+      "key": "pop_indie",
+      "category_key": "pop",
+      "display_name": {
+        "en": "Pop — Indie or Bedroom",
+        "de": "Pop — Indie oder Bedroom"
+      },
+      "target_lufs": -12.0, "lra_low": 5.0, "lra_high": 9.0,
+      "notes": {
+        "en": "warm, slightly lo-fi character with natural vocals and moderate compression",
+        "de": "warmer, leicht lo-fi-hafter Charakter mit natürlichen Vocals und moderater Kompression"
+      }
+    },
+    {
+      "key": "rock_classic",
+      "category_key": "rock",
+      "display_name": {
+        "en": "Rock — Classic or Vintage",
+        "de": "Rock — klassisch oder Vintage"
+      },
+      "target_lufs": -14.0, "lra_low": 8.0, "lra_high": 14.0,
+      "notes": {
+        "en": "analog-style mix with open dynamics, warm midrange guitars, and natural drum transients",
+        "de": "Mix im Analog-Stil mit offener Dynamik, warmen Mitten-Gitarren und natürlichen Drum-Transienten"
+      }
+    },
+    {
+      "key": "rock_modern",
+      "category_key": "rock",
+      "display_name": {
+        "en": "Rock — Modern Alternative",
+        "de": "Rock — moderner Alternative"
+      },
+      "target_lufs": -9.0, "lra_low": 4.0, "lra_high": 7.0,
+      "notes": {
+        "en": "loud, dense master with heavy guitars, bright cymbals, compressed drums",
+        "de": "lautes, dichtes Master mit harten Gitarren, hellen Becken und komprimierten Drums"
+      }
+    },
+    {
+      "key": "rock_metal",
+      "category_key": "rock",
+      "display_name": {
+        "en": "Rock — Metal or Hard Rock",
+        "de": "Rock — Metal oder Hard Rock"
+      },
+      "target_lufs": -8.0, "lra_low": 3.0, "lra_high": 6.0,
+      "notes": {
+        "en": "very loud, heavily scooped midrange, aggressive high end, subsonic kick drum",
+        "de": "sehr laut, stark ausgehöhlte Mitten, aggressive Höhen, subtief setzende Kick"
+      }
+    },
+    {
+      "key": "rap_old_school",
+      "category_key": "rap_hip_hop",
+      "display_name": {
+        "en": "Rap and Hip Hop — Old School",
+        "de": "Rap und Hip-Hop — Old School"
+      },
+      "target_lufs": -10.0, "lra_low": 6.0, "lra_high": 9.0,
+      "notes": {
+        "en": "punchy drums and present vocals, moderately dynamic compared to modern rap",
+        "de": "druckvolle Drums und präsente Vocals, moderater Dynamikumfang verglichen mit modernem Rap"
+      }
+    },
+    {
+      "key": "rap_modern_trap",
+      "category_key": "rap_hip_hop",
+      "display_name": {
+        "en": "Rap and Hip Hop — Modern Trap",
+        "de": "Rap und Hip-Hop — moderner Trap"
+      },
+      "target_lufs": -7.0, "lra_low": 3.0, "lra_high": 6.0,
+      "notes": {
+        "en": "very loud, saturated sub bass, heavily limited vocals",
+        "de": "sehr laut, gesättigter Subbass, stark limitierte Vocals"
+      }
+    },
+    {
+      "key": "rap_boom_bap",
+      "category_key": "rap_hip_hop",
+      "display_name": {
+        "en": "Rap and Hip Hop — Boom Bap or Lo-Fi",
+        "de": "Rap und Hip-Hop — Boom Bap oder Lo-Fi"
+      },
+      "target_lufs": -12.0, "lra_low": 7.0, "lra_high": 10.0,
+      "notes": {
+        "en": "sampled drum feel, warmer character, more dynamic headroom than modern trap",
+        "de": "gesampeltes Drum-Gefühl, wärmerer Charakter, mehr Dynamik-Headroom als moderner Trap"
+      }
+    },
+    {
+      "key": "rnb_modern",
+      "category_key": "rnb_soul",
+      "display_name": {
+        "en": "R and B — Modern",
+        "de": "R&B — modern"
+      },
+      "target_lufs": -10.0, "lra_low": 4.0, "lra_high": 8.0,
+      "notes": {
+        "en": "smooth, sub-forward low end, airy vocals with subtle saturation and polished top",
+        "de": "weicher, sub-lastiger Bassbereich, luftige Vocals mit leichter Sättigung und polierten Höhen"
+      }
+    },
+    {
+      "key": "rnb_classic_soul",
+      "category_key": "rnb_soul",
+      "display_name": {
+        "en": "R and B — Classic Soul or Motown",
+        "de": "R&B — klassischer Soul oder Motown"
+      },
+      "target_lufs": -14.0, "lra_low": 7.0, "lra_high": 12.0,
+      "notes": {
+        "en": "warm midrange, natural horns and strings, open dynamics, vintage tape character",
+        "de": "warme Mitten, natürliche Bläser und Streicher, offene Dynamik, Vintage-Tape-Charakter"
+      }
+    },
+    {
+      "key": "rnb_neo_soul",
+      "category_key": "rnb_soul",
+      "display_name": {
+        "en": "R and B — Neo Soul",
+        "de": "R&B — Neo Soul"
+      },
+      "target_lufs": -12.0, "lra_low": 6.0, "lra_high": 10.0,
+      "notes": {
+        "en": "jazz-informed chord textures, lush keys, smooth vocals, relaxed punchy drums",
+        "de": "jazzgeprägte Akkord-Texturen, üppige Keys, weiche Vocals, entspannt-druckvolle Drums"
+      }
+    },
+    {
+      "key": "reggae_roots",
+      "category_key": "reggae",
+      "display_name": {
+        "en": "Reggae — Roots or Dub",
+        "de": "Reggae — Roots oder Dub"
+      },
+      "target_lufs": -12.0, "lra_low": 6.0, "lra_high": 10.0,
+      "notes": {
+        "en": "heavy bass guitar foundation, warm midrange, spacious reverbs, relaxed tempo feel",
+        "de": "tragende Bassgitarre, warme Mitten, weiträumige Hallräume, entspanntes Tempo-Feeling"
+      }
+    },
+    {
+      "key": "reggae_dancehall",
+      "category_key": "reggae",
+      "display_name": {
+        "en": "Reggae — Dancehall",
+        "de": "Reggae — Dancehall"
+      },
+      "target_lufs": -8.0, "lra_low": 4.0, "lra_high": 7.0,
+      "notes": {
+        "en": "loud, club-oriented master with strong sub bass and sharp, forward vocals",
+        "de": "lautes, clubtaugliches Master mit kräftigem Subbass und scharfen, vorderen Vocals"
+      }
+    },
+    {
+      "key": "reggae_lovers_rock",
+      "category_key": "reggae",
+      "display_name": {
+        "en": "Reggae — Lovers Rock or Ska",
+        "de": "Reggae — Lovers Rock oder Ska"
+      },
+      "target_lufs": -13.0, "lra_low": 6.0, "lra_high": 10.0,
+      "notes": {
+        "en": "smoother, more pop-leaning balance with warm bass, bright horns, and mellow vocals",
+        "de": "weichere, eher pop-orientierte Balance mit warmem Bass, hellen Bläsern und sanften Vocals"
+      }
+    },
+    {
+      "key": "jazz_acoustic",
+      "category_key": "jazz",
+      "display_name": {
+        "en": "Jazz — Acoustic or Ensemble",
+        "de": "Jazz — akustisch oder Ensemble"
+      },
+      "target_lufs": -20.0, "lra_low": 10.0, "lra_high": 18.0,
+      "notes": {
+        "en": "natural room recording with wide dynamics, airy cymbals, upright bass, minimal compression",
+        "de": "natürliche Raumaufnahme mit großer Dynamik, luftigen Becken, Kontrabass und minimaler Kompression"
+      }
+    },
+    {
+      "key": "jazz_fusion",
+      "category_key": "jazz",
+      "display_name": {
+        "en": "Jazz — Fusion or Electric",
+        "de": "Jazz — Fusion oder Electric"
+      },
+      "target_lufs": -16.0, "lra_low": 8.0, "lra_high": 14.0,
+      "notes": {
+        "en": "mixed acoustic and electric elements with more punch than acoustic jazz but still open",
+        "de": "Mischung aus akustischen und elektrischen Elementen, druckvoller als akustischer Jazz, aber weiterhin offen"
+      }
+    },
+    {
+      "key": "jazz_vocal",
+      "category_key": "jazz",
+      "display_name": {
+        "en": "Jazz — Vocal Standards",
+        "de": "Jazz — Vokal-Standards"
+      },
+      "target_lufs": -18.0, "lra_low": 8.0, "lra_high": 14.0,
+      "notes": {
+        "en": "intimate vocal focus, subtle orchestral backing, clear diction, polite dynamics",
+        "de": "intimer Vokalfokus, dezente Orchesterbegleitung, klare Diktion, zurückhaltende Dynamik"
+      }
+    },
+    {
+      "key": "folk_acoustic",
+      "category_key": "folk_country",
+      "display_name": {
+        "en": "Folk — Acoustic Singer-Songwriter",
+        "de": "Folk — akustische Singer-Songwriter"
+      },
+      "target_lufs": -16.0, "lra_low": 7.0, "lra_high": 12.0,
+      "notes": {
+        "en": "voice and acoustic guitar foregrounded, natural dynamics, clear midrange",
+        "de": "Stimme und Akustikgitarre im Vordergrund, natürliche Dynamik, klare Mitten"
+      }
+    },
+    {
+      "key": "country_modern",
+      "category_key": "folk_country",
+      "display_name": {
+        "en": "Country — Modern Nashville",
+        "de": "Country — modernes Nashville"
+      },
+      "target_lufs": -10.0, "lra_low": 4.0, "lra_high": 7.0,
+      "notes": {
+        "en": "polished, pop-adjacent master with bright vocals, punchy drums, tight low end",
+        "de": "poliertes, popnahes Master mit hellen Vocals, druckvollen Drums und straffem Bass"
+      }
+    },
+    {
+      "key": "country_traditional",
+      "category_key": "folk_country",
+      "display_name": {
+        "en": "Country — Traditional or Americana",
+        "de": "Country — traditionell oder Americana"
+      },
+      "target_lufs": -14.0, "lra_low": 7.0, "lra_high": 12.0,
+      "notes": {
+        "en": "natural acoustic instruments, warm midrange, wider dynamics than modern country",
+        "de": "natürliche akustische Instrumente, warme Mitten, breitere Dynamik als moderner Country"
+      }
+    },
+    {
+      "key": "electronic_club",
+      "category_key": "electronic",
+      "display_name": {
+        "en": "Electronic — Club or EDM",
+        "de": "Elektronik — Club oder EDM"
+      },
+      "target_lufs": -7.0, "lra_low": 3.0, "lra_high": 6.0,
+      "notes": {
+        "en": "club ready loudness with strong sub bass and limited dynamics",
+        "de": "clubtaugliche Lautheit mit kräftigem Subbass und eingeschränkter Dynamik"
+      }
+    },
+    {
+      "key": "electronic_techno_house",
+      "category_key": "electronic",
+      "display_name": {
+        "en": "Electronic — Techno or House",
+        "de": "Elektronik — Techno oder House"
+      },
+      "target_lufs": -9.0, "lra_low": 4.0, "lra_high": 7.0,
+      "notes": {
+        "en": "steady four on the floor, full low end, moderate dynamics for DJ mixing",
+        "de": "gleichmäßige Four-on-the-Floor-Drums, voller Bass, moderate Dynamik für DJ-Mixing"
+      }
+    },
+    {
+      "key": "electronic_ambient",
+      "category_key": "electronic",
+      "display_name": {
+        "en": "Electronic — Ambient or Downtempo",
+        "de": "Elektronik — Ambient oder Downtempo"
+      },
+      "target_lufs": -14.0, "lra_low": 8.0, "lra_high": 14.0,
+      "notes": {
+        "en": "spacious, textural, considerably more dynamic than dance music",
+        "de": "weitläufig, texturreich, deutlich dynamischer als Dancefloor-Musik"
+      }
+    },
+    {
+      "key": "electronic_idm",
+      "category_key": "electronic",
+      "display_name": {
+        "en": "Electronic — IDM or Experimental",
+        "de": "Elektronik — IDM oder experimentell"
+      },
+      "target_lufs": -12.0, "lra_low": 6.0, "lra_high": 12.0,
+      "notes": {
+        "en": "detailed transients and wide dynamic contrasts",
+        "de": "detaillierte Transienten und große Dynamikkontraste"
+      }
+    },
+    {
+      "key": "classical_chamber",
+      "category_key": "classical",
+      "display_name": {
+        "en": "Classical — Solo or Chamber",
+        "de": "Klassik — Solo oder Kammermusik"
+      },
+      "target_lufs": -20.0, "lra_low": 14.0, "lra_high": 22.0,
+      "notes": {
+        "en": "intimate recording with natural dynamics and close instrument detail",
+        "de": "intime Aufnahme mit natürlicher Dynamik und nahem Instrumentendetail"
+      }
+    },
+    {
+      "key": "classical_orchestral",
+      "category_key": "classical",
+      "display_name": {
+        "en": "Classical — Symphonic or Orchestral",
+        "de": "Klassik — Sinfonisch oder Orchester"
+      },
+      "target_lufs": -18.0, "lra_low": 16.0, "lra_high": 24.0,
+      "notes": {
+        "en": "very wide dynamic range from whisper quiet to full tutti",
+        "de": "sehr großer Dynamikumfang von flüsterleise bis vollem Tutti"
+      }
+    },
+    {
+      "key": "classical_opera",
+      "category_key": "classical",
+      "display_name": {
+        "en": "Classical — Opera or Vocal",
+        "de": "Klassik — Oper oder Vokal"
+      },
+      "target_lufs": -19.0, "lra_low": 14.0, "lra_high": 22.0,
+      "notes": {
+        "en": "vocal focused with orchestral accompaniment, substantial dynamic range",
+        "de": "vokalorientiert mit Orchesterbegleitung, erheblicher Dynamikumfang"
+      }
+    },
+    {
+      "key": "classical_early",
+      "category_key": "classical",
+      "display_name": {
+        "en": "Classical — Baroque or Early Music",
+        "de": "Klassik — Barock oder Alte Musik"
+      },
+      "target_lufs": -20.0, "lra_low": 12.0, "lra_high": 18.0,
+      "notes": {
+        "en": "period instruments, smaller ensembles, natural room sound",
+        "de": "historische Instrumente, kleinere Ensembles, natürlicher Raumklang"
+      }
+    },
+    {
+      "key": "film_theatrical",
+      "category_key": "film_cinema",
+      "display_name": {
+        "en": "Film — Theatrical Dialogue",
+        "de": "Film — Kinodialog"
+      },
+      "target_lufs": -27.0, "lra_low": 15.0, "lra_high": 25.0,
+      "notes": {
+        "en": "cinema dialogue sitting around minus 27 LKFS with large effects headroom",
+        "de": "Kinodialog bei rund minus 27 LKFS, mit großem Headroom für Effekte"
+      }
+    },
+    {
+      "key": "film_tv_drama",
+      "category_key": "film_cinema",
+      "display_name": {
+        "en": "Film — TV Drama or Streaming",
+        "de": "Film — TV-Drama oder Streaming"
+      },
+      "target_lufs": -24.0, "lra_low": 10.0, "lra_high": 18.0,
+      "notes": {
+        "en": "mixed for home viewing under ATSC A/85 or EBU R128 broadcast rules",
+        "de": "für die Wiedergabe zu Hause nach den Sendenormen ATSC A/85 bzw. EBU R128 gemischt"
+      }
+    },
+    {
+      "key": "film_trailer",
+      "category_key": "film_cinema",
+      "display_name": {
+        "en": "Film — Trailer or Promo",
+        "de": "Film — Trailer oder Promo"
+      },
+      "target_lufs": -14.0, "lra_low": 4.0, "lra_high": 8.0,
+      "notes": {
+        "en": "loud, attention grabbing master with compressed dynamics",
+        "de": "lautes, aufmerksamkeitsstarkes Master mit komprimierter Dynamik"
+      }
+    }
+  ]
+}

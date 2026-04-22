@@ -9,7 +9,11 @@ import traceback
 
 import wx
 
+from nonvisualaudio import localization, preferences
 from nonvisualaudio.errors import UserFacingError
+from nonvisualaudio.localization import t
+from nonvisualaudio.reporting import genre_profiles
+from nonvisualaudio.ui import theme
 from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.ui.main_window import MainWindow
 
@@ -63,24 +67,49 @@ class NonvisualAudioApp(wx.App):
         show_error(
             top,
             UserFacingError(
-                title="Something went wrong inside NonvisualAudio",
-                body=(
-                    "The app hit an unexpected problem and recovered. Your "
-                    "selections were not lost, and you can try again.\n\n"
-                    f"Technical detail: {detail}"
-                ),
-                hint=(
-                    "If this keeps happening, relaunch NonvisualAudio from a "
-                    "terminal with NVA_DEBUG=1 set — that writes a detailed "
-                    "log to the terminal so the problem can be diagnosed."
-                ),
+                title=t("error.app.crashed.title"),
+                body=t("error.app.crashed.body", detail=detail),
+                hint=t("error.app.crashed.hint"),
             ),
         )
         return True
 
 
+def _configure_language() -> None:
+    """Resolve and load the UI/report language before any UI is built.
+
+    Priority chain matches the documented behaviour:
+    ``NVA_LANG`` env var → saved preference → system locale → English.
+    """
+    env = os.environ.get("NVA_LANG", "").strip() or None
+    pref = preferences.load_language()
+    lang = localization.resolve_lang(env_override=env, preference=pref)
+    localization.load(lang)
+    # Genre profiles were already imported with the default (English)
+    # catalogue; reload them so their display_name/notes reflect the
+    # language we just chose.
+    genre_profiles.reload()
+
+
+def _configure_theme() -> None:
+    """Pick the active theme key without colouring any widgets yet.
+
+    Priority: ``NVA_THEME`` env var → saved preference → ``auto``.
+    The actual palette is applied once the main window has been built.
+    """
+    env = os.environ.get("NVA_THEME", "").strip().lower() or None
+    key = env if env in theme.VALID_THEMES else None
+    if key is None:
+        saved = preferences.load_theme()
+        if saved in theme.VALID_THEMES:
+            key = saved
+    theme.set_current(key or theme.DEFAULT_THEME)
+
+
 def main() -> int:
     _configure_logging()
+    _configure_language()
+    _configure_theme()
     app = NonvisualAudioApp(False)
     try:
         app.MainLoop()

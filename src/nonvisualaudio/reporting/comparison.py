@@ -3,54 +3,65 @@
 from __future__ import annotations
 
 from nonvisualaudio.analysis.result import AnalysisResult
+from nonvisualaudio.localization import t
 from nonvisualaudio.reporting.genre_profiles import GenreProfile
-from nonvisualaudio.reporting.templates import fmt_signed, heading
+from nonvisualaudio.reporting.templates import fmt_decimal, fmt_signed, heading
 
 
 def _lufs_diff_sentence(target: float, reference: float, label: str) -> str:
     diff = target - reference
+    target_s = fmt_signed(target)
+    reference_s = fmt_signed(reference)
+    diff_s = fmt_signed(abs(diff))
     if diff > 1.0:
-        return (
-            f"At {fmt_signed(target)} LUFS, this file is about {fmt_signed(abs(diff))} "
-            f"LU louder than {label}, which usually sits around {fmt_signed(reference)} LUFS. "
-            "That means less dynamic headroom than the target expects."
+        return t(
+            "report.comp.lufs_louder",
+            target=target_s,
+            diff=diff_s,
+            label=label,
+            reference=reference_s,
         )
     if diff < -1.0:
-        return (
-            f"At {fmt_signed(target)} LUFS, this file is about {fmt_signed(abs(diff))} "
-            f"LU quieter than {label}, which usually sits around {fmt_signed(reference)} LUFS."
+        return t(
+            "report.comp.lufs_quieter",
+            target=target_s,
+            diff=diff_s,
+            label=label,
+            reference=reference_s,
         )
-    return (
-        f"At {fmt_signed(target)} LUFS, this file is in line with {label} "
-        f"(around {fmt_signed(reference)} LUFS)."
+    return t(
+        "report.comp.lufs_inline",
+        target=target_s,
+        label=label,
+        reference=reference_s,
     )
 
 
 def build_genre_comparison(target: AnalysisResult, genre: GenreProfile) -> str:
-    lines = [heading(f"Comparison To {genre.display_name}")]
+    lines = [heading(t("report.heading.comparison_genre", name=genre.display_name))]
+    label = t("report.comp.typical_prefix", name=genre.display_name.lower())
     lines.append(_lufs_diff_sentence(
-        target.loudness.integrated_lufs, genre.target_lufs, f"typical {genre.display_name.lower()}"
+        target.loudness.integrated_lufs, genre.target_lufs, label
     ))
 
     lra = target.loudness.loudness_range_lu
+    lra_s = fmt_signed(lra)
+    low_i = int(genre.lra_low)
+    high_i = int(genre.lra_high)
     if lra < genre.lra_low:
         lines.append(
-            f"The loudness range of {fmt_signed(lra)} LU is narrower than the "
-            f"{int(genre.lra_low)} to {int(genre.lra_high)} LU typical for this genre, "
-            "suggesting heavier compression than expected."
+            t("report.comp.lra_narrow", lra=lra_s, low=low_i, high=high_i)
         )
     elif lra > genre.lra_high:
         lines.append(
-            f"The loudness range of {fmt_signed(lra)} LU is wider than the "
-            f"{int(genre.lra_low)} to {int(genre.lra_high)} LU typical for this genre."
+            t("report.comp.lra_wide", lra=lra_s, low=low_i, high=high_i)
         )
     else:
         lines.append(
-            f"The loudness range of {fmt_signed(lra)} LU is within the typical "
-            f"{int(genre.lra_low)} to {int(genre.lra_high)} LU range for this genre."
+            t("report.comp.lra_within", lra=lra_s, low=low_i, high=high_i)
         )
 
-    lines.append(f"Typical tonal character for this genre: {genre.notes}.")
+    lines.append(t("report.comp.genre_notes", notes=genre.notes))
     return "\n".join(lines)
 
 
@@ -58,60 +69,87 @@ def _band_diff_sentence(name: str, a: float, b: float) -> str | None:
     diff = a - b
     if abs(diff) < 2.0:
         return None
-    direction = "stronger" if diff > 0 else "weaker"
-    return f"The {name} region is about {abs(round(diff, 1))} dB {direction} than the reference."
+    direction = (
+        t("report.ref.band.stronger") if diff > 0 else t("report.ref.band.weaker")
+    )
+    return t(
+        "report.ref.band_diff",
+        name=name,
+        diff=fmt_decimal(abs(diff)),
+        direction=direction,
+    )
 
 
 def build_reference_comparison(target: AnalysisResult, reference: AnalysisResult) -> str:
-    lines = [heading("Comparison To Reference File")]
-    lines.append(f"Reference filename: {reference.file_info.filename}.")
+    lines = [heading(t("report.heading.comparison_reference"))]
+    lines.append(t("report.ref.filename", filename=reference.file_info.filename))
 
     # Loudness.
     di = target.loudness.integrated_lufs - reference.loudness.integrated_lufs
     if abs(di) >= 0.5:
-        direction = "louder" if di > 0 else "quieter"
+        direction = (
+            t("report.ref.direction.louder") if di > 0
+            else t("report.ref.direction.quieter")
+        )
         lines.append(
-            f"The target is about {abs(round(di, 1))} LU {direction} than the reference. "
-            f"Target integrated loudness is {fmt_signed(target.loudness.integrated_lufs)} LUFS, "
-            f"reference is {fmt_signed(reference.loudness.integrated_lufs)} LUFS."
+            t(
+                "report.ref.loudness_diff",
+                diff=fmt_decimal(abs(di)),
+                direction=direction,
+                target=fmt_signed(target.loudness.integrated_lufs),
+                reference=fmt_signed(reference.loudness.integrated_lufs),
+            )
         )
     else:
-        lines.append("Target and reference integrated loudness are essentially the same.")
+        lines.append(t("report.ref.loudness_same"))
 
     # LRA.
     dlra = target.loudness.loudness_range_lu - reference.loudness.loudness_range_lu
     if abs(dlra) >= 1.0:
-        direction = "wider" if dlra > 0 else "narrower"
+        direction = (
+            t("report.ref.lra.wider") if dlra > 0
+            else t("report.ref.lra.narrower")
+        )
         lines.append(
-            f"The target has a {direction} loudness range than the reference by "
-            f"about {abs(round(dlra, 1))} LU."
+            t(
+                "report.ref.lra_diff",
+                direction=direction,
+                diff=fmt_decimal(abs(dlra)),
+            )
         )
 
     # Dynamics.
     dcrest = target.dynamics.crest_factor_db - reference.dynamics.crest_factor_db
     if abs(dcrest) >= 1.5:
-        direction = "more dynamic" if dcrest > 0 else "more compressed"
+        direction = (
+            t("report.ref.dyn.more_dynamic") if dcrest > 0
+            else t("report.ref.dyn.more_compressed")
+        )
         lines.append(
-            f"The target is {direction} than the reference by about "
-            f"{abs(round(dcrest, 1))} dB of crest factor."
+            t(
+                "report.ref.dyn_diff",
+                direction=direction,
+                diff=fmt_decimal(abs(dcrest)),
+            )
         )
 
     # Frequency balance.
     tb = target.spectrum.bands
     rb = reference.spectrum.bands
-    band_lines = []
-    for name, a, b in (
-        ("sub", tb.sub_db, rb.sub_db),
+    band_pairs = (
+        ("sub_bass", tb.sub_db, rb.sub_db),
         ("bass", tb.bass_db, rb.bass_db),
-        ("low midrange", tb.low_mid_db, rb.low_mid_db),
+        ("low_midrange", tb.low_mid_db, rb.low_mid_db),
         ("midrange", tb.mid_db, rb.mid_db),
         ("presence", tb.presence_db, rb.presence_db),
         ("air", tb.air_db, rb.air_db),
-    ):
-        s = _band_diff_sentence(name, a, b)
+    )
+    band_lines: list[str] = []
+    for key, a, b in band_pairs:
+        s = _band_diff_sentence(t(f"report.band.{key}"), a, b)
         if s:
             band_lines.append(s)
     if not band_lines:
-        band_lines.append("The frequency balance is very similar to the reference.")
+        band_lines.append(t("report.ref.freq_same"))
     lines.extend(band_lines)
     return "\n".join(lines)

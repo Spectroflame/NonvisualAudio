@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import wx
 
-from nonvisualaudio.ui import a11y
+from nonvisualaudio.localization import t
+from nonvisualaudio.ui import a11y, theme
 
 
 class ResultsDialog(wx.Dialog):
@@ -18,14 +19,11 @@ class ResultsDialog(wx.Dialog):
     def __init__(self, parent: wx.Window | None, report_text: str = "") -> None:
         super().__init__(
             parent,
-            title="Analysis Results — NonvisualAudio",
+            title=t("ui.results.title"),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
         )
-        self.SetName("Analysis results")
-        self.SetHelpText(
-            "The full analysis report. Press Control Shift C or Command Shift C "
-            "to copy. Press Escape to close and return to the main window."
-        )
+        self.SetName(t("ui.label.results"))
+        self.SetHelpText(t("ui.results.help"))
 
         root = wx.BoxSizer(wx.VERTICAL)
 
@@ -37,7 +35,7 @@ class ResultsDialog(wx.Dialog):
             value=report_text,
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_DONTWRAP | wx.HSCROLL,
         )
-        a11y.set_a11y(self.results, a11y.LABEL_RESULTS, a11y.HINT_RESULTS)
+        a11y.set_a11y(self.results, t("ui.label.results"), t("ui.hint.results"))
         # Place the cursor at the very top so the screen reader starts on
         # line one when it picks up the text control.
         self.results.SetInsertionPoint(0)
@@ -51,16 +49,20 @@ class ResultsDialog(wx.Dialog):
 
         # Button row.
         button_row = wx.BoxSizer(wx.HORIZONTAL)
-        self.copy_btn = wx.Button(self, label="Copy Report")
-        a11y.set_a11y(self.copy_btn, a11y.LABEL_COPY, "")
+        self.copy_btn = wx.Button(self, label=t("ui.btn.copy_report"))
+        a11y.set_a11y(
+            self.copy_btn,
+            t("ui.label.copy_results"),
+            t("ui.hint.copy_results"),
+        )
         self.copy_btn.Bind(wx.EVT_BUTTON, self._on_copy)
         button_row.Add(self.copy_btn)
         button_row.AddStretchSpacer(1)
-        self.close_btn = wx.Button(self, wx.ID_CLOSE, label="Close")
+        self.close_btn = wx.Button(self, wx.ID_CLOSE, label=t("ui.btn.close"))
         a11y.set_a11y(
             self.close_btn,
-            "Close results window",
-            "Close this window and return to the main NonvisualAudio window.",
+            t("ui.results.close_name"),
+            t("ui.results.close_hint"),
         )
         self.close_btn.Bind(wx.EVT_BUTTON, lambda _evt: self.EndModal(wx.ID_CLOSE))
         button_row.Add(self.close_btn)
@@ -72,6 +74,8 @@ class ResultsDialog(wx.Dialog):
 
         # Shortcuts: Escape to close, Ctrl/Cmd+Shift+C to copy the report.
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char)
+
+        theme.apply(self)
 
         # Make sure the screen reader starts inside the report text, not on
         # a button. ``CallAfter`` runs after the show event so the focus
@@ -111,4 +115,4 @@ class ResultsDialog(wx.Dialog):
                 wx.TheClipboard.SetData(wx.TextDataObject(text))
             finally:
                 wx.TheClipboard.Close()
-            self.copy_btn.SetHelpText("Results copied to clipboard.")
+            a11y.update_help(self.copy_btn, t("ui.results.copied_hint"))

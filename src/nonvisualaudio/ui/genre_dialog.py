@@ -13,7 +13,9 @@ from collections.abc import Iterable
 
 import wx
 
+from nonvisualaudio.localization import t
 from nonvisualaudio.reporting.genre_profiles import GENRES, grouped_genres
+from nonvisualaudio.ui import a11y, theme
 
 
 class GenreDialog(wx.Dialog):
@@ -26,33 +28,22 @@ class GenreDialog(wx.Dialog):
     ) -> None:
         super().__init__(
             parent,
-            title="Choose genre references",
+            title=t("ui.genre_picker.title"),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
         )
-        self.SetName("Choose genre references")
-        self.SetHelpText(
-            "A list of genre profiles grouped by category. "
-            "Tab between profiles and press Space to toggle each one. "
-            "Any number of profiles can be selected at once."
-        )
+        self.SetName(t("ui.genre_picker.title"))
+        self.SetHelpText(t("ui.genre_picker.help"))
 
         self._checks: dict[str, wx.CheckBox] = {}
         pre_selected: set[str] = set(selected_keys or ())
 
         root = wx.BoxSizer(wx.VERTICAL)
 
-        intro = wx.StaticText(
-            self,
-            label=(
-                "Pick one or more genres whose typical loudness and dynamics\n"
-                "you want the file compared against. You can select as many as\n"
-                "you like — the report will include a comparison for each."
-            ),
-        )
+        intro = wx.StaticText(self, label=t("ui.genre_picker.intro"))
         root.Add(intro, flag=wx.ALL, border=10)
 
-        clear_btn = wx.Button(self, label="Clear all")
-        clear_btn.SetName("Clear all genre selections")
+        clear_btn = wx.Button(self, label=t("ui.btn.clear_all"))
+        clear_btn.SetName(t("ui.genre_picker.clear_name"))
         clear_btn.Bind(wx.EVT_BUTTON, self._on_clear_all)
         root.Add(clear_btn, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
@@ -70,8 +61,15 @@ class GenreDialog(wx.Dialog):
             inner.Add(cat_label, flag=wx.TOP | wx.LEFT | wx.RIGHT, border=6)
             for p in profiles:
                 check = wx.CheckBox(scroll, label=p.display_name)
-                check.SetName(p.display_name)
-                check.SetHelpText(f"{category} genre reference. {p.notes}")
+                a11y.set_a11y(
+                    check,
+                    p.display_name,
+                    t(
+                        "ui.genre_picker.entry_hint",
+                        category=category,
+                        notes=p.notes,
+                    ),
+                )
                 if p.key in pre_selected:
                     check.SetValue(True)
                 self._checks[p.key] = check
@@ -93,6 +91,7 @@ class GenreDialog(wx.Dialog):
 
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char)
 
+        theme.apply(self)
         if first_check is not None:
             first_check.SetFocus()
 

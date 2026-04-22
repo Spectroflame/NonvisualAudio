@@ -96,25 +96,42 @@ class MainWindow(wx.Frame):
         self._refresh_targets_view()
 
         # ----- Genre picker -----
+        # Same pattern as targets_view: the selected-genres display is a
+        # multi-line read-only TextCtrl on its own row below the button.
+        # A TextCtrl is focusable on every platform, so it sits in the tab
+        # order and is read aloud reliably by NVDA/JAWS/VoiceOver — where
+        # a wx.StaticText is skipped on Windows and often on macOS.
         genre_row = wx.BoxSizer(wx.HORIZONTAL)
         self.genre_btn = wx.Button(panel, label="Choose Genres...")
         a11y.set_a11y(self.genre_btn, a11y.LABEL_GENRE_PICKER, a11y.HINT_GENRE_PICKER)
         self.genre_btn.Bind(wx.EVT_BUTTON, self._on_choose_genre)
-        self.genre_value_label = wx.StaticText(panel, label="")
-        self.genre_value_label.SetName("Selected genres")
+        genre_row.Add(self.genre_btn)
+        root.Add(genre_row, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+
+        self.genre_value_label = wx.TextCtrl(
+            panel,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_DONTWRAP,
+        )
+        a11y.set_a11y(
+            self.genre_value_label,
+            "Selected genres",
+            "Which genre references the report will compare against. "
+            "Use the Choose Genres button to change this selection.",
+        )
+        self.genre_value_label.SetMinSize(wx.Size(-1, 60))
         self._selected_genre_keys: list[str] = []
         self._update_genre_label()
-        genre_row.Add(self.genre_btn)
-        genre_row.Add(self.genre_value_label, proportion=1, flag=wx.LEFT | wx.ALIGN_CENTER_VERTICAL, border=10)
-        root.Add(genre_row, flag=wx.EXPAND | wx.ALL, border=10)
+        root.Add(
+            self.genre_value_label,
+            flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
+            border=10,
+        )
 
         # ----- Reference file picker -----
         ref_row = wx.BoxSizer(wx.HORIZONTAL)
         self.reference_btn = wx.Button(panel, label="Choose Reference File...")
         a11y.set_a11y(self.reference_btn, a11y.LABEL_REFERENCE_FILE, a11y.HINT_REFERENCE_FILE)
         self.reference_btn.Bind(wx.EVT_BUTTON, self._on_open_reference)
-        self.reference_label = wx.StaticText(panel, label="No reference file selected.")
-        self.reference_label.SetName("Selected reference file")
         self.clear_reference_btn = wx.Button(panel, label="Clear Reference")
         a11y.set_a11y(
             self.clear_reference_btn,
@@ -124,15 +141,37 @@ class MainWindow(wx.Frame):
         self.clear_reference_btn.Bind(wx.EVT_BUTTON, self._on_clear_reference)
         self.clear_reference_btn.Disable()
         ref_row.Add(self.reference_btn)
-        ref_row.Add(self.reference_label, proportion=1, flag=wx.LEFT | wx.ALIGN_CENTER_VERTICAL, border=10)
         ref_row.Add(self.clear_reference_btn, flag=wx.LEFT, border=8)
-        root.Add(ref_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        root.Add(ref_row, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+
+        # Same rationale as genre_value_label above.
+        self.reference_label = wx.TextCtrl(
+            panel,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_DONTWRAP,
+        )
+        a11y.set_a11y(
+            self.reference_label,
+            "Selected reference file",
+            "Which audio file the report will use as a reference comparison. "
+            "Use the Choose Reference File button to change this.",
+        )
+        self.reference_label.SetMinSize(wx.Size(-1, 60))
+        self._update_reference_label()
+        root.Add(
+            self.reference_label,
+            flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.TOP,
+            border=10,
+        )
 
         # ----- Analyze button -----
+        # Mark Analyze as the default so Enter from any focused control
+        # triggers analysis. wx also paints it visually highlighted on
+        # most platforms, which is a useful cue for sighted collaborators.
         self.analyze_btn = wx.Button(panel, label="Analyze")
         a11y.set_a11y(self.analyze_btn, a11y.LABEL_ANALYZE, a11y.HINT_ANALYZE)
         self.analyze_btn.Bind(wx.EVT_BUTTON, self._on_analyze)
         self.analyze_btn.Disable()
+        self.analyze_btn.SetDefault()
         root.Add(self.analyze_btn, flag=wx.LEFT | wx.RIGHT, border=10)
 
         # ----- Progress bar -----
@@ -145,9 +184,18 @@ class MainWindow(wx.Frame):
         self.progress.Hide()
         root.Add(self.progress, flag=wx.EXPAND | wx.ALL, border=10)
 
-        # Progress label (visible text that screen readers can also read).
-        self.progress_label = wx.StaticText(panel, label="")
-        self.progress_label.SetName("Current analysis stage")
+        # Progress label. Read-only TextCtrl rather than StaticText so it
+        # sits in the tab order: during analysis the user can Tab past the
+        # (disabled) Analyze button and land on this control to hear the
+        # current stage ("Measuring loudness — 40%"). A StaticText would
+        # be skipped by the screen reader's focus traversal.
+        self.progress_label = wx.TextCtrl(panel, style=wx.TE_READONLY)
+        a11y.set_a11y(
+            self.progress_label,
+            "Current analysis stage",
+            "Live status of the running analysis. Reads the current "
+            "stage and percentage complete.",
+        )
         self.progress_label.Hide()
         root.Add(self.progress_label, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
@@ -269,18 +317,22 @@ class MainWindow(wx.Frame):
             if k in GENRES
         ]
         if not names:
-            self.genre_value_label.SetLabel("Standalone (no genre selected)")
-            self.genre_value_label.SetHelpText(
-                "Standalone analysis. No genre references selected. "
-                "Open the Choose Genres dialog to add one or more."
+            placeholder = (
+                "No genres selected. Standalone analysis will be used. "
+                "Click Choose Genres to add one or more."
             )
+            self.genre_value_label.ChangeValue(placeholder)
+            self.genre_value_label.SetHelpText(placeholder)
             return
-        if len(names) == 1:
-            text = names[0]
-        else:
-            text = f"{names[0]} and {len(names) - 1} more"
-        self.genre_value_label.SetLabel(text)
-        self.genre_value_label.SetHelpText(f"Selected genres: {', '.join(names)}.")
+        count = len(names)
+        header = (
+            f"{count} genre selected:"
+            if count == 1
+            else f"{count} genres selected:"
+        )
+        text = header + "\n" + "\n".join(f"{i + 1}. {n}" for i, n in enumerate(names))
+        self.genre_value_label.ChangeValue(text)
+        self.genre_value_label.SetHelpText(text)
 
     def _on_choose_genre(self, event: wx.Event) -> None:
         dlg = GenreDialog(self, selected_keys=self._selected_genre_keys)
@@ -298,6 +350,20 @@ class MainWindow(wx.Frame):
     # Reference file
     # ------------------------------------------------------------------ #
 
+    def _update_reference_label(self) -> None:
+        if self._reference_path is None:
+            placeholder = (
+                "No reference file selected. "
+                "Click Choose Reference File to pick one."
+            )
+            self.reference_label.ChangeValue(placeholder)
+            self.reference_label.SetHelpText(placeholder)
+            return
+        name = Path(self._reference_path).name
+        text = f"Reference file selected:\n{name}"
+        self.reference_label.ChangeValue(text)
+        self.reference_label.SetHelpText(text)
+
     def _on_open_reference(self, event: wx.Event) -> None:
         with wx.FileDialog(
             self,
@@ -310,14 +376,12 @@ class MainWindow(wx.Frame):
             path = dlg.GetPath()
         log.info("reference selected: %s", path)
         self._reference_path = path
-        self.reference_label.SetLabel(Path(path).name)
-        self.reference_label.SetHelpText(f"Reference file: {Path(path).name}")
+        self._update_reference_label()
         self.clear_reference_btn.Enable()
 
     def _on_clear_reference(self, event: wx.Event) -> None:
         self._reference_path = None
-        self.reference_label.SetLabel("No reference file selected.")
-        self.reference_label.SetHelpText("No reference file selected.")
+        self._update_reference_label()
         self.clear_reference_btn.Disable()
         log.info("reference cleared")
 
@@ -338,7 +402,7 @@ class MainWindow(wx.Frame):
         self.SetStatusText(a11y.STATUS_RUNNING)
         self.progress.SetValue(0)
         self.progress.Show()
-        self.progress_label.SetLabel("Starting...")
+        self.progress_label.ChangeValue("Starting...")
         self.progress_label.Show()
         self.Layout()
         self._click_ticker.start()
@@ -360,7 +424,7 @@ class MainWindow(wx.Frame):
 
     def _on_analysis_progress(self, percent: int, stage: str) -> None:
         self.progress.SetValue(max(0, min(100, int(percent))))
-        self.progress_label.SetLabel(f"{stage} — {percent}%")
+        self.progress_label.ChangeValue(f"{stage} — {percent}%")
         self.progress_label.SetHelpText(
             f"Analysis progress: {stage}, {percent} percent."
         )

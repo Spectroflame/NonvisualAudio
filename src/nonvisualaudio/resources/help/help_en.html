@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NonvisualAudio — User Guide</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 820px;
+    margin: 2em auto;
+    padding: 0 1.2em;
+    line-height: 1.55;
+  }
+  h1 { font-size: 1.9em; margin-bottom: 0.2em; }
+  h2 {
+    margin-top: 2em;
+    padding-bottom: 0.25em;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+  }
+  h3 { margin-top: 1.6em; }
+  nav[aria-label="Contents"] ol { padding-left: 1.4em; }
+  nav[aria-label="Contents"] li { margin: 0.2em 0; }
+  dl dt { font-weight: bold; margin-top: 1em; }
+  dl dd { margin-left: 1.3em; margin-top: 0.2em; }
+  kbd, code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(128, 128, 128, 0.18);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    font-size: 0.95em;
+  }
+  a[href^="#"] { text-decoration: none; }
+  a[href^="#"]:hover, a[href^="#"]:focus { text-decoration: underline; }
+  .lead { font-size: 1.08em; margin: 0.5em 0 1.5em 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NonvisualAudio — User Guide</h1>
+  <p class="lead">
+    An accessible audio analyzer for blind and low-vision audio
+    professionals. Reports loudness, dynamics, and frequency balance
+    as a cleanly structured plain-text report.
+  </p>
+</header>
+
+<nav aria-label="Contents">
+<h2 id="toc">Contents</h2>
+<ol>
+  <li><a href="#overview">Overview</a></li>
+  <li><a href="#quickstart">Quick start</a></li>
+  <li><a href="#interface">The main window</a></li>
+  <li><a href="#menus">Menus</a>
+    <ol>
+      <li><a href="#menu-edit">Edit</a></li>
+      <li><a href="#menu-view">View</a></li>
+      <li><a href="#menu-language">Language</a></li>
+      <li><a href="#menu-help">Help</a></li>
+    </ol>
+  </li>
+  <li><a href="#measurements">Measurements explained</a>
+    <ol>
+      <li><a href="#loudness">Loudness (LUFS, LU)</a></li>
+      <li><a href="#truepeak">True peak (dBTP)</a></li>
+      <li><a href="#dynamics">Dynamics (crest factor, DR)</a></li>
+      <li><a href="#frequency">Frequency balance and bands</a></li>
+      <li><a href="#peaks">Spectral peaks</a></li>
+    </ol>
+  </li>
+  <li><a href="#genres">Genre profiles</a></li>
+  <li><a href="#reference">Reference file comparison</a></li>
+  <li><a href="#report">Reading the report</a></li>
+  <li><a href="#shortcuts">Keyboard shortcuts</a></li>
+  <li><a href="#accessibility">Accessibility features</a></li>
+  <li><a href="#privacy">Privacy and data</a></li>
+</ol>
+</nav>
+
+<main>
+
+<section id="overview">
+<h2>1. Overview</h2>
+<p>
+  NonvisualAudio measures the same things a sighted engineer reads
+  off a visual analyzer — integrated loudness, true peak, loudness
+  range, dynamics, and spectral balance — and writes them out as a
+  plain-text report with no visual chart required. The report is
+  structured in clearly labelled sections that every screen reader
+  can walk line by line.
+</p>
+<p>
+  Everything runs locally. There is no cloud, no telemetry, no
+  network calls.
+</p>
+</section>
+
+<section id="quickstart">
+<h2>2. Quick start</h2>
+<ol>
+  <li>Press <kbd>Add Audio Files...</kbd> or drag files/folders onto the
+      window, or paste copied files with <kbd>Cmd+V</kbd> / <kbd>Ctrl+V</kbd>.</li>
+  <li>Optionally pick one or more genres under <kbd>Choose Genres...</kbd>
+      so the report includes a comparison.</li>
+  <li>Optionally pick a reference audio file via <kbd>Choose Reference File...</kbd>
+      for an A-versus-B comparison.</li>
+  <li>Press <kbd>Analyze</kbd> (or <kbd>Cmd+R</kbd> / <kbd>Ctrl+R</kbd>).</li>
+  <li>The report opens in its own window. Read it with your screen
+      reader, copy it with <kbd>Cmd+Shift+C</kbd> /
+      <kbd>Ctrl+Shift+C</kbd>, or close with <kbd>Escape</kbd>.</li>
+</ol>
+</section>
+
+<section id="interface">
+<h2>3. The main window</h2>
+<p>
+  The main window has four input areas, stacked top to bottom, plus
+  the Analyze button at the bottom:
+</p>
+<dl>
+  <dt>Audio files list</dt>
+  <dd>
+    A read-only text field that lists every audio file currently
+    queued for analysis. Each file gets its own section in the
+    resulting report. <kbd>Clear Files</kbd> empties the list.
+  </dd>
+  <dt>Selected genres</dt>
+  <dd>
+    Shows which genre profiles the report will compare against.
+    Press <kbd>Choose Genres...</kbd> to open the picker; you can
+    select any number at once.
+  </dd>
+  <dt>Reference file</dt>
+  <dd>
+    Shows the audio file that acts as the A/B reference, if you
+    picked one. <kbd>Clear Reference</kbd> removes it.
+  </dd>
+  <dt>Progress bar and status line</dt>
+  <dd>
+    Appear while an analysis is running. The status line also sits
+    in the tab order, so a screen reader can focus it to hear the
+    current phase and percentage.
+  </dd>
+</dl>
+<p>
+  A metronome-style click plays during the analysis so you have
+  audio feedback that work is progressing. Nothing is written to
+  disk for that — the click sample stays in memory.
+</p>
+</section>
+
+<section id="menus">
+<h2>4. Menus</h2>
+
+<section id="menu-edit">
+<h3>Edit</h3>
+<p>
+  <kbd>Edit Genre Profiles...</kbd> (<kbd>Cmd+G</kbd> / <kbd>Ctrl+G</kbd>)
+  opens the genre editor — see <a href="#genres">Genre profiles</a>.
+</p>
+</section>
+
+<section id="menu-view">
+<h3>View</h3>
+<p>
+  Four colour schemes, each a radio-button entry:
+</p>
+<ul>
+  <li><kbd>Automatic (system)</kbd> — follows the OS light/dark setting.</li>
+  <li><kbd>Light</kbd> — white background, black text.</li>
+  <li><kbd>Dark</kbd> — dark grey background, light text.</li>
+  <li><kbd>High Contrast</kbd> — black background with saturated yellow
+      text for maximum readability with low vision.</li>
+</ul>
+<p>
+  The switch happens immediately, no restart required, and the
+  choice is remembered across app launches.
+</p>
+</section>
+
+<section id="menu-language">
+<h3>Language</h3>
+<p>
+  Three entries:
+</p>
+<ul>
+  <li><kbd>Automatic (system)</kbd> — read from the OS locale.</li>
+  <li><kbd>English</kbd>.</li>
+  <li><kbd>Deutsch</kbd>.</li>
+</ul>
+<p>
+  The new language takes effect after you restart NonvisualAudio.
+</p>
+</section>
+
+<section id="menu-help">
+<h3>Help</h3>
+<p>
+  <kbd>Open Help</kbd> (<kbd>F1</kbd>, or <kbd>Cmd+Shift+ß</kbd> on a German
+  Mac keyboard) opens this guide in your system's default browser.
+</p>
+<p>
+  <kbd>About NonvisualAudio</kbd> shows version, licence, and credits.
+</p>
+</section>
+
+</section>
+
+<section id="measurements">
+<h2>5. Measurements explained</h2>
+
+<section id="loudness">
+<h3>5.1 Loudness (LUFS, LU)</h3>
+<dl>
+  <dt>Integrated loudness</dt>
+  <dd>
+    The average loudness over the entire file, measured in LUFS
+    (Loudness Units relative to Full Scale) following the EBU R128
+    and ITU BS.1770 standards. Streaming platforms use this number
+    to normalise playback volume. Typical targets: minus 14 LUFS on
+    Spotify/Apple Music, minus 23 LUFS for European broadcast,
+    minus 16 for conversational podcasts.
+  </dd>
+  <dt>Short-term peak loudness</dt>
+  <dd>
+    The loudest three-second segment in the file, in LUFS. If it is
+    more than roughly 3 LU louder than the integrated value, the
+    file has meaningful loudness variation; if it is very close,
+    the file is heavily compressed.
+  </dd>
+  <dt>Loudness range (LRA)</dt>
+  <dd>
+    How much the loudness varies across the file, measured in LU
+    (Loudness Units). Small values (3 to 6 LU) mean a squashed
+    master; large values (14 to 24 LU) mean a very dynamic
+    recording with soft passages and loud climaxes.
+  </dd>
+</dl>
+</section>
+
+<section id="truepeak">
+<h3>5.2 True peak (dBTP)</h3>
+<p>
+  The highest instantaneous sample value after oversampling — a
+  closer approximation of what the analogue output will actually
+  produce than the raw sample peak. Values above minus 1 dBTP risk
+  inter-sample clipping during lossy playback (MP3, AAC, streaming
+  transcodes). A common safe ceiling is minus 1 dBTP; stricter
+  workflows set minus 2 dBTP.
+</p>
+</section>
+
+<section id="dynamics">
+<h3>5.3 Dynamics (crest factor and DR score)</h3>
+<dl>
+  <dt>Crest factor (dB)</dt>
+  <dd>
+    The difference between the peak and the RMS level of the file.
+    A sine wave has a crest factor of about 3 dB. Music typically
+    sits between 6 dB (heavily compressed pop/metal) and 16 dB
+    (classical, acoustic jazz). Dialogue and audiobooks usually
+    land around 10 to 14 dB.
+  </dd>
+  <dt>Dynamic range score (DR)</dt>
+  <dd>
+    A simplified integer roughly following the "DR" mastering
+    community convention. Higher is more dynamic. Anything below
+    DR 7 usually sounds flat and fatiguing; DR 10 and above feels
+    open.
+  </dd>
+</dl>
+</section>
+
+<section id="frequency">
+<h3>5.4 Frequency balance and bands</h3>
+<p>
+  NonvisualAudio splits the audio spectrum into six bands and
+  reports the energy in each one. The report names the loudest
+  band first and then expresses every other band as
+  "X dB quieter", so you can compare by ear without picturing a
+  chart.
+</p>
+<dl>
+  <dt>Sub-bass (20 to 80 Hz)</dt>
+  <dd>Rumble, sub-kick, low-frequency effects.</dd>
+  <dt>Bass (80 to 250 Hz)</dt>
+  <dd>Fundamental of most bass instruments and low male vocals.</dd>
+  <dt>Low midrange (250 to 500 Hz)</dt>
+  <dd>Body of vocals, guitars, snare. Too much here sounds boxy.</dd>
+  <dt>Midrange (500 Hz to 2 kHz)</dt>
+  <dd>Core of intelligibility. Vocal presence lives here.</dd>
+  <dt>Presence (2 to 6 kHz)</dt>
+  <dd>Clarity, bite, consonants. The ear is most sensitive here.</dd>
+  <dt>Air (6 to 20 kHz)</dt>
+  <dd>Cymbal sheen, string harmonics, breath, sibilance.</dd>
+</dl>
+</section>
+
+<section id="peaks">
+<h3>5.5 Spectral peaks</h3>
+<p>
+  A spectral peak is a narrow resonance that stands out several dB
+  above the surrounding spectrum at a specific frequency.
+  NonvisualAudio finds them and reports each one with:
+</p>
+<ul>
+  <li>its frequency in Hz (or kHz),</li>
+  <li>the region it falls in (sub-bass, bass, low midrange, midrange,
+      presence, or air),</li>
+  <li>how many dB it sticks out above the surrounding spectrum,</li>
+  <li>a plain-language note on what it typically sounds like
+      (for example "boxiness", "sibilance", "nasal or telephone-like").</li>
+</ul>
+<p>
+  The Recommendations section of the report then suggests a concrete
+  EQ starting point for each peak: a cut amount, a Q value, and the
+  technique best suited to the region (narrow notch for mains hum,
+  broad bell for midrange, de-esser or high shelf for the top end,
+  high-pass filter for sub-50 Hz rumble).
+</p>
+</section>
+</section>
+
+<section id="genres">
+<h2>6. Genre profiles</h2>
+<p>
+  NonvisualAudio ships with 42 genre profiles across 13 categories
+  (audio drama, podcast, spoken word, pop, rock, rap and hip hop,
+  R&amp;B and soul, reggae, jazz, folk and country, electronic,
+  classical, film and cinema). Each profile carries a typical
+  loudness target (LUFS), a typical loudness range window (LU low
+  to LU high), and a short description of the genre's tonal
+  character.
+</p>
+<p>
+  Pick one or more genres before analyzing. For each selected genre,
+  the report will include a "Comparison to ..." section that tells
+  you whether the file is louder or quieter than the genre's
+  typical target and whether its dynamics are within the typical
+  range.
+</p>
+<h3>Editing genre profiles</h3>
+<p>
+  From <kbd>Edit → Edit Genre Profiles...</kbd> you can add, change,
+  delete, or reset profiles. Each entry in the list carries an origin
+  tag:
+</p>
+<ul>
+  <li><code>built-in</code> — a stock profile that ships with the app.</li>
+  <li><code>user</code> — a profile you added yourself.</li>
+  <li><code>modified</code> — a stock profile whose values you
+      overrode.</li>
+</ul>
+<p>
+  <kbd>Delete</kbd> is only available for <code>user</code> entries.
+  <kbd>Reset to Built-in</kbd> applies to <code>modified</code>
+  entries and restores the stock values.
+</p>
+<p>
+  When adding a profile, you can fill in both an English and a German
+  name and description; the report will pick the correct language
+  automatically. Any changes live in your user data folder — the
+  shipped profiles are never overwritten.
+</p>
+</section>
+
+<section id="reference">
+<h2>7. Reference file comparison</h2>
+<p>
+  Pick a second audio file via <kbd>Choose Reference File...</kbd>
+  and the report will include a direct comparison with that file:
+  loudness difference, dynamics difference, and band-by-band spectral
+  difference. Useful for "does my master sit in the same ballpark as
+  track X from the same album?"
+</p>
+<p>
+  Reference and genre comparisons can be combined — every genre you
+  pick plus the reference each produce their own section in the
+  report.
+</p>
+</section>
+
+<section id="report">
+<h2>8. Reading the report</h2>
+<p>
+  The report is plain text. Section headings are written in ALL CAPS
+  on their own line, so screen readers can jump between them. The
+  sections always appear in this order:
+</p>
+<ol>
+  <li><strong>FILE INFO</strong> — filename, duration, sample rate,
+      bit depth, channels.</li>
+  <li><strong>LOUDNESS SUMMARY</strong> — integrated LUFS, short-term
+      peak, true peak, LRA, plus a one-sentence verdict.</li>
+  <li><strong>DYNAMICS SUMMARY</strong> — crest factor, DR score, and
+      a one-sentence verdict.</li>
+  <li><strong>FREQUENCY BALANCE</strong> — loudest band as the
+      anchor, other bands as "X dB quieter", overall spread, plus
+      any spectral peaks with their frequency and character note.</li>
+  <li><strong>OVERALL ASSESSMENT</strong> — a one-paragraph summary
+      combining loudness, dynamics, and tonal lean.</li>
+  <li><strong>COMPARISON TO ...</strong> sections — one per selected
+      genre and one for the reference file, if any.</li>
+  <li><strong>RECOMMENDATIONS</strong> — concrete EQ and mastering
+      suggestions derived from the measurements.</li>
+</ol>
+<p>
+  Numbers are spelled out: "minus 21.4 LUFS" rather than "-21.4
+  LUFS" on English, "minus 21,4 LUFS" on German, so a screen reader
+  always speaks them naturally.
+</p>
+</section>
+
+<section id="shortcuts">
+<h2>9. Keyboard shortcuts</h2>
+<p>
+  Throughout this section, <kbd>Cmd</kbd> is the Command key on
+  macOS and <kbd>Ctrl</kbd> is the Control key on Windows and Linux.
+  wx maps them to the same accelerator group.
+</p>
+<dl>
+  <dt><kbd>Cmd+O</kbd> / <kbd>Ctrl+O</kbd></dt>
+  <dd>Add audio files.</dd>
+  <dt><kbd>Cmd+V</kbd> / <kbd>Ctrl+V</kbd></dt>
+  <dd>Paste audio file paths from the clipboard.</dd>
+  <dt><kbd>Cmd+R</kbd> / <kbd>Ctrl+R</kbd></dt>
+  <dd>Start the analysis.</dd>
+  <dt><kbd>Cmd+G</kbd> / <kbd>Ctrl+G</kbd></dt>
+  <dd>Open the genre editor.</dd>
+  <dt><kbd>Cmd+Q</kbd> / <kbd>Ctrl+Q</kbd></dt>
+  <dd>Quit the app.</dd>
+  <dt><kbd>F1</kbd>, or <kbd>Cmd+Shift+ß</kbd> on a German Mac keyboard</dt>
+  <dd>Open this help page.</dd>
+  <dt>In the results window: <kbd>Cmd+Shift+C</kbd> / <kbd>Ctrl+Shift+C</kbd></dt>
+  <dd>Copy the entire report to the clipboard.</dd>
+  <dt>In any dialog: <kbd>Escape</kbd></dt>
+  <dd>Close the dialog and return to the main window.</dd>
+</dl>
+</section>
+
+<section id="accessibility">
+<h2>10. Accessibility features</h2>
+<ul>
+  <li>Every widget carries a screen-reader name and a description
+      readable via <kbd>VO+H</kbd> on macOS or NVDA object review on
+      Windows.</li>
+  <li>The same description is also a hover tooltip for sighted
+      collaborators.</li>
+  <li>Four colour schemes including a high-contrast mode
+      (<a href="#menu-view">View menu</a>).</li>
+  <li>Read-only text fields carry the same information the screen
+      reader receives, so Arrow keys work for line-by-line review.</li>
+  <li>A metronome-style click during analysis confirms that work is
+      progressing, without relying on the visual progress bar.</li>
+  <li>The results window opens with focus inside the report text so
+      reading can start immediately.</li>
+  <li>All numeric output is spoken naturally: "minus 21.4" instead
+      of a dash followed by digits.</li>
+</ul>
+</section>
+
+<section id="privacy">
+<h2>11. Privacy and data</h2>
+<p>
+  No data is ever sent over the network. NonvisualAudio has no
+  telemetry, no cloud, no analytics. A very small preferences file is
+  written to your user data folder only when you explicitly change
+  the language or theme. Custom genre profiles go into the same
+  folder. Locations:
+</p>
+<ul>
+  <li>macOS: <code>~/Library/Application Support/NonvisualAudio/</code></li>
+  <li>Windows: <code>%APPDATA%\NonvisualAudio\</code></li>
+  <li>Linux: <code>~/.config/NonvisualAudio/</code></li>
+</ul>
+</section>
+
+</main>
+</body>
+</html>

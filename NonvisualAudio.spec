@@ -54,14 +54,16 @@ datas = []
 if _ffmpeg_src.is_file():
     datas.append((str(_ffmpeg_src), _ffmpeg_dst))
 
-# JSON resources (genre profiles, localization catalogs). Bundled verbatim
-# at package root so importlib.resources finds them in the PyInstaller
-# tree the same way as in a source checkout.
+# Data resources (genre profiles JSON, localisation catalogues, help
+# HTML). Bundled verbatim at package root so importlib.resources and
+# direct Path lookups find them in the PyInstaller tree the same way
+# as in a source checkout.
 _resources_dir = Path("src") / "nonvisualaudio" / "resources"
-for json_path in _resources_dir.rglob("*.json"):
-    rel = json_path.relative_to(_resources_dir.parent.parent)
-    dst = str(rel.parent).replace("\\", "/")
-    datas.append((str(json_path), dst))
+for pattern in ("*.json", "*.html"):
+    for file_path in _resources_dir.rglob(pattern):
+        rel = file_path.relative_to(_resources_dir.parent.parent)
+        dst = str(rel.parent).replace("\\", "/")
+        datas.append((str(file_path), dst))
 
 hiddenimports = (
     collect_submodules("scipy.signal")

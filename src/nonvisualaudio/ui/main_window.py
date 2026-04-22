@@ -20,6 +20,7 @@ from nonvisualaudio.ui.drop import expand_audio_paths, parse_paste_text
 from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.ui.genre_dialog import GenreDialog
 from nonvisualaudio.ui.genre_editor_dialog import GenreEditorDialog
+from nonvisualaudio.ui.help_viewer import open_help
 from nonvisualaudio.ui.results_dialog import ResultsDialog
 from nonvisualaudio.ui.worker import start_analysis
 
@@ -216,11 +217,20 @@ class MainWindow(wx.Frame):
         self.CreateStatusBar()
         self.SetStatusText(t("status.idle"))
 
-        # Keyboard shortcuts: Ctrl/Cmd+O to add files, Ctrl/Cmd+R to run.
+        # Keyboard shortcuts: Ctrl/Cmd+O to add files, Ctrl/Cmd+R to run,
+        # F1 to open help (already wired via the menu accelerator but
+        # listed here for completeness), and Cmd+Shift+ß which on a
+        # German Mac keyboard is the physical Cmd+? — the native help
+        # shortcut expected by macOS users.
         accel = wx.AcceleratorTable(
             [
                 wx.AcceleratorEntry(wx.ACCEL_CMD, ord("O"), self._get_id(self.open_btn)),
                 wx.AcceleratorEntry(wx.ACCEL_CMD, ord("R"), self._get_id(self.analyze_btn)),
+                wx.AcceleratorEntry(
+                    wx.ACCEL_CMD | wx.ACCEL_SHIFT,
+                    ord("ß"),
+                    self._help_topic_id,
+                ),
             ]
         )
         self.SetAcceleratorTable(accel)
@@ -341,6 +351,12 @@ class MainWindow(wx.Frame):
         # globally so the App menu's auto-generated "About" entry on
         # macOS still triggers our dialog.
         help_menu = wx.Menu()
+        help_topic_item = help_menu.Append(
+            wx.ID_HELP,
+            t("ui.menu.help_topic"),
+            t("ui.menu.help_topic.hint"),
+        )
+        self._help_topic_id = help_topic_item.GetId()
         about_item = help_menu.Append(
             wx.ID_ANY,
             t("ui.menu.about"),
@@ -356,6 +372,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_quit_menu, id=wx.ID_EXIT)
         self.Bind(wx.EVT_MENU, self._on_about, id=wx.ID_ABOUT)
         self.Bind(wx.EVT_MENU, self._on_about, about_item)
+        self.Bind(wx.EVT_MENU, self._on_help_topic, help_topic_item)
         self.Bind(wx.EVT_MENU, self._on_edit_genres, genre_editor_item)
         self.Bind(wx.EVT_MENU, lambda _e: self._on_language_chosen(None), auto_item)
         self.Bind(wx.EVT_MENU, lambda _e: self._on_language_chosen("en"), en_item)
@@ -368,6 +385,16 @@ class MainWindow(wx.Frame):
 
     def _on_about(self, event: wx.CommandEvent) -> None:
         show_about(self)
+
+    def _on_help_topic(self, event: wx.CommandEvent) -> None:
+        if open_help():
+            return
+        wx.MessageBox(
+            t("ui.help.not_found.body"),
+            t("ui.help.not_found.title"),
+            style=wx.OK | wx.ICON_WARNING,
+            parent=self,
+        )
 
     def _on_theme_chosen(self, theme_key: str) -> None:
         if theme_key == theme.current():

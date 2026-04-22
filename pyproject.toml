@@ -29,4 +29,8 @@ nonvisualaudio = "nonvisualaudio.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-nonvisualaudio = ["resources/bin/**/*", "resources/**/*.json"]
+nonvisualaudio = [
+    "resources/bin/**/*",
+    "resources/**/*.json",
+    "resources/**/*.html",
+]

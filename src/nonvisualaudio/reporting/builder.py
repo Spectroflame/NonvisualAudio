@@ -91,21 +91,42 @@ def _dynamics_section(dyn: DynamicsMetrics) -> str:
     return "\n".join(lines)
 
 
-def _describe_band(name: str, value_db: float, low: float, high: float) -> str:
-    """Describe one band based on its dB value relative to full spectrum."""
-    # Band dB values are negative: 0 dB would mean the band contains all energy.
-    # Typical ranges are roughly -30 to -5 dB per band.
-    if value_db > -6.0:
-        weight = "very strong"
-    elif value_db > -10.0:
-        weight = "prominent"
-    elif value_db > -15.0:
-        weight = "present and balanced"
-    elif value_db > -22.0:
-        weight = "restrained"
+def _band_range_str(low: float, high: float) -> str:
+    if low >= 1000:
+        return f"{low / 1000:.0f} to {high / 1000:.0f} kHz"
+    if high >= 1000:
+        return f"{int(low)} Hz to {high / 1000:.0f} kHz"
+    return f"{int(low)} to {int(high)} Hz"
+
+
+def _describe_band_vs_loudest(
+    name: str,
+    low: float,
+    high: float,
+    delta_below_loudest_db: float,
+    is_quietest: bool,
+) -> str:
+    """Describe one band as 'X dB quieter than the loudest band'.
+
+    delta_below_loudest_db is always >= 0 (the loudest band has delta 0 and
+    is reported separately). We avoid mentioning the loudest band's name on
+    every line — the preceding sentence already established it as the
+    anchor.
+    """
+    range_str = _band_range_str(low, high)
+    if delta_below_loudest_db < 1.0:
+        line = (
+            f"The {name} region ({range_str}) is roughly at the same level."
+        )
     else:
-        weight = "very subdued"
-    return f"The {name} region ({int(low)} to {int(high)} Hz) is {weight}."
+        line = (
+            f"The {name} region ({range_str}) is "
+            f"{delta_below_loudest_db:.1f} dB quieter."
+        )
+    if is_quietest and delta_below_loudest_db >= 1.0:
+        # Tag the weakest band so the reader can locate it without math.
+        line = line[:-1] + " — the quietest band in this file."
+    return line
 
 
 def _region_for_hz(hz: float) -> str:
@@ -146,37 +167,66 @@ def _interpret_peak(hz: float) -> str:
     return "top-end brightness"
 
 
+_BAND_LABELS: tuple[tuple[str, str, float, float], ...] = (
+    ("sub_db", "sub bass", 20.0, 80.0),
+    ("bass_db", "bass", 80.0, 250.0),
+    ("low_mid_db", "low midrange", 250.0, 500.0),
+    ("mid_db", "midrange", 500.0, 2000.0),
+    ("presence_db", "presence", 2000.0, 6000.0),
+    ("air_db", "air", 6000.0, 20000.0),
+)
+
+
+def _ranked_bands(bands: BandEnergies) -> list[tuple[str, float, float, float]]:
+    """Return (name, value_db, low_hz, high_hz) sorted loudest first."""
+    entries = [
+        (name, getattr(bands, attr), lo, hi)
+        for attr, name, lo, hi in _BAND_LABELS
+    ]
+    entries.sort(key=lambda e: e[1], reverse=True)
+    return entries
+
+
 def _frequency_section(spec: SpectrumMetrics) -> str:
     lines = [heading("Frequency Balance")]
     b = spec.bands
-    if b.sub_db > -8.0:
-        lines.append("The low end below 80 Hz is very strong and may dominate the mix.")
-    elif b.sub_db > -14.0:
-        lines.append("The low end below 80 Hz is present and full.")
-    elif b.sub_db > -22.0:
-        lines.append("The low end below 80 Hz is restrained.")
-    else:
-        lines.append("There is very little energy below 80 Hz.")
+    ranked = _ranked_bands(b)
+    loudest_name, loudest_db, loudest_lo, loudest_hi = ranked[0]
+    quietest_name, quietest_db, *_ = ranked[-1]
+    spread = loudest_db - quietest_db
 
-    lines.append(_describe_band("bass", b.bass_db, 80, 250))
-    lines.append(_describe_band("low midrange", b.low_mid_db, 250, 500))
-    lines.append(_describe_band("midrange", b.mid_db, 500, 2000))
-    lines.append(_describe_band("presence", b.presence_db, 2000, 6000))
-
-    if b.air_db < -22.0:
+    # Anchor: name the loudest band once, up front. Every following line
+    # is "X dB quieter" against this anchor, which is something the user
+    # can hear (the loudest part of the file) rather than an abstract
+    # average.
+    lines.append(
+        f"The loudest band in this file is the {loudest_name} region "
+        f"({_band_range_str(loudest_lo, loudest_hi)})."
+    )
+    # Walk the six bands in the natural low-to-high spectrum order, not
+    # ranked, so the listener's mental model matches an EQ plugin.
+    for attr, name, lo, hi in _BAND_LABELS:
+        value = getattr(b, attr)
+        if name == loudest_name:
+            continue
+        delta = loudest_db - value
         lines.append(
-            "The air above 6 kHz is very subdued, which may sound dull or dark."
+            _describe_band_vs_loudest(
+                name, lo, hi, delta, is_quietest=(name == quietest_name)
+            )
         )
-    elif b.air_db < -15.0:
-        lines.append("The air above 6 kHz is restrained.")
-    elif b.air_db > -8.0:
-        lines.append("The air above 6 kHz is very bright and may sound harsh.")
-    else:
-        lines.append("The air above 6 kHz is present and clear.")
 
-    # Cross-band sanity checks.
-    if (b.mid_db - b.bass_db) > 6.0:
-        lines.append("The midrange is noticeably forward compared to the bass.")
+    # One closing line makes the overall range explicit.
+    if spread < 3.0:
+        lines.append(
+            f"Overall the six bands sit within {spread:.1f} dB of each "
+            f"other — a flat, even tonal balance."
+        )
+    else:
+        lines.append(
+            f"Total spread between loudest ({loudest_name}) and quietest "
+            f"({quietest_name}) band: {spread:.1f} dB."
+        )
 
     # Always enumerate the detected spectral peaks with their exact
     # frequency and prominence, so the user gets actionable numbers
@@ -203,6 +253,28 @@ def _frequency_section(spec: SpectrumMetrics) -> str:
     return "\n".join(lines)
 
 
+def _tonal_balance_phrase(bands: BandEnergies) -> str:
+    """Summarize tonal balance in one everyday-language sentence fragment."""
+    ranked = _ranked_bands(bands)
+    loudest_name = ranked[0][0]
+    quietest_name = ranked[-1][0]
+    spread = ranked[0][1] - ranked[-1][1]
+
+    # Under 3 dB nobody would call this tilted; 3-8 dB is a mild lean you
+    # may or may not notice; 8 dB or more is a clear tonal character.
+    if spread < 3.0:
+        return "with a flat tonal balance across all six bands"
+    if spread < 8.0:
+        return (
+            f"with a mild lean toward the {loudest_name} "
+            f"(about {spread:.1f} dB louder than the {quietest_name})"
+        )
+    return (
+        f"with a clearly {loudest_name}-heavy tonal balance — "
+        f"the {loudest_name} is {spread:.1f} dB louder than the {quietest_name}"
+    )
+
+
 def _overall_section(result: AnalysisResult) -> str:
     lines = [heading("Overall Assessment")]
     parts: list[str] = []
@@ -217,12 +289,7 @@ def _overall_section(result: AnalysisResult) -> str:
     else:
         parts.append("This file sits in a moderate loudness and dynamics range")
 
-    if bands.sub_db > -10.0 and bands.air_db < -18.0:
-        parts.append("with a bottom heavy tonal balance")
-    elif bands.air_db > -8.0 and bands.sub_db < -18.0:
-        parts.append("with a bright top end and light low end")
-    else:
-        parts.append("with a generally balanced frequency response")
+    parts.append(_tonal_balance_phrase(bands))
 
     lines.append(paragraph(", ".join(parts)))
     return "\n".join(lines)

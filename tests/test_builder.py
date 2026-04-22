@@ -83,6 +83,49 @@ def test_very_loud_file_is_flagged():
     assert "intersample" in report.lower()
 
 
+def test_frequency_section_names_the_loudest_band_as_the_anchor():
+    # Sub -14, bass -11, low_mid -9, mid -8, presence -10, air -18.
+    # Loudest: mid (-8). Quietest: air (-18). Spread: 10 dB.
+    report = build_report(_make_result())
+    freq = report.split("FREQUENCY BALANCE")[1].split("\n\n")[0]
+    # The anchor sentence must name the actual loudest band.
+    assert "The loudest band in this file is the midrange" in freq
+    # Other bands are expressed as "N dB quieter" without any "average" jargon.
+    assert "dB quieter" in freq
+    # The weakest band must be flagged.
+    assert "the quietest band in this file" in freq
+    # Abstract "average" wording must be gone.
+    for banned in (
+        "spectrum average",
+        "band average",
+        "present and balanced",
+        "very subdued",
+        "prominent",
+    ):
+        assert banned not in freq, f"{banned!r} still in the frequency section"
+
+
+def test_overall_assessment_mentions_the_actual_loudest_band_when_skewed():
+    skewed = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=BandEnergies(
+                sub_db=-4.0,   # strongest
+                bass_db=-6.0,
+                low_mid_db=-9.0,
+                mid_db=-12.0,
+                presence_db=-16.0,
+                air_db=-24.0,  # weakest
+            ),
+            peaks=(),
+        )
+    )
+    report = build_report(skewed)
+    overall = report.split("OVERALL ASSESSMENT")[1].split("RECOMMENDATIONS")[0]
+    assert "generally balanced" not in overall
+    assert "sub bass" in overall
+    assert "air" in overall
+
+
 def test_recommendations_fallback_when_nothing_to_fix():
     balanced = _make_result(
         loudness=LoudnessMetrics(

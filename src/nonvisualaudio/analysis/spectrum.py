@@ -27,8 +27,24 @@ BAND_EDGES: tuple[tuple[str, float, float], ...] = (
     ("air", 6000.0, 20000.0),
 )
 
-PEAK_PROMINENCE_DB = 3.5
-SMOOTHING_BINS = 9  # odd number, for neighborhood reference
+PEAK_PROMINENCE_DB = 4.0
+# Reference smoothing spans ~1/3 octave on a log-frequency axis; at the bottom
+# of the analysis range that means roughly ±5 bins, at the top many more.
+SMOOTHING_OCTAVE_FRACTION = 1.0 / 3.0
+# Lower limit for peak reporting. Real low-frequency issues (rumble around
+# 40 Hz, AC hum at 50/60 Hz) must still surface — the phantom "always 43 Hz"
+# bug was caused by zero-padded mean smoothing at the FFT edge, which is
+# already fixed by the log-frequency median reference below.
+PEAK_FREQ_LOW_HZ = 40.0
+PEAK_FREQ_HIGH_HZ = 8000.0
+# Minimum spacing between two reported peaks, in octaves. Peaks closer than
+# this to a stronger one are suppressed so we don't list three variants of the
+# same resonance.
+PEAK_MIN_SEPARATION_OCTAVES = 1.0 / 3.0
+# Upper bound on how many peaks we ever report, to keep the natural-language
+# report readable. This is NOT a default — if only two peaks clear the
+# prominence threshold, only two are reported.
+MAX_REPORTED_PEAKS = 6
 SILENCE_FLOOR_DB = -120.0
 
 
@@ -52,54 +68,87 @@ def _band_energy_db(freqs: np.ndarray, psd: np.ndarray, f_low: float, f_high: fl
     return 10.0 * math.log10(energy / total)
 
 
-def _smoothed(x: np.ndarray, window: int) -> np.ndarray:
-    if window < 3:
-        return x
-    kernel = np.ones(window, dtype=np.float64) / float(window)
-    return np.convolve(x, kernel, mode="same")
+def _log_frequency_reference(freqs: np.ndarray, psd_db: np.ndarray) -> np.ndarray:
+    """Estimate the local spectral baseline on a log-frequency axis.
+
+    For each bin i above the analysis floor, take the median of all bins
+    within ±SMOOTHING_OCTAVE_FRACTION octaves. Median (not mean) keeps narrow
+    peaks from contaminating their own reference, so a real resonance shows
+    up with the full excess we want to detect.
+    """
+    ref = np.copy(psd_db)
+    # Everything below PEAK_FREQ_LOW_HZ stays at its own psd_db — we don't
+    # evaluate peaks there anyway, and using it as context would be fine.
+    lo_factor = 2.0 ** (-SMOOTHING_OCTAVE_FRACTION)
+    hi_factor = 2.0 ** (+SMOOTHING_OCTAVE_FRACTION)
+    for i in range(len(freqs)):
+        f = freqs[i]
+        if f <= 0.0:
+            continue
+        # Window in Hz, converted to the bin range via searchsorted.
+        lo = f * lo_factor
+        hi = f * hi_factor
+        start = int(np.searchsorted(freqs, lo, side="left"))
+        end = int(np.searchsorted(freqs, hi, side="right"))
+        if end - start < 3:
+            start = max(0, i - 1)
+            end = min(len(freqs), i + 2)
+        ref[i] = np.median(psd_db[start:end])
+    return ref
 
 
 def _find_peaks_db(freqs: np.ndarray, psd: np.ndarray) -> tuple[SpectralPeak, ...]:
     # Work in dB so prominence thresholds are perceptually reasonable.
     psd_safe = np.where(psd > 0.0, psd, 1e-20)
     psd_db = 10.0 * np.log10(psd_safe)
-    reference = _smoothed(psd_db, SMOOTHING_BINS)
+    reference = _log_frequency_reference(freqs, psd_db)
     excess = psd_db - reference
 
-    # Only consider bins between 40 Hz and 8 kHz for peak reporting.
-    in_range = (freqs >= 40.0) & (freqs <= 8000.0)
-    candidate_idx = np.where(in_range & (excess > PEAK_PROMINENCE_DB))[0]
-    if candidate_idx.size == 0:
+    in_range_mask = (freqs >= PEAK_FREQ_LOW_HZ) & (freqs <= PEAK_FREQ_HIGH_HZ)
+
+    # scipy.signal.find_peaks enforces "local maximum" semantics, so a plateau
+    # of adjacent bins above threshold collapses to one peak naturally.
+    # `distance` is in bins; pick enough to span ~1/6 octave near the low
+    # end of the analysis range.
+    bin_width = float(freqs[1] - freqs[0]) if len(freqs) > 1 else 1.0
+    min_distance_bins = max(
+        2,
+        int(round((PEAK_FREQ_LOW_HZ * (2.0 ** (1.0 / 6.0) - 1.0)) / bin_width)),
+    )
+    peak_idx, _ = signal.find_peaks(
+        excess,
+        height=PEAK_PROMINENCE_DB,
+        distance=min_distance_bins,
+    )
+    peak_idx = peak_idx[in_range_mask[peak_idx]]
+    if peak_idx.size == 0:
         return ()
 
-    # Collapse clusters of adjacent candidates into single peaks.
-    peaks: list[SpectralPeak] = []
-    cluster_start = candidate_idx[0]
-    prev = cluster_start
-    for i in candidate_idx[1:]:
-        if i - prev > 2:
-            cluster = np.arange(cluster_start, prev + 1)
-            best = cluster[np.argmax(excess[cluster])]
-            peaks.append(
-                SpectralPeak(
-                    frequency_hz=float(freqs[best]),
-                    prominence_db=float(round(excess[best], 2)),
-                )
-            )
-            cluster_start = i
-        prev = i
-    cluster = np.arange(cluster_start, prev + 1)
-    best = cluster[np.argmax(excess[cluster])]
-    peaks.append(
-        SpectralPeak(
-            frequency_hz=float(freqs[best]),
-            prominence_db=float(round(excess[best], 2)),
-        )
+    # Sort candidates by prominence (strongest first), then apply a
+    # 1/3-octave exclusion zone around each kept peak. This prevents two
+    # bins of the same resonance from both being reported.
+    ordered = sorted(
+        ((float(freqs[i]), float(excess[i])) for i in peak_idx),
+        key=lambda fe: fe[1],
+        reverse=True,
     )
+    sep = 2.0 ** PEAK_MIN_SEPARATION_OCTAVES
+    kept: list[tuple[float, float]] = []
+    for freq, prom in ordered:
+        if all(
+            (max(freq, kf) / min(freq, kf)) >= sep for kf, _ in kept
+        ):
+            kept.append((freq, prom))
+        if len(kept) >= MAX_REPORTED_PEAKS:
+            break
 
-    # Keep the 4 most prominent peaks.
-    peaks.sort(key=lambda p: p.prominence_db, reverse=True)
-    return tuple(peaks[:4])
+    return tuple(
+        SpectralPeak(
+            frequency_hz=round(freq, 1),
+            prominence_db=round(prom, 2),
+        )
+        for freq, prom in kept
+    )
 
 
 def compute_spectrum(samples: np.ndarray, sample_rate: int) -> SpectrumMetrics:

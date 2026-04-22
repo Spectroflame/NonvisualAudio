@@ -17,8 +17,13 @@ We parse ffmpeg's stderr for the final Summary block, which looks like:
       True peak:
         Peak:       -1.1 dBFS
 
-Short-term max is taken from the last "t:" progress line emitted by the
-filter when ``metadata=1`` is passed.
+Short-term max is taken from the per-frame progress lines emitted by the
+filter when ``framelog=info`` is passed. Those lines look like:
+
+    [Parsed_ebur128_0 @ ...] t: 1.2  TARGET:-23 LUFS    M:-18.0 S:-18.0     I: -18.0 LUFS ...
+
+Note that "LUFS" only appears once, after the I: value, so the S: regex
+must not require "LUFS" as a suffix.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ log = logging.getLogger("nonvisualaudio.loudness")
 _RE_I = re.compile(r"\bI:\s*(-?\d+(?:\.\d+)?)\s*LUFS")
 _RE_LRA = re.compile(r"\bLRA:\s*(-?\d+(?:\.\d+)?)\s*LU\b")
 _RE_PEAK = re.compile(r"\bPeak:\s*(-?\d+(?:\.\d+)?)\s*dBFS")
-_RE_SHORT_TERM = re.compile(r"\bS:\s*(-?\d+(?:\.\d+)?|-inf)\s*LUFS")
+_RE_SHORT_TERM = re.compile(r"\bS:\s*(-?\d+(?:\.\d+)?|-inf)")
 
 
 def _parse(stderr_text: str, filename: str) -> LoudnessMetrics:
@@ -103,7 +108,9 @@ def measure_loudness(path: str | Path) -> LoudnessMetrics:
         "-i",
         str(p),
         "-af",
-        "ebur128=peak=true:metadata=1",
+        # framelog=info is required for per-frame "S:" lines in ffmpeg 7.x;
+        # metadata=1 alone no longer triggers them.
+        "ebur128=peak=true:metadata=1:framelog=info",
         "-f",
         "null",
         "-",

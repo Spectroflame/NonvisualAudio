@@ -8,6 +8,23 @@ def _sine(freq: float, seconds: float = 2.0, sr: int = 48000) -> np.ndarray:
     return (0.5 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
 
 
+def _pink_noise(seconds: float, sr: int, seed: int = 0) -> np.ndarray:
+    """Pink (1/f) noise via Voss–McCartney. Good stand-in for real material."""
+    rng = np.random.default_rng(seed)
+    n = int(seconds * sr)
+    rows = 16
+    cols = n
+    source = rng.standard_normal((rows, cols))
+    # Update each row at geometrically decreasing rates.
+    for r in range(rows):
+        step = 1 << r
+        if step > 1:
+            source[r, :] = np.repeat(source[r, ::step], step)[:cols]
+    x = source.sum(axis=0)
+    x /= np.max(np.abs(x)) + 1e-12
+    return (0.3 * x).astype(np.float32)
+
+
 def test_mid_sine_dominates_mid_band():
     x = _sine(1000.0)
     s = compute_spectrum(x, 48000)
@@ -31,3 +48,63 @@ def test_empty_input_returns_silent_bands():
     s = compute_spectrum(np.zeros(0, dtype=np.float32), 48000)
     assert s.peaks == ()
     assert s.bands.mid_db <= -100.0
+
+
+def test_pink_noise_has_no_phantom_low_edge_peak():
+    # Pink noise has no narrow resonances. In particular, it must not trigger
+    # a phantom peak at the first bin above the analysis floor — the old
+    # regression reported an ever-present "~43 Hz" peak at 44.1 kHz.
+    # Test multiple seeds to make sure it's not a lucky draw.
+    for seed in range(5):
+        x = _pink_noise(3.0, 44100, seed=seed)
+        s = compute_spectrum(x, 44100)
+        low_edge_peaks = [p for p in s.peaks if p.frequency_hz < 80.0]
+        assert not low_edge_peaks, (
+            f"seed={seed}: pink noise produced phantom low-edge peak(s): "
+            f"{[(p.frequency_hz, p.prominence_db) for p in low_edge_peaks]}"
+        )
+
+
+def test_strong_40hz_resonance_is_still_reported():
+    # A genuine rumble at 40 Hz sitting on top of pink noise must still be
+    # detected. We narrowed the phantom-peak bug, not the analysis band.
+    sr = 44100
+    seconds = 3.0
+    t = np.arange(int(seconds * sr)) / sr
+    tone = 0.35 * np.sin(2 * np.pi * 42.0 * t)
+    bg = _pink_noise(seconds, sr, seed=4)[: len(tone)]
+    x = (tone + 0.2 * bg).astype(np.float32)
+    s = compute_spectrum(x, sr)
+    assert any(35.0 <= p.frequency_hz <= 55.0 for p in s.peaks), (
+        f"real 42 Hz tone was not reported; peaks: "
+        f"{[(p.frequency_hz, p.prominence_db) for p in s.peaks]}"
+    )
+
+
+def test_pink_noise_does_not_always_report_four_peaks():
+    # Pink noise should report very few peaks (ideally zero), definitely not
+    # the old hard-coded "always exactly 4" behaviour.
+    x = _pink_noise(3.0, 44100, seed=7)
+    s = compute_spectrum(x, 44100)
+    assert len(s.peaks) < 4, (
+        f"expected fewer than 4 peaks for pink noise, got {len(s.peaks)}: "
+        f"{[(p.frequency_hz, p.prominence_db) for p in s.peaks]}"
+    )
+
+
+def test_two_tones_over_pink_noise_surface_both_tones():
+    sr = 48000
+    t = np.arange(sr * 3) / sr
+    tones = (
+        0.3 * np.sin(2 * np.pi * 500.0 * t)
+        + 0.3 * np.sin(2 * np.pi * 3000.0 * t)
+    )
+    bg = _pink_noise(3.0, sr, seed=3)[: len(tones)]
+    x = (tones + 0.3 * bg).astype(np.float32)
+    s = compute_spectrum(x, sr)
+    # Both tones must appear; other bins are below-threshold noise.
+    freqs = sorted(p.frequency_hz for p in s.peaks)
+    assert any(480.0 < f < 520.0 for f in freqs)
+    assert any(2900.0 < f < 3100.0 for f in freqs)
+    # And we should not invent a bunch of extras.
+    assert len(s.peaks) <= 3

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 import wx
@@ -10,7 +11,7 @@ import wx
 from nonvisualaudio import preferences
 from nonvisualaudio.errors import UserFacingError
 from nonvisualaudio.localization import t
-from nonvisualaudio.reporting.genre_profiles import GENRES
+from nonvisualaudio.reporting import genre_profiles
 from nonvisualaudio.ui import a11y
 from nonvisualaudio.ui import theme
 from nonvisualaudio.ui.about_dialog import show_about
@@ -263,62 +264,42 @@ class MainWindow(wx.Frame):
 
     def _build_menu_bar(self) -> None:
         menubar = wx.MenuBar()
+        is_macos = sys.platform == "darwin"
 
-        file_menu = wx.Menu()
-        # Ctrl+Q on Linux/Windows, Cmd+Q on macOS (wx maps ACCEL_CMD
-        # to the native modifier).
-        quit_item = file_menu.Append(
-            wx.ID_EXIT,
-            t("ui.menu.quit"),
-            t("ui.menu.quit.hint"),
-        )
-        menubar.Append(file_menu, t("ui.menu.file"))
+        # File menu — only on Windows and Linux. On macOS wx.ID_EXIT is
+        # auto-relocated into the application menu, so a dedicated File
+        # menu would be visibly empty. Cmd+Q still works there because
+        # the App menu auto-wires it; we bind ID_EXIT globally below.
+        quit_item = None
+        if not is_macos:
+            file_menu = wx.Menu()
+            quit_item = file_menu.Append(
+                wx.ID_EXIT,
+                t("ui.menu.quit"),
+                t("ui.menu.quit.hint"),
+            )
+            menubar.Append(file_menu, t("ui.menu.file"))
 
+        # Edit menu: just the genre editor. Language moved out so the
+        # user finds it directly on the top-level menu bar.
         edit_menu = wx.Menu()
         genre_editor_item = edit_menu.Append(
             wx.ID_ANY,
             t("ui.menu.genre_editor"),
             t("ui.menu.genre_editor.hint"),
         )
-        edit_menu.AppendSeparator()
-        language_submenu = wx.Menu()
-        current_pref = preferences.load_language()
-        self._language_items: dict[str | None, wx.MenuItem] = {}
-        auto_item = language_submenu.AppendRadioItem(
-            wx.ID_ANY,
-            t("ui.genre_form.menu.language.auto"),
-            t("ui.genre_form.menu.language.auto.hint"),
-        )
-        self._language_items[None] = auto_item
-        en_item = language_submenu.AppendRadioItem(
-            wx.ID_ANY,
-            t("ui.genre_form.menu.language.english"),
-            "",
-        )
-        self._language_items["en"] = en_item
-        de_item = language_submenu.AppendRadioItem(
-            wx.ID_ANY,
-            t("ui.genre_form.menu.language.deutsch"),
-            "",
-        )
-        self._language_items["de"] = de_item
-        # Reflect the persisted preference (None → Auto).
-        self._language_items.get(current_pref, auto_item).Check(True)
-        edit_menu.AppendSubMenu(
-            language_submenu,
-            t("ui.genre_form.menu.language"),
-            t("ui.genre_form.menu.language.hint"),
-        )
         menubar.Append(edit_menu, t("ui.menu.edit"))
 
+        # View menu: theme submenu (four radio items).
         view_menu = wx.Menu()
-        theme_submenu = wx.Menu()
         current_theme = theme.current()
         self._theme_items: dict[str, wx.MenuItem] = {}
         for key in theme.VALID_THEMES:
-            label = t(f"ui.menu.theme.{key}")
-            hint = t(f"ui.menu.theme.{key}.hint")
-            item = theme_submenu.AppendRadioItem(wx.ID_ANY, label, hint)
+            item = view_menu.AppendRadioItem(
+                wx.ID_ANY,
+                t(f"ui.menu.theme.{key}"),
+                t(f"ui.menu.theme.{key}.hint"),
+            )
             self._theme_items[key] = item
             self.Bind(
                 wx.EVT_MENU,
@@ -326,26 +307,54 @@ class MainWindow(wx.Frame):
                 item,
             )
         self._theme_items.get(current_theme, self._theme_items["auto"]).Check(True)
-        view_menu.AppendSubMenu(
-            theme_submenu,
-            t("ui.menu.theme"),
-            t("ui.menu.theme.hint"),
-        )
         menubar.Append(view_menu, t("ui.menu.view"))
 
-        # Help menu. On macOS wx automatically relocates ID_ABOUT into the
-        # application menu while keeping the Help menu present for the
-        # standard "Help > About" path on Windows and Linux.
+        # Language menu: top-level so screen readers find it with one
+        # arrow press from the menu bar, no submenu drill-down needed.
+        language_menu = wx.Menu()
+        current_pref = preferences.load_language()
+        self._language_items: dict[str | None, wx.MenuItem] = {}
+        auto_item = language_menu.AppendRadioItem(
+            wx.ID_ANY,
+            t("ui.menu.language.auto"),
+            t("ui.menu.language.auto.hint"),
+        )
+        self._language_items[None] = auto_item
+        en_item = language_menu.AppendRadioItem(
+            wx.ID_ANY,
+            t("ui.menu.language.english"),
+            "",
+        )
+        self._language_items["en"] = en_item
+        de_item = language_menu.AppendRadioItem(
+            wx.ID_ANY,
+            t("ui.menu.language.deutsch"),
+            "",
+        )
+        self._language_items["de"] = de_item
+        self._language_items.get(current_pref, auto_item).Check(True)
+        menubar.Append(language_menu, t("ui.menu.language"))
+
+        # Help menu: use wx.ID_ANY so the About entry stays in Help on
+        # every platform (wx.ID_ABOUT would auto-relocate into the
+        # macOS App menu and leave Help empty). We also bind ID_ABOUT
+        # globally so the App menu's auto-generated "About" entry on
+        # macOS still triggers our dialog.
         help_menu = wx.Menu()
         about_item = help_menu.Append(
-            wx.ID_ABOUT,
+            wx.ID_ANY,
             t("ui.menu.about"),
             t("ui.menu.about.hint"),
         )
         menubar.Append(help_menu, t("ui.menu.help"))
 
         self.SetMenuBar(menubar)
-        self.Bind(wx.EVT_MENU, self._on_quit_menu, quit_item)
+        if quit_item is not None:
+            self.Bind(wx.EVT_MENU, self._on_quit_menu, quit_item)
+        # macOS App-menu auto-entries: wire Quit and About by ID so they
+        # respond whether wx created them or the OS did.
+        self.Bind(wx.EVT_MENU, self._on_quit_menu, id=wx.ID_EXIT)
+        self.Bind(wx.EVT_MENU, self._on_about, id=wx.ID_ABOUT)
         self.Bind(wx.EVT_MENU, self._on_about, about_item)
         self.Bind(wx.EVT_MENU, self._on_edit_genres, genre_editor_item)
         self.Bind(wx.EVT_MENU, lambda _e: self._on_language_chosen(None), auto_item)
@@ -384,8 +393,8 @@ class MainWindow(wx.Frame):
             prefs["language"] = lang
         preferences.save(prefs)
         wx.MessageBox(
-            t("ui.genre_form.menu.language.restart_body"),
-            t("ui.genre_form.menu.language.restart_title"),
+            t("ui.menu.language.restart_body"),
+            t("ui.menu.language.restart_title"),
             style=wx.OK | wx.ICON_INFORMATION,
             parent=self,
         )
@@ -545,9 +554,9 @@ class MainWindow(wx.Frame):
 
     def _update_genre_label(self) -> None:
         names = [
-            GENRES[k].display_name
+            genre_profiles.GENRES[k].display_name
             for k in self._selected_genre_keys
-            if k in GENRES
+            if k in genre_profiles.GENRES
         ]
         if not names:
             placeholder = t("ui.placeholder.no_genres")

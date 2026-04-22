@@ -28,12 +28,12 @@ from nonvisualaudio.errors import (
     UserFacingError,
 )
 from nonvisualaudio.localization import t
+from nonvisualaudio.reporting import genre_profiles
 from nonvisualaudio.reporting.builder import build_report
 from nonvisualaudio.reporting.comparison import (
     build_genre_comparison,
     build_reference_comparison,
 )
-from nonvisualaudio.reporting.genre_profiles import GENRES
 
 log = logging.getLogger("nonvisualaudio.worker")
 
@@ -231,7 +231,7 @@ class AnalysisWorker:
             )
             extras: list[str] = []
             for key in self._genre_keys:
-                profile = GENRES.get(key)
+                profile = genre_profiles.GENRES.get(key)
                 if profile:
                     extras.append(build_genre_comparison(result, profile))
             if reference is not None:

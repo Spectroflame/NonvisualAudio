@@ -14,7 +14,8 @@ from collections.abc import Iterable
 import wx
 
 from nonvisualaudio.localization import t
-from nonvisualaudio.reporting.genre_profiles import GENRES, grouped_genres
+from nonvisualaudio.reporting import genre_profiles
+from nonvisualaudio.reporting.genre_profiles import grouped_genres
 from nonvisualaudio.ui import a11y, theme
 
 
@@ -120,7 +121,7 @@ class GenreDialog(wx.Dialog):
     def selected_display_names(self) -> list[str]:
         names: list[str] = []
         for key in self.selected_keys():
-            profile = GENRES.get(key)
+            profile = genre_profiles.GENRES.get(key)
             if profile is not None:
                 names.append(profile.display_name)
         return names

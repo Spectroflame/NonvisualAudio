@@ -123,6 +123,28 @@ def current_lang() -> str:
     return _lang
 
 
+def has_key(key: str) -> bool:
+    """Return True if ``key`` is present in the active catalogue."""
+    return key in _catalog
+
+
+def t_subject(key: str, /, *, project: bool = False, **fmt: object) -> str:
+    """Look up ``key`` with an optional project-aware override.
+
+    When ``project`` is true, the lookup tries ``"{key}.project"`` first
+    and falls back to the base ``key`` if no project variant exists.
+    This lets the report builder swap "the file" for "the project" in
+    project mode without duplicating every sentence — only the verdicts
+    and other subject-bearing lines need a ``.project`` sibling in the
+    catalogue.
+    """
+    if project:
+        candidate = f"{key}.project"
+        if candidate in _catalog:
+            return t(candidate, **fmt)
+    return t(key, **fmt)
+
+
 def decimal_sep() -> str:
     """Decimal separator for the active language."""
     return "," if _lang.startswith("de") else "."

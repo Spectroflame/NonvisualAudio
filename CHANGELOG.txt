@@ -97,14 +97,98 @@ Das Windows-Media-Format .wma ist jetzt zusätzlich zu WAV, AIFF,
 MP3, M4A/AAC, FLAC, OGG und Opus als Eingabeformat erlaubt.
 
 
-ÜBER-DIALOG
+ÜBER-/HILFE-DIALOG
 
-Im Menü „Hilfe" findest du jetzt den Eintrag „Über NonvisualAudio".
-Dort stehen die aktuelle Versionsnummer, die MIT-Lizenz und die
-Credits der verwendeten Bibliotheken (ffmpeg, wxPython, scipy,
-numpy, soundfile, sounddevice/PortAudio). Der Dialog nutzt den
-plattform-eigenen Info-Dialog, wird also wie jedes andere System-
-Fenster vom Screenreader vorgelesen.
+F1 öffnet einen kompakten Über-/Hilfe-Dialog. Darin stehen
+Versionsnummer, Beschreibung, Lizenz, Credits und der GitHub-Link.
+Zwei Buttons machen den Dialog praktisch:
+
+  README anzeigen: öffnet die mitgelieferte README im Standard-
+  Textbetrachter oder Browser. Da liest sich der komplette
+  Anwender-Funktionsüberblick.
+
+  Fehler melden: ruft direkt die GitHub-Issues-Seite des Projekts auf,
+  damit Bugreports mit zwei Klicks landen, statt durch Menüs zu suchen.
+
+Im Hilfe-Menü findest du den gleichen Eintrag als „Über
+NonvisualAudio" (auf macOS auch im Anwendungs-Menü). Cmd+Shift+? auf
+deutscher Mac-Tastatur öffnet ihn ebenfalls.
+
+
+GETEILTER REPORT — NUR DIE GEWÜNSCHTEN ABSCHNITTE
+
+Im Hauptfenster gibt es den Button „Report-Abschnitte wählen…".
+Dort kannst du in einem Dialog ankreuzen, welche Blöcke der Report
+enthalten soll: Datei-Info, Lautheit, Dynamik, Frequenzbalance,
+Gesamturteil, Genre/Referenz-Vergleich oder Empfehlungen — beliebig
+kombinierbar. Wer nur die Lautheit braucht, bekommt auch nur die.
+Wer alles will, lässt es so wie es ist (Standard: alle Abschnitte).
+
+Die Auswahl wird zwischen App-Starts gemerkt, sodass du sie nur einmal
+einstellen musst.
+
+
+REFERENZ KANN JETZT EIN GANZES PROJEKT SEIN
+
+Die Referenz-Auswahl akzeptiert jetzt mehrere Dateien oder einen
+ganzen Ordner. Bei einer einzelnen Datei läuft der Vergleich wie
+bisher eins-zu-eins. Bei mehreren Dateien wird die Referenz mit der
+gleichen Projekt-Pipeline zusammengeführt wie das Ziel, sodass z. B.
+ein frisch gemastertes Album als Ganzes gegen ein bereits
+veröffentlichtes Album verglichen werden kann — nicht Track für
+Track, sondern als zwei Gesamt-Master gegeneinander.
+
+Bedienung:
+
+  „Referenz-Dateien wählen…" öffnet jetzt einen Mehrfach-Auswahl-
+  Dialog.
+
+  Drag-and-Drop auf das Referenz-Feld funktioniert ebenfalls — eine
+  oder mehrere Dateien oder ein kompletter Ordner.
+
+  Im Report heißt die Vergleichs-Sektion bei einem mehrteiligen
+  Referenz-Material „Referenz-Projekt: …" statt „Referenz-Dateiname:
+  …".
+
+
+PROJEKT-MODUS FÜR ALBEN UND HÖRSPIELE
+
+Neu ist die Checkbox „Alle Dateien zusammen als ein Projekt
+analysieren". Wenn aktiviert, behandelt die App die ganze Auswahl
+als ein durchgehendes Stück:
+
+  Lautheit, Dynamik und Frequenzbalance werden über alle Tracks
+  hinweg gemessen, als wäre die Sammlung ein einziges großes File.
+  Die Lautheit wird dabei mit dem ffmpeg-Concat-Filter direkt aus den
+  zusammengeschalteten Audiostreams berechnet — also ohne Genauigkeits-
+  verlust durch Mittelwert-Annäherungen.
+
+  Im Report-Header steht „Projekt" statt „Datei-Info", und die
+  Verdikte sprechen das Projekt direkt an („Das Projekt ist laut..."
+  statt „Die Datei ist laut...").
+
+  Zusätzlich gibt es den neuen Block „Konsistenz über alle Tracks":
+  eine kurze Zeile, die sagt, um wie viele LU sich die Track-
+  Lautheiten unterscheiden und welcher Track der lauteste und welcher
+  der leiseste ist.
+
+Sicherheitsnetze:
+
+  Beim App-Start ist der Projekt-Modus immer aus. So kann er nicht
+  versehentlich aus einer alten Sitzung „kleben" bleiben.
+
+  Wenn der Projekt-Modus an ist, aber nur eine Datei in der Liste
+  steht, fragt die App vor der Analyse nach: lieber als normale
+  Einzeldatei-Analyse fahren, als Ein-Track-Projekt durchziehen oder
+  abbrechen, um zuerst weitere Dateien hinzuzufügen.
+
+
+„LUFT" HEISST IN DER DEUTSCHEN AUSGABE JETZT „OBERE HÖHEN"
+
+Im Frequenz-Report wurde der oberste Bereich oberhalb 6 kHz von
+„Luft" in „obere Höhen" umbenannt. „Luft" ist im englischen Audio-
+Jargon eingebürgert, klingt im Deutschen aber unnötig fremd. „Obere
+Höhen" ist verständlicher und neutraler.
 
 
 MAUS-TOOLTIPS ERGÄNZEND ZUM SCREENREADER-HINWEIS

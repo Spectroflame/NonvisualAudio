@@ -20,6 +20,7 @@ from pathlib import Path
 import wx
 
 from nonvisualaudio.analysis.pipeline import analyze
+from nonvisualaudio.analysis.project import analyze_project
 from nonvisualaudio.analysis.result import AnalysisResult
 from nonvisualaudio.errors import (
     AudioDecodeError,
@@ -29,11 +30,12 @@ from nonvisualaudio.errors import (
 )
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
-from nonvisualaudio.reporting.builder import build_report
+from nonvisualaudio.reporting.builder import ReportSections, build_report
 from nonvisualaudio.reporting.comparison import (
     build_genre_comparison,
     build_reference_comparison,
 )
+from nonvisualaudio.reporting.project_report import build_project_report
 
 log = logging.getLogger("nonvisualaudio.worker")
 
@@ -79,17 +81,29 @@ class AnalysisWorker:
         self,
         target_paths: list[str],
         genre_keys: list[str] | None,
-        reference_path: str | None,
+        reference_paths: list[str] | None,
         on_done,
         on_error,
         on_progress,
+        sections: ReportSections | None = None,
+        project_mode: bool = False,
+        project_name: str | None = None,
+        reference_name: str | None = None,
     ) -> None:
         self._targets = list(target_paths)
         self._genre_keys = list(genre_keys or [])
-        self._reference = reference_path
+        # Reference is now a list so the user can pick a multi-file
+        # reference project (e.g. a previously released album to A/B
+        # against). One-element lists keep the historical single-file
+        # behaviour byte-for-byte.
+        self._reference_paths = list(reference_paths or [])
         self._on_done = on_done
         self._on_error = on_error
         self._on_progress = on_progress
+        self._sections = sections if sections is not None else ReportSections.all()
+        self._project_mode = project_mode
+        self._project_name = project_name
+        self._reference_name = reference_name
         self._thread = threading.Thread(target=self._run, daemon=True, name="nva-analysis")
 
     # ------------------------------------------------------------------ #
@@ -112,15 +126,56 @@ class AnalysisWorker:
     # Actual analysis
     # ------------------------------------------------------------------ #
 
+    # ------------------------------------------------------------------ #
+    # Reference helper
+    # ------------------------------------------------------------------ #
+
+    def _analyze_reference(
+        self,
+        percent_start: int,
+        percent_end: int,
+    ) -> AnalysisResult | None:
+        """Analyse the configured reference. Single file → analyze();
+        multi-file/folder → analyze_project() and return its combined
+        result. Returns None when no reference was configured.
+        """
+        n = len(self._reference_paths)
+        if n == 0:
+            return None
+        prefix = t("ui.worker.reference_prefix")
+        if n == 1:
+            return analyze(
+                self._reference_paths[0],
+                progress_cb=self._emit_progress,
+                percent_start=percent_start,
+                percent_end=percent_end,
+                label_prefix=prefix,
+            )
+        # Multi-file reference: build a project-style reference. The
+        # combined AnalysisResult plugs straight into the existing
+        # comparison builder with no further changes.
+        ref_project = analyze_project(
+            self._reference_paths,
+            project_name=self._reference_name or t("project.reference_default_name"),
+            progress_cb=self._emit_progress,
+            percent_start=percent_start,
+            percent_end=percent_end,
+        )
+        return ref_project.combined
+
     def _run(self) -> None:
         t0 = time.time()
         n_targets = len(self._targets)
         log.info(
-            "worker start targets=%d genres=%s reference=%s",
+            "worker start targets=%d genres=%s reference=%d project=%s",
             n_targets,
             self._genre_keys,
-            self._reference,
+            len(self._reference_paths),
+            self._project_mode,
         )
+        if self._project_mode and n_targets >= 1:
+            self._run_project(t0)
+            return
         if n_targets == 0:
             # Should never happen — the UI disables Analyze unless files are
             # selected — but report cleanly instead of crashing if it does.
@@ -135,17 +190,13 @@ class AnalysisWorker:
 
         # Budget: 0..15% for the reference (if any), 15..90% for the targets,
         # 90..100% for report assembly.
-        has_reference = bool(self._reference)
+        has_reference = bool(self._reference_paths)
         reference: AnalysisResult | None = None
         targets_start = 0
         if has_reference:
             try:
-                reference = analyze(
-                    self._reference,
-                    progress_cb=self._emit_progress,
-                    percent_start=0,
-                    percent_end=15,
-                    label_prefix=t("ui.worker.reference_prefix"),
+                reference = self._analyze_reference(
+                    percent_start=0, percent_end=15
                 )
             except MissingFFmpegError as exc:
                 self._emit_error(exc)
@@ -166,6 +217,7 @@ class AnalysisWorker:
                     )
                 )
                 return
+            assert reference is not None
             log.info(
                 "reference analyzed: I=%.1f LUFS crest=%.1f dB",
                 reference.loudness.integrated_lufs,
@@ -235,9 +287,19 @@ class AnalysisWorker:
                 if profile:
                     extras.append(build_genre_comparison(result, profile))
             if reference is not None:
-                extras.append(build_reference_comparison(result, reference))
+                extras.append(
+                    build_reference_comparison(
+                        result,
+                        reference,
+                        reference_is_project=len(self._reference_paths) > 1,
+                    )
+                )
             try:
-                section = build_report(result, extra_sections=extras)
+                section = build_report(
+                    result,
+                    extra_sections=extras,
+                    sections=self._sections,
+                )
             except Exception as exc:  # noqa: BLE001 — report builder is deterministic but paranoid
                 log.exception("report builder failed for %s", filename)
                 failures.append(
@@ -316,23 +378,135 @@ class AnalysisWorker:
         self._emit_progress(100, t("ui.worker.done"))
         self._emit_done(full_report, had_failures=bool(failures))
 
+    # ------------------------------------------------------------------ #
+    # Project-mode flow
+    # ------------------------------------------------------------------ #
+
+    def _run_project(self, t0: float) -> None:
+        """Analyse all selected files together as one project."""
+        # Optional reference still works the same way: it occupies the
+        # first 0..15 % slice and turns into a reference comparison
+        # against the project's combined result.
+        has_reference = bool(self._reference_paths)
+        reference: AnalysisResult | None = None
+        project_start = 0
+        if has_reference:
+            try:
+                reference = self._analyze_reference(
+                    percent_start=0, percent_end=15
+                )
+            except MissingFFmpegError as exc:
+                self._emit_error(exc)
+                return
+            except UserFacingError as exc:
+                self._emit_error(
+                    UserFacingError(
+                        title=t("worker.error.bad_reference.title"),
+                        body=exc.body,
+                        hint=(
+                            (exc.hint + " ") if exc.hint else ""
+                        )
+                        + t("worker.error.bad_reference.extra_hint"),
+                    )
+                )
+                return
+            project_start = 15
+
+        try:
+            project = analyze_project(
+                self._targets,
+                project_name=self._project_name,
+                progress_cb=self._emit_progress,
+                percent_start=project_start,
+                percent_end=92,
+            )
+        except MissingFFmpegError as exc:
+            self._emit_error(exc)
+            return
+        except UserFacingError as exc:
+            self._emit_error(exc)
+            return
+        except Exception as exc:  # noqa: BLE001 — defensive boundary
+            log.exception("project pipeline crashed")
+            self._emit_error(
+                UserFacingError(
+                    title=t("worker.error.project_failed.title"),
+                    body=str(exc) or t("worker.error.project_failed.body"),
+                    hint=t("worker.error.project_failed.hint"),
+                )
+            )
+            return
+
+        extras: list[str] = []
+        for key in self._genre_keys:
+            profile = genre_profiles.GENRES.get(key)
+            if profile:
+                extras.append(
+                    build_genre_comparison(
+                        project.combined, profile, project=True
+                    )
+                )
+        if reference is not None:
+            extras.append(
+                build_reference_comparison(
+                    project.combined,
+                    reference,
+                    project=True,
+                    reference_is_project=len(self._reference_paths) > 1,
+                )
+            )
+
+        try:
+            full_report = build_project_report(
+                project,
+                extra_sections=extras,
+                sections=self._sections,
+            )
+        except Exception as exc:  # noqa: BLE001 — defensive boundary
+            log.exception("project report builder crashed")
+            self._emit_error(
+                UserFacingError(
+                    title=t("worker.error.project_failed.title"),
+                    body=str(exc) or t("worker.error.project_failed.body"),
+                    hint=t("worker.error.project_failed.hint"),
+                )
+            )
+            return
+
+        log.info(
+            "project report ready: %d files, length=%d chars, total=%.2fs",
+            len(project.files),
+            len(full_report),
+            time.time() - t0,
+        )
+        self._emit_progress(100, t("ui.worker.done"))
+        self._emit_done(full_report, had_failures=False)
+
 
 def start_analysis(
     target_paths: Iterable[str],
     genre_keys: Iterable[str] | None,
-    reference_path: str | None,
+    reference_paths: Iterable[str] | None,
     on_done,
     on_error,
     on_progress,
+    sections: ReportSections | None = None,
+    project_mode: bool = False,
+    project_name: str | None = None,
+    reference_name: str | None = None,
 ) -> AnalysisWorker:
     """Spin up the background worker. Returns it so callers can keep a ref."""
     worker = AnalysisWorker(
         list(target_paths),
         list(genre_keys) if genre_keys is not None else None,
-        reference_path,
+        list(reference_paths) if reference_paths is not None else None,
         on_done,
         on_error,
         on_progress,
+        sections=sections,
+        project_mode=project_mode,
+        project_name=project_name,
+        reference_name=reference_name,
     )
     worker.start()
     return worker

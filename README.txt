@@ -1,7 +1,7 @@
 NonvisualAudio — Accessible Audio Analyzer
 ===========================================
 
-Version 0.2.2
+Version 2.0
 For macOS on Apple Silicon (M1, M2, M3, M4)
 
 
@@ -50,6 +50,9 @@ The main window has a handful of controls, arranged top to bottom:
   Choose Genres         open the genre reference dialog
   Choose Reference File pick a second audio file for a direct comparison
   Clear Reference       remove the reference file
+  Choose Report Sections   pick which blocks the report should contain
+  Selected report sections read only display of the current selection
+  Project mode             checkbox: combine all files into one project
   Analyze               run the analysis
   Progress              shows percentage while the analysis is running
 
@@ -60,15 +63,29 @@ A typical flow
   2. Optional: click Choose Genres and tick any number of genre profiles
      you want your files compared against. Pick none to get a standalone
      analysis of your file's absolute measurements.
-  3. Optional: click Choose Reference File and pick a second file for a
-     direct A versus B comparison.
-  4. Click Analyze. A steady metronome click plays while the analysis
+  3. Optional: click Choose Reference Files and pick one or several
+     audio files (or drop a folder onto the reference area) for a
+     direct A versus B comparison. A single reference file is compared
+     one-to-one; a multi-file reference is combined into a reference
+     project so a whole album or audio drama can be A/B'd against the
+     target as a whole.
+  4. Optional: click Choose Report Sections and tick only the blocks you
+     want in the report — for example only loudness, or only frequency
+     balance. Default is every section enabled.
+  5. Optional: turn on Project mode if your selected files belong to one
+     album, audio drama, or other multi-track work. The analyzer then
+     measures loudness, dynamics, and frequency balance over the whole
+     set as if it were one continuous file, and adds a short Cross-Track
+     Consistency block. Project mode resets to off every time the app
+     launches; that's intentional, so it cannot silently persist after a
+     single-file workflow.
+  6. Click Analyze. A steady metronome click plays while the analysis
      runs. The progress bar shows where in the pipeline it is.
-  5. The report opens in its own window. The cursor is placed at the
+  7. The report opens in its own window. The cursor is placed at the
      top so your screen reader can start reading line by line right
      away. Press Control Shift C or the Copy Report button to put the
      full text on your clipboard.
-  6. Close the results window to return to the main window. You can
+  8. Close the results window to return to the main window. You can
      then run another analysis with different files, genres or a
      different reference, without restarting the app.
 
@@ -219,7 +236,15 @@ builds exist as a plan but have not been produced yet.
 FEEDBACK AND HELP
 -----------------
 
-This is an early prototype. Please report anything that is unclear,
-broken, reads oddly with your screen reader, or is missing. Suggestions
-for new genre profiles, new measurements, or new features are very
-welcome.
+Please report anything that is unclear, broken, reads oddly with your
+screen reader, or is missing. Suggestions for new genre profiles, new
+measurements, or new features are very welcome.
+
+The fastest way to file a bug report or feature request is the project's
+issue tracker on GitHub. The app's About dialog (F1, or Help → About
+NonvisualAudio) has a "Report a Bug" button that opens the issue page
+directly in your default browser; the same dialog also has a "Show
+README" button that re-opens this file.
+
+  Issue tracker:  https://github.com/Spectroflame/NonvisualAudio/issues
+  Project page:   https://github.com/Spectroflame/NonvisualAudio

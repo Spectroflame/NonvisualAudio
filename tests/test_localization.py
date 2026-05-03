@@ -150,6 +150,13 @@ def test_broken_preferences_file_is_not_an_error(pinned_user_dir: Path):
     assert preferences.load() == {}
 
 
+def test_report_sections_round_trip(pinned_user_dir: Path):
+    # Default: never set → load returns None and callers default to "all".
+    assert preferences.load_report_sections() is None
+    preferences.save_report_sections(["loudness", "frequency"])
+    assert preferences.load_report_sections() == ["loudness", "frequency"]
+
+
 # --------------------------------------------------------------------------- #
 # User override of the catalogue
 # --------------------------------------------------------------------------- #

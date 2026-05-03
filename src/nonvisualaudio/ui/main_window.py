@@ -12,6 +12,7 @@ from nonvisualaudio import preferences
 from nonvisualaudio.errors import UserFacingError
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
+from nonvisualaudio.reporting.builder import SECTION_ORDER, ReportSections
 from nonvisualaudio.ui import a11y
 from nonvisualaudio.ui import theme
 from nonvisualaudio.ui.about_dialog import show_about
@@ -20,8 +21,8 @@ from nonvisualaudio.ui.drop import expand_audio_paths, parse_paste_text
 from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.ui.genre_dialog import GenreDialog
 from nonvisualaudio.ui.genre_editor_dialog import GenreEditorDialog
-from nonvisualaudio.ui.help_viewer import open_help
 from nonvisualaudio.ui.results_dialog import ResultsDialog
+from nonvisualaudio.ui.sections_dialog import SectionsDialog, section_label
 from nonvisualaudio.ui.worker import start_analysis
 
 
@@ -49,9 +50,22 @@ class MainWindow(wx.Frame):
         self.SetName(t("ui.main.title"))
 
         self._target_paths: list[str] = []
-        self._reference_path: str | None = None
+        # Reference can be a single file (the historical case) or a
+        # multi-file/folder selection that we treat as a "reference
+        # project". An empty list means no reference comparison.
+        self._reference_paths: list[str] = []
         self._click_ticker = ClickTicker(self)
         self._worker = None  # keep a reference to the running worker
+        # Report-section preference: default to "everything on" so a
+        # fresh install behaves like the historical report.
+        stored_sections = preferences.load_report_sections()
+        self._section_keys: list[str] = (
+            list(stored_sections) if stored_sections else list(SECTION_ORDER)
+        )
+        # Project mode is intentionally NOT persisted: it is a per-run
+        # choice and accidentally leaving it on after a single-file
+        # workflow would silently change every later analysis.
+        self._project_mode: bool = False
 
         panel = wx.Panel(self)
         root = wx.BoxSizer(wx.VERTICAL)
@@ -162,11 +176,70 @@ class MainWindow(wx.Frame):
             t("ui.label.selected_reference"),
             t("ui.hint.selected_reference"),
         )
-        self.reference_label.SetMinSize(wx.Size(-1, 60))
+        self.reference_label.SetMinSize(wx.Size(-1, 90))
         self._update_reference_label()
         root.Add(
             self.reference_label,
             flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.TOP,
+            border=10,
+        )
+
+        # Drag-and-drop a folder or several audio files onto the
+        # reference area to set / replace the reference selection. The
+        # same _AudioDropTarget already used for the targets list works
+        # here too — it just routes into a different setter.
+        self.reference_label.SetDropTarget(
+            _AudioDropTarget(self._set_reference_paths)
+        )
+
+        # ----- Report sections picker -----
+        sections_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.sections_btn = wx.Button(
+            panel, label=t("ui.btn.choose_sections")
+        )
+        a11y.set_a11y(
+            self.sections_btn,
+            t("ui.label.sections_picker"),
+            t("ui.hint.sections_picker"),
+        )
+        self.sections_btn.Bind(wx.EVT_BUTTON, self._on_choose_sections)
+        sections_row.Add(self.sections_btn)
+        root.Add(sections_row, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+
+        self.sections_value_label = wx.TextCtrl(
+            panel,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_DONTWRAP,
+        )
+        a11y.set_a11y(
+            self.sections_value_label,
+            t("ui.label.selected_sections"),
+            t("ui.hint.selected_sections"),
+        )
+        self.sections_value_label.SetMinSize(wx.Size(-1, 60))
+        self._update_sections_label()
+        root.Add(
+            self.sections_value_label,
+            flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
+            border=10,
+        )
+
+        # ----- Project-mode toggle -----
+        # A regular wx.CheckBox is read aloud reliably as a check box
+        # state on every supported screen reader, so we don't need a
+        # composite or radio group here.
+        self.project_check = wx.CheckBox(
+            panel, label=t("ui.btn.project_mode")
+        )
+        a11y.set_a11y(
+            self.project_check,
+            t("ui.label.project_mode"),
+            t("ui.hint.project_mode"),
+        )
+        self.project_check.SetValue(self._project_mode)
+        self.project_check.Bind(wx.EVT_CHECKBOX, self._on_toggle_project)
+        root.Add(
+            self.project_check,
+            flag=wx.LEFT | wx.RIGHT | wx.TOP,
             border=10,
         )
 
@@ -218,18 +291,23 @@ class MainWindow(wx.Frame):
         self.SetStatusText(t("status.idle"))
 
         # Keyboard shortcuts: Ctrl/Cmd+O to add files, Ctrl/Cmd+R to run,
-        # F1 to open help (already wired via the menu accelerator but
-        # listed here for completeness), and Cmd+Shift+ß which on a
-        # German Mac keyboard is the physical Cmd+? — the native help
-        # shortcut expected by macOS users.
+        # F1 (and Cmd+Shift+ß on a German Mac keyboard, which is the
+        # physical Cmd+?) to open the About/Help dialog. Routing F1 to
+        # ID_ABOUT means the same handler is hit no matter whether the
+        # user uses the menu, F1, or the macOS Cmd+? convention.
         accel = wx.AcceleratorTable(
             [
                 wx.AcceleratorEntry(wx.ACCEL_CMD, ord("O"), self._get_id(self.open_btn)),
                 wx.AcceleratorEntry(wx.ACCEL_CMD, ord("R"), self._get_id(self.analyze_btn)),
                 wx.AcceleratorEntry(
+                    wx.ACCEL_NORMAL,
+                    wx.WXK_F1,
+                    self._about_menu_id,
+                ),
+                wx.AcceleratorEntry(
                     wx.ACCEL_CMD | wx.ACCEL_SHIFT,
                     ord("ß"),
-                    self._help_topic_id,
+                    self._about_menu_id,
                 ),
             ]
         )
@@ -345,18 +423,14 @@ class MainWindow(wx.Frame):
         self._language_items.get(current_pref, auto_item).Check(True)
         menubar.Append(language_menu, t("ui.menu.language"))
 
-        # Help menu: use wx.ID_ANY so the About entry stays in Help on
-        # every platform (wx.ID_ABOUT would auto-relocate into the
-        # macOS App menu and leave Help empty). We also bind ID_ABOUT
-        # globally so the App menu's auto-generated "About" entry on
-        # macOS still triggers our dialog.
+        # Help menu: a single "About / Help" entry that points to the
+        # new combined dialog (app info + README + bug-report shortcut).
+        # Use wx.ID_ANY so the entry stays in the Help menu on every
+        # platform — wx.ID_ABOUT would auto-relocate into the macOS App
+        # menu and leave Help empty. We also bind ID_ABOUT globally so
+        # the App menu's auto-generated "About" entry on macOS still
+        # triggers our dialog.
         help_menu = wx.Menu()
-        help_topic_item = help_menu.Append(
-            wx.ID_HELP,
-            t("ui.menu.help_topic"),
-            t("ui.menu.help_topic.hint"),
-        )
-        self._help_topic_id = help_topic_item.GetId()
         about_item = help_menu.Append(
             wx.ID_ANY,
             t("ui.menu.about"),
@@ -372,7 +446,8 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_quit_menu, id=wx.ID_EXIT)
         self.Bind(wx.EVT_MENU, self._on_about, id=wx.ID_ABOUT)
         self.Bind(wx.EVT_MENU, self._on_about, about_item)
-        self.Bind(wx.EVT_MENU, self._on_help_topic, help_topic_item)
+        # F1 routes through the same handler — accelerator wired below.
+        self._about_menu_id = about_item.GetId()
         self.Bind(wx.EVT_MENU, self._on_edit_genres, genre_editor_item)
         self.Bind(wx.EVT_MENU, lambda _e: self._on_language_chosen(None), auto_item)
         self.Bind(wx.EVT_MENU, lambda _e: self._on_language_chosen("en"), en_item)
@@ -385,16 +460,6 @@ class MainWindow(wx.Frame):
 
     def _on_about(self, event: wx.CommandEvent) -> None:
         show_about(self)
-
-    def _on_help_topic(self, event: wx.CommandEvent) -> None:
-        if open_help():
-            return
-        wx.MessageBox(
-            t("ui.help.not_found.body"),
-            t("ui.help.not_found.title"),
-            style=wx.OK | wx.ICON_WARNING,
-            parent=self,
-        )
 
     def _on_theme_chosen(self, theme_key: str) -> None:
         if theme_key == theme.current():
@@ -613,17 +678,112 @@ class MainWindow(wx.Frame):
         log.info("genres selected: %s", self._selected_genre_keys)
 
     # ------------------------------------------------------------------ #
+    # Report sections
+    # ------------------------------------------------------------------ #
+
+    def _update_sections_label(self) -> None:
+        if not self._section_keys:
+            placeholder = t("ui.placeholder.no_sections")
+            self.sections_value_label.ChangeValue(placeholder)
+            a11y.update_help(self.sections_value_label, placeholder)
+            return
+        if set(self._section_keys) == set(SECTION_ORDER):
+            text = t("ui.list.sections_all")
+            self.sections_value_label.ChangeValue(text)
+            a11y.update_help(self.sections_value_label, text)
+            return
+        names = [section_label(k) for k in SECTION_ORDER if k in self._section_keys]
+        count = len(names)
+        header_key = (
+            "ui.list.sections_selected.one"
+            if count == 1
+            else "ui.list.sections_selected.other"
+        )
+        text = t(header_key, count=count) + "\n" + "\n".join(
+            f"{i + 1}. {n}" for i, n in enumerate(names)
+        )
+        self.sections_value_label.ChangeValue(text)
+        a11y.update_help(self.sections_value_label, text)
+
+    def _on_choose_sections(self, event: wx.Event) -> None:
+        dlg = SectionsDialog(self, selected_keys=self._section_keys)
+        try:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            self._section_keys = dlg.selected_keys()
+        finally:
+            dlg.Destroy()
+        # Persist so the choice survives a restart. Saving the full list
+        # of keys (rather than a boolean per key) means future versions
+        # can add new sections without rewriting older preference files.
+        preferences.save_report_sections(self._section_keys)
+        self._update_sections_label()
+        log.info("report sections selected: %s", self._section_keys)
+
+    # ------------------------------------------------------------------ #
+    # Project mode
+    # ------------------------------------------------------------------ #
+
+    def _on_toggle_project(self, event: wx.Event) -> None:
+        self._project_mode = bool(self.project_check.GetValue())
+        log.info("project mode toggled: %s (not persisted)", self._project_mode)
+
+    def _derive_project_name(self) -> str | None:
+        """Pick a sensible project name from the input list.
+
+        Uses the common parent folder if every input lives below the
+        same directory; otherwise returns ``None`` and the pipeline
+        falls back to a generic localised label.
+        """
+        return self._common_folder_name(self._target_paths)
+
+    def _derive_reference_name(self) -> str | None:
+        """Same heuristic as :meth:`_derive_project_name` but for the
+        reference project.
+        """
+        if len(self._reference_paths) <= 1:
+            return None
+        return self._common_folder_name(self._reference_paths)
+
+    @staticmethod
+    def _common_folder_name(paths: list[str]) -> str | None:
+        if not paths:
+            return None
+        from os.path import commonpath
+
+        try:
+            common = Path(commonpath(paths))
+        except ValueError:
+            return None
+        if common.is_dir():
+            return common.name or None
+        return None
+
+    # ------------------------------------------------------------------ #
     # Reference file
     # ------------------------------------------------------------------ #
 
     def _update_reference_label(self) -> None:
-        if self._reference_path is None:
+        n = len(self._reference_paths)
+        if n == 0:
             placeholder = t("ui.placeholder.no_reference")
             self.reference_label.ChangeValue(placeholder)
             a11y.update_help(self.reference_label, placeholder)
             return
-        name = Path(self._reference_path).name
-        text = t("ui.list.reference_selected", name=name)
+        if n == 1:
+            name = Path(self._reference_paths[0]).name
+            text = t("ui.list.reference_selected", name=name)
+        else:
+            # Multi-file reference: list each file the same way the
+            # target list does, with a header that names the count so
+            # the screen reader announces "5 reference files combined…"
+            # before walking through the names.
+            header = t("ui.list.reference_project_selected", count=n)
+            lines = [
+                f"{i + 1}. {Path(p).name}"
+                for i, p in enumerate(self._reference_paths)
+            ]
+            text = header + "\n" + "\n".join(lines)
         self.reference_label.ChangeValue(text)
         a11y.update_help(self.reference_label, text)
 
@@ -632,18 +792,41 @@ class MainWindow(wx.Frame):
             self,
             message=t("ui.file_dialog.reference"),
             wildcard=t("ui.file_dialog.wildcard"),
-            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+            # FD_MULTIPLE lets the user pick a whole album or audio drama
+            # as a single reference, which then gets combined with the
+            # same project-mode pipeline as the target.
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE,
         ) as dlg:
             if dlg.ShowModal() != wx.ID_OK:
                 return
-            path = dlg.GetPath()
-        log.info("reference selected: %s", path)
-        self._reference_path = path
+            paths = list(dlg.GetPaths())
+        if not paths:
+            return
+        self._set_reference_paths(paths)
+
+    def _set_reference_paths(self, paths: list[str]) -> None:
+        """Replace the current reference selection with ``paths``.
+
+        Folder paths are walked recursively just like in the target
+        list — drag-and-drop a whole album folder and every audio file
+        inside becomes part of the reference project.
+        """
+        expanded = expand_audio_paths(paths)
+        if not expanded:
+            log.info(
+                "reference picker: no audio files found in %d input(s)",
+                len(paths),
+            )
+            return
+        self._reference_paths = expanded
+        log.info(
+            "reference selected: %d file(s)", len(self._reference_paths)
+        )
         self._update_reference_label()
         self.clear_reference_btn.Enable()
 
     def _on_clear_reference(self, event: wx.Event) -> None:
-        self._reference_path = None
+        self._reference_paths = []
         self._update_reference_label()
         self.clear_reference_btn.Disable()
         log.info("reference cleared")
@@ -660,6 +843,30 @@ class MainWindow(wx.Frame):
     def _on_analyze(self, event: wx.Event) -> None:
         if not self._target_paths:
             return
+        # Project mode with a single file is almost always a slip — the
+        # mode only adds value when there are multiple tracks to combine.
+        # Surface the mismatch and offer the safer alternative (regular
+        # single-file analysis) as the default answer; the user can still
+        # opt to run the file as a one-track "project" if they really
+        # want to.
+        if self._project_mode and len(self._target_paths) == 1:
+            answer = wx.MessageBox(
+                t("ui.project_mode.single_file.body"),
+                t("ui.project_mode.single_file.title"),
+                style=wx.YES_NO | wx.CANCEL | wx.YES_DEFAULT
+                | wx.ICON_WARNING,
+                parent=self,
+            )
+            if answer == wx.CANCEL:
+                # User wants to step back and adjust the file list first.
+                return
+            if answer == wx.YES:
+                self._project_mode = False
+                self.project_check.SetValue(False)
+                log.info(
+                    "project mode auto-disabled: only one file in the list"
+                )
+            # answer == wx.NO falls through and runs a one-track project.
         self.analyze_btn.Disable()
         self.open_btn.Disable()
         self.SetStatusText(t("status.running"))
@@ -670,19 +877,27 @@ class MainWindow(wx.Frame):
         self.Layout()
         self._click_ticker.start()
         genre_keys = self._selected_genre_keys or None
+        sections = ReportSections.from_keys(self._section_keys)
         log.info(
-            "analyze clicked: %d file(s) genres=%s reference=%s",
+            "analyze clicked: %d file(s) genres=%s reference=%d "
+            "sections=%s project=%s",
             len(self._target_paths),
             genre_keys,
-            self._reference_path,
+            len(self._reference_paths),
+            self._section_keys,
+            self._project_mode,
         )
         self._worker = start_analysis(
             self._target_paths,
             genre_keys,
-            self._reference_path,
+            self._reference_paths or None,
             self._on_analysis_done,
             self._on_analysis_failed,
             self._on_analysis_progress,
+            sections=sections,
+            project_mode=self._project_mode,
+            project_name=self._derive_project_name(),
+            reference_name=self._derive_reference_name(),
         )
 
     def _on_analysis_progress(self, percent: int, stage: str) -> None:

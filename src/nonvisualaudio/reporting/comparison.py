@@ -3,45 +3,60 @@
 from __future__ import annotations
 
 from nonvisualaudio.analysis.result import AnalysisResult
-from nonvisualaudio.localization import t
+from nonvisualaudio.localization import t, t_subject
 from nonvisualaudio.reporting.genre_profiles import GenreProfile
 from nonvisualaudio.reporting.templates import fmt_decimal, fmt_signed, heading
 
 
-def _lufs_diff_sentence(target: float, reference: float, label: str) -> str:
+def _lufs_diff_sentence(
+    target: float,
+    reference: float,
+    label: str,
+    *,
+    project: bool = False,
+) -> str:
     diff = target - reference
     target_s = fmt_signed(target)
     reference_s = fmt_signed(reference)
     diff_s = fmt_signed(abs(diff))
     if diff > 1.0:
-        return t(
+        return t_subject(
             "report.comp.lufs_louder",
+            project=project,
             target=target_s,
             diff=diff_s,
             label=label,
             reference=reference_s,
         )
     if diff < -1.0:
-        return t(
+        return t_subject(
             "report.comp.lufs_quieter",
+            project=project,
             target=target_s,
             diff=diff_s,
             label=label,
             reference=reference_s,
         )
-    return t(
+    return t_subject(
         "report.comp.lufs_inline",
+        project=project,
         target=target_s,
         label=label,
         reference=reference_s,
     )
 
 
-def build_genre_comparison(target: AnalysisResult, genre: GenreProfile) -> str:
+def build_genre_comparison(
+    target: AnalysisResult,
+    genre: GenreProfile,
+    *,
+    project: bool = False,
+) -> str:
     lines = [heading(t("report.heading.comparison_genre", name=genre.display_name))]
     label = t("report.comp.typical_prefix", name=genre.display_name.lower())
     lines.append(_lufs_diff_sentence(
-        target.loudness.integrated_lufs, genre.target_lufs, label
+        target.loudness.integrated_lufs, genre.target_lufs, label,
+        project=project,
     ))
 
     lra = target.loudness.loudness_range_lu
@@ -80,9 +95,29 @@ def _band_diff_sentence(name: str, a: float, b: float) -> str | None:
     )
 
 
-def build_reference_comparison(target: AnalysisResult, reference: AnalysisResult) -> str:
+def build_reference_comparison(
+    target: AnalysisResult,
+    reference: AnalysisResult,
+    *,
+    project: bool = False,
+    reference_is_project: bool = False,
+) -> str:
+    """Compare target against reference.
+
+    ``project=True`` swaps "the target" wording so the comparison reads
+    as "the project is X LU louder than the reference" instead of "the
+    target is...". ``reference_is_project=True`` tells the renderer the
+    reference itself was assembled from multiple files (a "reference
+    project"); the opening line then reads "Reference project: ..."
+    instead of "Reference filename: ...".
+    """
     lines = [heading(t("report.heading.comparison_reference"))]
-    lines.append(t("report.ref.filename", filename=reference.file_info.filename))
+    intro_key = (
+        "report.ref.filename.project"
+        if reference_is_project
+        else "report.ref.filename"
+    )
+    lines.append(t(intro_key, filename=reference.file_info.filename))
 
     # Loudness.
     di = target.loudness.integrated_lufs - reference.loudness.integrated_lufs
@@ -92,8 +127,9 @@ def build_reference_comparison(target: AnalysisResult, reference: AnalysisResult
             else t("report.ref.direction.quieter")
         )
         lines.append(
-            t(
+            t_subject(
                 "report.ref.loudness_diff",
+                project=project,
                 diff=fmt_decimal(abs(di)),
                 direction=direction,
                 target=fmt_signed(target.loudness.integrated_lufs),
@@ -101,7 +137,7 @@ def build_reference_comparison(target: AnalysisResult, reference: AnalysisResult
             )
         )
     else:
-        lines.append(t("report.ref.loudness_same"))
+        lines.append(t_subject("report.ref.loudness_same", project=project))
 
     # LRA.
     dlra = target.loudness.loudness_range_lu - reference.loudness.loudness_range_lu
@@ -111,8 +147,9 @@ def build_reference_comparison(target: AnalysisResult, reference: AnalysisResult
             else t("report.ref.lra.narrower")
         )
         lines.append(
-            t(
+            t_subject(
                 "report.ref.lra_diff",
+                project=project,
                 direction=direction,
                 diff=fmt_decimal(abs(dlra)),
             )
@@ -126,8 +163,9 @@ def build_reference_comparison(target: AnalysisResult, reference: AnalysisResult
             else t("report.ref.dyn.more_compressed")
         )
         lines.append(
-            t(
+            t_subject(
                 "report.ref.dyn_diff",
+                project=project,
                 direction=direction,
                 diff=fmt_decimal(abs(dcrest)),
             )

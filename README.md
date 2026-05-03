@@ -12,20 +12,37 @@ tree contains zero network libraries.
 
 ## Features
 
-- **Input formats**: WAV, AIFF, MP3, M4A/AAC, OGG, FLAC, Opus
+- **Input formats**: WAV, AIFF, MP3, M4A/AAC, OGG, FLAC, Opus, WMA
 - **Batch analysis**: analyze several files in one pass, each gets its own
   section in the final report
+- **Project mode** for albums and audio dramas: turn the toggle on and
+  every selected file is treated as one continuous piece. Loudness,
+  dynamics, and frequency balance are measured over the whole set as if
+  it were a single bounced file (loudness via ffmpeg's `concat` filter
+  feeding `ebur128`, dynamics and spectrum via numpy concatenation), and
+  a Cross-Track Consistency block flags how much per-track integrated
+  loudness varies and which track is loudest / quietest. The mode
+  resets to off on every launch so it cannot silently persist
+- **Splittable report**: a Choose Report Sections dialog lets the user
+  enable only the blocks they want — only loudness, only frequency
+  balance, only dynamics, etc. The selection is remembered between
+  launches; the default is every section enabled
 - **42 genre references** across 13 categories (Audio Drama, Podcast,
   Spoken Word, Pop, Rock, Rap & Hip Hop, R&B & Soul, Reggae, Jazz, Folk &
   Country, Electronic, Classical, Film & Cinema) — pick any number of them
   per analysis
-- **Reference file comparison**: supply a second audio file for a direct
-  A-vs-B comparison, independently or in combination with genre references
+- **Reference comparison**: supply a second audio file — or several files /
+  a folder — as the reference. A single file is compared one-to-one; a
+  multi-file reference is combined into a "reference project" with the
+  same pipeline as the target, so a freshly mastered album can be A/B'd
+  against a previously released album as a whole instead of track by
+  track. Works independently of, and on top of, genre references
 - **Measurements**:
   - Integrated LUFS (EBU R128 / ITU BS.1770 via ffmpeg's `ebur128` filter)
   - Short-term peak LUFS, true peak dBTP, loudness range (LRA)
   - Crest factor, simplified DR score, compression assessment
-  - Energy per frequency band (sub, bass, low-mid, mid, presence, air)
+  - Energy per frequency band (sub, bass, low-mid, mid, presence, upper
+    highs / "air")
   - Narrow spectral peaks called out in exact Hz with a character note
     ("boxiness", "sibilance", "nasal or telephone-like character", etc.)
 - **Screen-reader-first UI**:
@@ -134,8 +151,10 @@ NVA_DEBUG=1 python -m nonvisualaudio
 pytest
 ```
 
-20 unit tests cover templates, report builder, genre/reference comparison,
-dynamics, and spectrum analysis.
+108 unit tests cover templates, report builder, splittable-report
+section selection, project-mode aggregation and rendering,
+genre/reference comparison, dynamics, spectrum analysis, drop/paste,
+themes, and localisation.
 
 ## Building a standalone macOS app
 

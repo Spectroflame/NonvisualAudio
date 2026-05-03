@@ -87,3 +87,21 @@ def load_theme() -> str | None:
 
 def save_theme(theme: str) -> None:
     _update("theme", theme)
+
+
+def load_report_sections() -> list[str] | None:
+    """Return the user's report-section selection as a list of keys.
+
+    ``None`` is returned when the user has never adjusted the picker —
+    callers then default to "every section enabled", which matches the
+    historical report layout.
+    """
+    value = load().get("report_sections")
+    if not isinstance(value, list):
+        return None
+    keys = [str(item) for item in value if isinstance(item, str) and item]
+    return keys
+
+
+def save_report_sections(keys: list[str]) -> None:
+    _update("report_sections", list(keys))

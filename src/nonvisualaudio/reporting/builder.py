@@ -7,6 +7,9 @@ for screen reader users who rely on predictable structure.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
+from typing import Iterable
+
 from nonvisualaudio.analysis.result import (
     AnalysisResult,
     BandEnergies,
@@ -16,7 +19,7 @@ from nonvisualaudio.analysis.result import (
     SpectralPeak,
     SpectrumMetrics,
 )
-from nonvisualaudio.localization import t
+from nonvisualaudio.localization import t, t_subject
 from nonvisualaudio.reporting.templates import (
     fmt_decimal,
     fmt_duration,
@@ -24,6 +27,93 @@ from nonvisualaudio.reporting.templates import (
     fmt_signed,
     heading,
     paragraph,
+)
+
+
+@dataclass(frozen=True)
+class ReportSections:
+    """Which top-level sections appear in the rendered report.
+
+    Defaults to every section enabled, which is how the report has always
+    been built. Callers that want a sliced report (only loudness, only
+    spectrum, …) construct an instance with the unwanted sections turned
+    off. The helpers ``ReportSections.all()`` and
+    ``ReportSections.from_keys()`` are convenience constructors used by
+    the UI's section-picker dialog.
+    """
+
+    file_info: bool = True
+    loudness: bool = True
+    dynamics: bool = True
+    frequency: bool = True
+    overall: bool = True
+    comparison: bool = True
+    recommendations: bool = True
+
+    @classmethod
+    def all(cls) -> "ReportSections":
+        return cls()
+
+    @classmethod
+    def none(cls) -> "ReportSections":
+        return cls(
+            file_info=False,
+            loudness=False,
+            dynamics=False,
+            frequency=False,
+            overall=False,
+            comparison=False,
+            recommendations=False,
+        )
+
+    @classmethod
+    def from_keys(cls, keys: Iterable[str]) -> "ReportSections":
+        """Build an instance where only the listed keys are enabled.
+
+        Unknown keys are ignored — that keeps the user-facing dialog
+        forward-compatible if a future version adds new sections.
+        """
+        wanted = {k.strip() for k in keys if k}
+        return cls(
+            file_info="file_info" in wanted,
+            loudness="loudness" in wanted,
+            dynamics="dynamics" in wanted,
+            frequency="frequency" in wanted,
+            overall="overall" in wanted,
+            comparison="comparison" in wanted,
+            recommendations="recommendations" in wanted,
+        )
+
+    def to_keys(self) -> list[str]:
+        return [k for k, on in self.as_dict().items() if on]
+
+    def as_dict(self) -> dict[str, bool]:
+        return {
+            "file_info": self.file_info,
+            "loudness": self.loudness,
+            "dynamics": self.dynamics,
+            "frequency": self.frequency,
+            "overall": self.overall,
+            "comparison": self.comparison,
+            "recommendations": self.recommendations,
+        }
+
+    def any_enabled(self) -> bool:
+        return any(self.as_dict().values())
+
+    def with_disabled(self, **flags: bool) -> "ReportSections":
+        return replace(self, **flags)
+
+
+# Stable order for the section picker UI.
+SECTION_ORDER: tuple[str, ...] = (
+    "file_info",
+    "loudness",
+    "dynamics",
+    "frequency",
+    "overall",
+    "comparison",
+    "recommendations",
 )
 
 # --------------------------------------------------------------------------- #
@@ -71,7 +161,7 @@ def _file_info_section(info: FileInfo) -> str:
     return "\n".join(lines)
 
 
-def _loudness_section(loud: LoudnessMetrics) -> str:
+def _loudness_section(loud: LoudnessMetrics, *, project: bool = False) -> str:
     lines = [heading(t("report.heading.loudness"))]
     lines.append(t("report.loudness.integrated", value=fmt_signed(loud.integrated_lufs)))
     lines.append(t("report.loudness.short_term", value=fmt_signed(loud.short_term_max_lufs)))
@@ -82,14 +172,14 @@ def _loudness_section(loud: LoudnessMetrics) -> str:
     i = loud.integrated_lufs
     tp = loud.true_peak_dbtp
     if i > -9.0:
-        verdict = t("report.loudness.verdict.very_loud")
+        verdict_key = "report.loudness.verdict.very_loud"
     elif i > -13.0:
-        verdict = t("report.loudness.verdict.loud")
+        verdict_key = "report.loudness.verdict.loud"
     elif i > -20.0:
-        verdict = t("report.loudness.verdict.moderate")
+        verdict_key = "report.loudness.verdict.moderate"
     else:
-        verdict = t("report.loudness.verdict.quiet")
-    lines.append(verdict)
+        verdict_key = "report.loudness.verdict.quiet"
+    lines.append(t_subject(verdict_key, project=project))
 
     if tp > -0.5:
         lines.append(t("report.loudness.true_peak.risk"))
@@ -99,21 +189,21 @@ def _loudness_section(loud: LoudnessMetrics) -> str:
     return "\n".join(lines)
 
 
-def _dynamics_section(dyn: DynamicsMetrics) -> str:
+def _dynamics_section(dyn: DynamicsMetrics, *, project: bool = False) -> str:
     lines = [heading(t("report.heading.dynamics"))]
     lines.append(t("report.dynamics.crest", value=fmt_signed(dyn.crest_factor_db)))
     lines.append(t("report.dynamics.dr_score", score=int(round(dyn.dr_score))))
 
     crest = dyn.crest_factor_db
     if crest < 6.0:
-        verdict = t("report.dynamics.verdict.compressed")
+        verdict_key = "report.dynamics.verdict.compressed"
     elif crest < 10.0:
-        verdict = t("report.dynamics.verdict.moderate")
+        verdict_key = "report.dynamics.verdict.moderate"
     elif crest < 14.0:
-        verdict = t("report.dynamics.verdict.natural")
+        verdict_key = "report.dynamics.verdict.natural"
     else:
-        verdict = t("report.dynamics.verdict.wide")
-    lines.append(verdict)
+        verdict_key = "report.dynamics.verdict.wide"
+    lines.append(t_subject(verdict_key, project=project))
     return "\n".join(lines)
 
 
@@ -138,6 +228,8 @@ def _describe_band_vs_loudest(
     range_str: str,
     delta_below_loudest_db: float,
     is_quietest: bool,
+    *,
+    project: bool = False,
 ) -> str:
     """Describe one band as 'X dB quieter than the loudest band'.
 
@@ -157,7 +249,9 @@ def _describe_band_vs_loudest(
         )
     if is_quietest and delta_below_loudest_db >= 1.0:
         # Drop the trailing period, append the quietest-band tag, add a period.
-        line = line[:-1] + t("report.freq.quietest_suffix") + "."
+        line = line[:-1] + t_subject(
+            "report.freq.quietest_suffix", project=project
+        ) + "."
     return line
 
 
@@ -209,7 +303,7 @@ def _ranked_bands(bands: BandEnergies) -> list[tuple[str, float, float, float, s
     return entries
 
 
-def _frequency_section(spec: SpectrumMetrics) -> str:
+def _frequency_section(spec: SpectrumMetrics, *, project: bool = False) -> str:
     lines = [heading(t("report.heading.frequency"))]
     b = spec.bands
     ranked = _ranked_bands(b)
@@ -222,8 +316,9 @@ def _frequency_section(spec: SpectrumMetrics) -> str:
     # can hear (the loudest part of the file) rather than an abstract
     # average.
     lines.append(
-        t(
+        t_subject(
             "report.freq.loudest_anchor",
+            project=project,
             name=loudest_name,
             range=_band_range_str(loudest_lo, loudest_hi),
         )
@@ -240,6 +335,7 @@ def _frequency_section(spec: SpectrumMetrics) -> str:
                 _band_range_str(lo, hi),
                 delta,
                 is_quietest=(name == quietest_name),
+                project=project,
             )
         )
 
@@ -312,7 +408,7 @@ def _tonal_balance_phrase(bands: BandEnergies) -> str:
     )
 
 
-def _overall_section(result: AnalysisResult) -> str:
+def _overall_section(result: AnalysisResult, *, project: bool = False) -> str:
     lines = [heading(t("report.heading.overall"))]
     parts: list[str] = []
     loud = result.loudness
@@ -320,11 +416,12 @@ def _overall_section(result: AnalysisResult) -> str:
     bands = result.spectrum.bands
 
     if loud.integrated_lufs > -10.0 and dyn.crest_factor_db < 8.0:
-        parts.append(t("report.overall.loud_compressed"))
+        verdict_key = "report.overall.loud_compressed"
     elif dyn.crest_factor_db >= 12.0:
-        parts.append(t("report.overall.dynamic"))
+        verdict_key = "report.overall.dynamic"
     else:
-        parts.append(t("report.overall.moderate"))
+        verdict_key = "report.overall.moderate"
+    parts.append(t_subject(verdict_key, project=project))
 
     parts.append(_tonal_balance_phrase(bands))
 
@@ -373,7 +470,9 @@ def _peak_fix_recommendation(peak: SpectralPeak) -> str:
     return t("report.peak_fix.brightness", hz=hz_str, cut=cut_str)
 
 
-def _recommendations_section(result: AnalysisResult) -> str:
+def _recommendations_section(
+    result: AnalysisResult, *, project: bool = False
+) -> str:
     lines = [heading(t("report.heading.recommendations"))]
     recs: list[str] = []
 
@@ -399,7 +498,7 @@ def _recommendations_section(result: AnalysisResult) -> str:
         recs.append(t("report.rec.sub_dominant"))
 
     if not recs:
-        recs.append(t("report.rec.none"))
+        recs.append(t_subject("report.rec.none", project=project))
 
     lines.extend(recs)
     return "\n".join(lines)
@@ -410,20 +509,43 @@ def _recommendations_section(result: AnalysisResult) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def build_report(result: AnalysisResult, extra_sections: list[str] | None = None) -> str:
+def build_report(
+    result: AnalysisResult,
+    extra_sections: list[str] | None = None,
+    sections: ReportSections | None = None,
+    project: bool = False,
+) -> str:
     """Return the full report as a single plain-text string.
 
     ``extra_sections`` are appended after Overall Assessment and before
     Recommendations, used for Genre or Reference comparison output.
+
+    ``sections`` controls which top-level blocks are rendered. Default is
+    every section, which preserves the historical behaviour. When the
+    user picks a slice (for example only loudness and dynamics), the
+    skipped sections are simply omitted — the surviving blocks keep
+    their wording and order so screen-reader navigation stays the same.
+
+    ``project`` swaps the subject in verdict-style sentences from "the
+    file" to "the project" — the project-mode pipeline passes ``True``
+    so the report addresses the whole bundle instead of pretending it
+    is a single bounced file.
     """
-    sections = [
-        _file_info_section(result.file_info),
-        _loudness_section(result.loudness),
-        _dynamics_section(result.dynamics),
-        _frequency_section(result.spectrum),
-    ]
-    sections.append(_overall_section(result))
-    if extra_sections:
-        sections.extend(s for s in extra_sections if s)
-    sections.append(_recommendations_section(result))
-    return "\n\n".join(sections) + "\n"
+    selected = sections if sections is not None else ReportSections.all()
+
+    blocks: list[str] = []
+    if selected.file_info:
+        blocks.append(_file_info_section(result.file_info))
+    if selected.loudness:
+        blocks.append(_loudness_section(result.loudness, project=project))
+    if selected.dynamics:
+        blocks.append(_dynamics_section(result.dynamics, project=project))
+    if selected.frequency:
+        blocks.append(_frequency_section(result.spectrum, project=project))
+    if selected.overall:
+        blocks.append(_overall_section(result, project=project))
+    if selected.comparison and extra_sections:
+        blocks.extend(s for s in extra_sections if s)
+    if selected.recommendations:
+        blocks.append(_recommendations_section(result, project=project))
+    return "\n\n".join(blocks) + "\n"

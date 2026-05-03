@@ -2,7 +2,7 @@ NonvisualAudio — Accessible Audio Analyzer
 ===========================================
 
 Version 2.0
-For macOS on Apple Silicon (M1, M2, M3, M4)
+For macOS on Apple Silicon (M1 - M4) or Intel
 
 
 WHAT IT DOES
@@ -227,11 +227,12 @@ SYSTEM REQUIREMENTS
 -------------------
 
   macOS 11 (Big Sur) or newer
-  Apple Silicon Mac (M1 through M4)
+  Apple Silicon (M1 - M4) or 64-bit Intel Mac
   About 300 megabytes of free disk space
 
-Intel Macs are not supported in this release. Windows and Linux
-builds exist as a plan but have not been produced yet.
+Windows 10 / 11 and a glibc-based Linux x86_64 are also supported
+via the same release; pick the matching archive on the GitHub
+Releases page.
 
 
 FEEDBACK AND HELP

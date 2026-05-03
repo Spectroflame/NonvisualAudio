@@ -13,9 +13,11 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------ #
-  # macOS — Apple Silicon only. Intel Macs are no longer part of the
-  # release matrix; if Intel support becomes relevant again it can be
-  # added back as a second matrix row on macos-13.
+  # macOS — Apple Silicon (arm64) and Intel (x86_64). GitHub's
+  # macos-14 runner image is arm64, macos-13 is the last image still
+  # served on Intel hardware. Each matrix row installs Homebrew's
+  # native ffmpeg, so the resulting .app is fully native on the
+  # matching CPU class.
   # ------------------------------------------------------------------ #
   macos:
     name: macOS ${{ matrix.arch }}
@@ -25,6 +27,8 @@ jobs:
         include:
           - runner: macos-14
             arch: arm64
+          - runner: macos-13
+            arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4

@@ -70,10 +70,11 @@
     </ol>
   </li>
   <li><a href="#genres">Genre profiles</a></li>
-  <li><a href="#reference">Reference file comparison</a></li>
+  <li><a href="#reference">Reference comparison</a></li>
+  <li><a href="#sections">Choosing report sections</a></li>
+  <li><a href="#project">Project mode for albums and audio dramas</a></li>
   <li><a href="#report">Reading the report</a></li>
   <li><a href="#shortcuts">Keyboard shortcuts</a></li>
-  <li><a href="#accessibility">Accessibility features</a></li>
   <li><a href="#privacy">Privacy and data</a></li>
 </ol>
 </nav>
@@ -131,10 +132,25 @@
     Press <kbd>Choose Genres...</kbd> to open the picker; you can
     select any number at once.
   </dd>
-  <dt>Reference file</dt>
+  <dt>Reference</dt>
   <dd>
-    Shows the audio file that acts as the A/B reference, if you
-    picked one. <kbd>Clear Reference</kbd> removes it.
+    Shows the audio data acting as the A/B reference — either a
+    single file or several files combined into a reference project;
+    see <a href="#reference">Reference comparison</a>.
+    <kbd>Clear Reference</kbd> removes it.
+  </dd>
+  <dt>Selected report sections</dt>
+  <dd>
+    Shows which blocks the rendered report will contain — all of
+    them, or a subset like loudness only or frequency balance only.
+    <kbd>Choose Report Sections...</kbd> opens the picker; see
+    <a href="#sections">Choosing report sections</a>.
+  </dd>
+  <dt>Project mode</dt>
+  <dd>
+    A "Analyze all files together as one project" check box; off on
+    every launch. See
+    <a href="#project">Project mode for albums and audio dramas</a>.
   </dd>
   <dt>Progress bar and status line</dt>
   <dd>
@@ -197,12 +213,18 @@
 <section id="menu-help">
 <h3>Help</h3>
 <p>
-  <kbd>Open Help</kbd> (<kbd>F1</kbd>, or <kbd>Cmd+Shift+ß</kbd> on a German
-  Mac keyboard) opens this guide in your system's default browser.
+  <kbd>About NonvisualAudio</kbd> (<kbd>F1</kbd>, or
+  <kbd>Cmd+Shift+ß</kbd> on a German Mac keyboard) opens a compact
+  About / Help dialog. It carries the version, description, licence,
+  credits, and the GitHub link, plus two action buttons:
 </p>
-<p>
-  <kbd>About NonvisualAudio</kbd> shows version, licence, and credits.
-</p>
+<ul>
+  <li><kbd>Show README</kbd> opens this user guide in your default
+      browser, in the currently active interface language.</li>
+  <li><kbd>Report a Bug</kbd> opens the project's GitHub issue
+      tracker so bug reports take two clicks instead of digging
+      through menus.</li>
+</ul>
 </section>
 
 </section>
@@ -353,36 +375,129 @@
       overrode.</li>
 </ul>
 <p>
+  At the top of the editor, the <kbd>Show:</kbd> popup menu narrows
+  the list to <em>All</em>, <em>Built-in</em>, <em>User</em>, or
+  <em>Modified</em> entries — handy for finding the few profiles
+  you've added or tweaked among the 42 shipped ones.
+</p>
+<p>
   <kbd>Delete</kbd> is only available for <code>user</code> entries.
   <kbd>Reset to Built-in</kbd> applies to <code>modified</code>
   entries and restores the stock values.
+</p>
+<h3>Add / edit profile form</h3>
+<p>
+  In the form, every field has its label directly above it so screen
+  readers announce the name when you tab into the field. Initial
+  focus lands on the Key field.
+</p>
+<p>
+  The category is picked from a <strong>popup menu</strong>
+  (VoiceOver: "popup menu"). The default selection is
+  <em>&lt;please select&gt;</em>; pressing OK without choosing a real
+  category triggers a validation error. To create a new category,
+  type the name into the dedicated <kbd>Or new category name</kbd>
+  field below the popup — when filled, it overrides the popup
+  selection.
+</p>
+<p>
+  When you leave the Target LUFS, LRA low, or LRA high fields, the
+  input is auto-tidied into the form the rest of the app expects:
+  "-15" becomes "-15.0", "3,5" becomes "3.5". Anything that does not
+  parse as a number is left untouched and surfaces a validation
+  error on OK.
 </p>
 <p>
   When adding a profile, you can fill in both an English and a German
   name and description; the report will pick the correct language
   automatically. Any changes live in your user data folder — the
-  shipped profiles are never overwritten.
+  shipped profiles are never overwritten. When you delete the last
+  user profile, the override file is removed; the data folder only
+  keeps content while there is something to save.
 </p>
 </section>
 
 <section id="reference">
-<h2>7. Reference file comparison</h2>
+<h2>7. Reference comparison</h2>
 <p>
-  Pick a second audio file via <kbd>Choose Reference File...</kbd>
-  and the report will include a direct comparison with that file:
-  loudness difference, dynamics difference, and band-by-band spectral
-  difference. Useful for "does my master sit in the same ballpark as
-  track X from the same album?"
+  Pick reference audio via <kbd>Choose Reference Files...</kbd>. The
+  multi-select dialog accepts one or several files; alternatively
+  drop a folder onto the reference area. There are two modes
+  depending on how many files you pick:
 </p>
+<ul>
+  <li><strong>One file</strong> — the classic A/B comparison. The
+      report includes loudness difference, dynamics difference, and
+      band-by-band spectral differences.</li>
+  <li><strong>Several files or a folder</strong> — every reference
+      file is fed through the same project-mode pipeline as the
+      target and combined into a <em>reference project</em> (loudness
+      measured exactly via the ffmpeg concat filter, dynamics and
+      spectrum on the concatenated samples). Useful for A/B'ing a
+      freshly mastered album as a whole against a previously
+      released album as a whole — master vs. master rather than
+      track by track.</li>
+</ul>
 <p>
-  Reference and genre comparisons can be combined — every genre you
-  pick plus the reference each produce their own section in the
-  report.
+  The opening line of the comparison section reads "Reference
+  filename: …" for a single file or "Reference project: …" for
+  multiple files. Reference and genre comparisons combine — every
+  genre you pick plus the reference each produce their own section
+  in the report.
 </p>
 </section>
 
+<section id="sections">
+<h2>8. Choosing report sections</h2>
+<p>
+  By default the report contains every block (file info, loudness,
+  dynamics, frequency balance, overall assessment, comparison,
+  recommendations). The <kbd>Choose Report Sections...</kbd> button
+  on the main window lets you enable just the blocks you want — for
+  example only loudness, or only frequency balance plus
+  recommendations.
+</p>
+<p>
+  The picker dialog has a check box per section, plus
+  <kbd>Select all</kbd> and <kbd>Select none</kbd> shortcuts. Your
+  selection is remembered between launches, so you only need to set
+  it once.
+</p>
+</section>
+
+<section id="project">
+<h2>9. Project mode for albums and audio dramas</h2>
+<p>
+  The <kbd>Analyze all files together as one project</kbd> check box
+  treats the whole selection as one continuous piece:
+</p>
+<ul>
+  <li>Loudness, dynamics, and frequency balance are measured across
+      every track as if the collection were one big bounced file.
+      Loudness is computed via the ffmpeg concat filter feeding
+      ebur128 — exact, not an averaging approximation.</li>
+  <li>The report header reads "PROJECT" instead of "FILE INFO". The
+      verdicts address the project directly ("The project is loud..."
+      instead of "The file is loud...").</li>
+  <li>An additional "CROSS-TRACK CONSISTENCY" block reports the
+      spread of per-track integrated loudness and names the loudest
+      and quietest track.</li>
+</ul>
+<p>
+  Safety nets:
+</p>
+<ul>
+  <li>Project mode is always off when the app starts, so it cannot
+      silently persist from an earlier session.</li>
+  <li>If project mode is on but only one file is in the list, the
+      app asks before analyzing: switch back to a regular single-file
+      run, run the file as a one-track project anyway, or cancel to
+      add more files first.</li>
+</ul>
+</section>
+
 <section id="report">
-<h2>8. Reading the report</h2>
+<h2>10. Reading the report</h2>
 <p>
   The report is plain text. Section headings are written in ALL CAPS
   on their own line, so screen readers can jump between them. The
@@ -401,10 +516,18 @@
   <li><strong>OVERALL ASSESSMENT</strong> — a one-paragraph summary
       combining loudness, dynamics, and tonal lean.</li>
   <li><strong>COMPARISON TO ...</strong> sections — one per selected
-      genre and one for the reference file, if any.</li>
+      genre and one for the reference file or reference project, if
+      any.</li>
   <li><strong>RECOMMENDATIONS</strong> — concrete EQ and mastering
       suggestions derived from the measurements.</li>
+  <li>In project mode, an additional <strong>CROSS-TRACK
+      CONSISTENCY</strong> block — one line on per-track loudness
+      spread plus the loudest and quietest track.</li>
 </ol>
+<p>
+  Which blocks actually appear depends on the selection in
+  <a href="#sections">Choosing report sections</a>.
+</p>
 <p>
   Numbers are spelled out: "minus 21.4 LUFS" rather than "-21.4
   LUFS" on English, "minus 21,4 LUFS" on German, so a screen reader
@@ -413,7 +536,7 @@
 </section>
 
 <section id="shortcuts">
-<h2>9. Keyboard shortcuts</h2>
+<h2>11. Keyboard shortcuts</h2>
 <p>
   Throughout this section, <kbd>Cmd</kbd> is the Command key on
   macOS and <kbd>Ctrl</kbd> is the Control key on Windows and Linux.
@@ -431,7 +554,8 @@
   <dt><kbd>Cmd+Q</kbd> / <kbd>Ctrl+Q</kbd></dt>
   <dd>Quit the app.</dd>
   <dt><kbd>F1</kbd>, or <kbd>Cmd+Shift+ß</kbd> on a German Mac keyboard</dt>
-  <dd>Open this help page.</dd>
+  <dd>Open the About / Help dialog. From there
+      <kbd>Show README</kbd> opens this user guide.</dd>
   <dt>In the results window: <kbd>Cmd+Shift+C</kbd> / <kbd>Ctrl+Shift+C</kbd></dt>
   <dd>Copy the entire report to the clipboard.</dd>
   <dt>In any dialog: <kbd>Escape</kbd></dt>
@@ -439,29 +563,8 @@
 </dl>
 </section>
 
-<section id="accessibility">
-<h2>10. Accessibility features</h2>
-<ul>
-  <li>Every widget carries a screen-reader name and a description
-      readable via <kbd>VO+H</kbd> on macOS or NVDA object review on
-      Windows.</li>
-  <li>The same description is also a hover tooltip for sighted
-      collaborators.</li>
-  <li>Four colour schemes including a high-contrast mode
-      (<a href="#menu-view">View menu</a>).</li>
-  <li>Read-only text fields carry the same information the screen
-      reader receives, so Arrow keys work for line-by-line review.</li>
-  <li>A metronome-style click during analysis confirms that work is
-      progressing, without relying on the visual progress bar.</li>
-  <li>The results window opens with focus inside the report text so
-      reading can start immediately.</li>
-  <li>All numeric output is spoken naturally: "minus 21.4" instead
-      of a dash followed by digits.</li>
-</ul>
-</section>
-
 <section id="privacy">
-<h2>11. Privacy and data</h2>
+<h2>12. Privacy and data</h2>
 <p>
   No data is ever sent over the network. NonvisualAudio has no
   telemetry, no cloud, no analytics. A very small preferences file is

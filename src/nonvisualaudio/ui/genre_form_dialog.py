@@ -1,13 +1,30 @@
 """Form dialog to add or edit a single genre profile.
 
-Keeps typing manual — every field is a plain ``wx.TextCtrl`` or
-``wx.ComboBox``. No spin controls: a blind user reaches for the
-number keys long before the screen-reader-awkward up/down arrows of
-``SpinCtrlDouble``, and the extra visual polish is not worth losing
-keystroke efficiency.
+Keeps typing manual — every field is a plain ``wx.TextCtrl``. No spin
+controls: a blind user reaches for the number keys long before the
+screen-reader-awkward up/down arrows of ``SpinCtrlDouble``, and the
+extra visual polish is not worth losing keystroke efficiency.
+
+Layout choice: every label sits **above** its field (single-column
+vertical layout) instead of in a 2-column grid. The 2-column pattern
+looks tidier on screen, but on macOS VoiceOver does not reliably
+associate a left-of label with the focusable widget on its right —
+the user lands on the field and only hears "edit text" until they
+arrow left to find the label. A label sitting directly above the
+field is announced together with the field on every supported screen
+reader.
+
+Category picker: a ``wx.Choice`` (NSPopUpButton on macOS, "popup
+menu" in VoiceOver). To create a new category, the user types it
+into the dedicated "or new category name" text field below the
+choice — it takes priority over the dropdown selection on save.
 
 Validation runs on OK. A single bad field keeps the dialog open and
 shows a screen-reader-friendly error via ``wx.MessageDialog``.
+
+The dialog has no network features — every value the user enters is
+typed by hand. An earlier opt-in DuckDuckGo lookup was removed
+because the snippet quality was too poor to be worth shipping.
 """
 
 from __future__ import annotations
@@ -25,6 +42,32 @@ from nonvisualaudio.ui import a11y, theme
 
 _KEY_RE = re.compile(r"^[a-z0-9_]+$")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+# Optional sign + digits with an optional decimal part. Used by the
+# blur-time auto-formatter to decide whether the field already
+# contains a parseable number before rewriting it.
+_NUMBER_RE = re.compile(r"^\s*([+-]?)\s*(\d+)(?:[.,](\d+))?\s*$")
+
+
+def normalise_number_field(text: str) -> str:
+    """Tidy a numeric input.
+
+    - Strip whitespace.
+    - Replace decimal commas with periods so downstream parsing is
+      consistent (the form already accepts both inputs, but storing
+      a uniform shape keeps the analysis layer simple).
+    - Append ``.0`` to plain integers like ``-15`` or ``3`` so every
+      LUFS / LRA field carries an explicit decimal — that's what the
+      report builder and genre-profile dataclasses expect.
+    - Leave the original text untouched if it is not a recognisable
+      number (validation will then surface a clear error on save).
+    """
+    match = _NUMBER_RE.match(text)
+    if not match:
+        return text.strip()
+    sign, whole, frac = match.group(1), match.group(2), match.group(3)
+    if frac is None:
+        return f"{sign}{whole}.0"
+    return f"{sign}{whole}.{frac}"
 
 # Transliterate common German-language characters before stripping, so
 # "Hörspiel" becomes "hoerspiel" rather than "h_rspiel". Other accented
@@ -82,142 +125,181 @@ class GenreFormDialog(wx.Dialog):
         )
         root.Add(intro, flag=wx.ALL, border=10)
 
-        grid = wx.FlexGridSizer(rows=0, cols=2, vgap=8, hgap=8)
-        grid.AddGrowableCol(1, 1)
+        # Scrolled body so the dialog stays usable on small screens —
+        # the form has eight rows once the new-category field is added.
+        body = wx.ScrolledWindow(self, style=wx.VSCROLL)
+        body.SetScrollRate(0, 16)
+        body_sizer = wx.BoxSizer(wx.VERTICAL)
 
         # --- Key
         self.key_ctrl = wx.TextCtrl(
-            self,
+            body,
             value=existing_profile["key"] if is_edit else "",
             style=wx.TE_READONLY if is_edit else 0,
         )
-        a11y.set_a11y(
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.key"),
             self.key_ctrl,
-            t("ui.genre_form.field.key.name"),
-            t("ui.genre_form.field.key.hint"),
+            a11y_name=t("ui.genre_form.field.key.name"),
+            a11y_hint=t("ui.genre_form.field.key.hint"),
         )
-        self._add_row(grid, t("ui.genre_form.field.key"), self.key_ctrl)
 
-        # --- Category
-        # Categories now carry a {en, de} dict (or a legacy string); the
-        # combobox lists the English form — that's the canonical label
-        # used inside the JSON.
+        # --- Category (popup menu) + optional "new category" text field
+        #
+        # wx.Choice maps to NSPopUpButton on macOS (VoiceOver: "popup
+        # menu"), to a CB_DROPDOWNLIST-style combo on Windows, and to
+        # GtkComboBox on GTK — the cross-platform "pick one of these"
+        # control. Free-text creation of a new category lives in a
+        # separate, clearly labelled text field below the popup so
+        # screen-reader users do not have to guess that the dropdown
+        # accepts typing.
+        #
+        # The dropdown leads with a placeholder "<please select>"
+        # entry so OK on a fresh "add" dialog cannot silently bucket
+        # the new genre under whatever category happened to sit at
+        # index 0 of the list.
         category_names = [
             localised_field(c.get("display_name"), "en") or c.get("key", "")
             for c in self._categories
         ]
-        self.category_ctrl = wx.ComboBox(
-            self,
-            choices=category_names,
-            style=wx.CB_DROPDOWN,
+        self._placeholder_label = t("ui.genre_form.field.category.placeholder")
+        self.category_ctrl = wx.Choice(
+            body,
+            choices=[self._placeholder_label, *category_names],
         )
         if is_edit:
             existing_cat_key = existing_profile.get("category_key", "")
-            for c in self._categories:
+            for i, c in enumerate(self._categories):
                 if c["key"] == existing_cat_key:
-                    self.category_ctrl.SetValue(
-                        localised_field(c.get("display_name"), "en")
-                        or c.get("key", "")
-                    )
+                    # +1 to skip the placeholder row.
+                    self.category_ctrl.SetSelection(i + 1)
                     break
-        a11y.set_a11y(
+            else:
+                self.category_ctrl.SetSelection(0)
+        else:
+            self.category_ctrl.SetSelection(0)
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.category"),
             self.category_ctrl,
-            t("ui.genre_form.field.category.name"),
-            t("ui.genre_form.field.category.hint"),
+            a11y_name=t("ui.genre_form.field.category.name"),
+            a11y_hint=t("ui.genre_form.field.category.hint"),
         )
-        self._add_row(grid, t("ui.genre_form.field.category"), self.category_ctrl)
+
+        self.new_category_ctrl = wx.TextCtrl(body, value="")
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.new_category"),
+            self.new_category_ctrl,
+            a11y_name=t("ui.genre_form.field.new_category.name"),
+            a11y_hint=t("ui.genre_form.field.new_category.hint"),
+        )
 
         # --- Display name (English + German pair)
         stored_display = existing_profile.get("display_name") if is_edit else None
         self.display_name_en_ctrl = wx.TextCtrl(
-            self, value=localised_field(stored_display, "en") if is_edit else ""
+            body, value=localised_field(stored_display, "en") if is_edit else ""
         )
-        a11y.set_a11y(
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.display_name_en"),
             self.display_name_en_ctrl,
-            t("ui.genre_form.field.display_name_en.name"),
-            t("ui.genre_form.field.display_name.hint"),
-        )
-        self._add_row(
-            grid, t("ui.genre_form.field.display_name_en"), self.display_name_en_ctrl
+            a11y_name=t("ui.genre_form.field.display_name_en.name"),
+            a11y_hint=t("ui.genre_form.field.display_name.hint"),
         )
         self.display_name_de_ctrl = wx.TextCtrl(
-            self, value=localised_field(stored_display, "de") if is_edit else ""
+            body, value=localised_field(stored_display, "de") if is_edit else ""
         )
-        a11y.set_a11y(
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.display_name_de"),
             self.display_name_de_ctrl,
-            t("ui.genre_form.field.display_name_de.name"),
-            t("ui.genre_form.field.display_name.hint"),
-        )
-        self._add_row(
-            grid, t("ui.genre_form.field.display_name_de"), self.display_name_de_ctrl
+            a11y_name=t("ui.genre_form.field.display_name_de.name"),
+            a11y_hint=t("ui.genre_form.field.display_name.hint"),
         )
 
         # --- Target LUFS
         self.target_lufs_ctrl = wx.TextCtrl(
-            self, value=_fmt_num(existing_profile.get("target_lufs")) if is_edit else "-14.0"
+            body, value=_fmt_num(existing_profile.get("target_lufs")) if is_edit else "-14.0"
         )
-        a11y.set_a11y(
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.target_lufs"),
             self.target_lufs_ctrl,
-            t("ui.genre_form.field.target_lufs.name"),
-            t("ui.genre_form.field.target_lufs.hint"),
+            a11y_name=t("ui.genre_form.field.target_lufs.name"),
+            a11y_hint=t("ui.genre_form.field.target_lufs.hint"),
         )
-        self._add_row(grid, t("ui.genre_form.field.target_lufs"), self.target_lufs_ctrl)
+        self.target_lufs_ctrl.Bind(wx.EVT_KILL_FOCUS, self._on_number_blur)
 
         # --- LRA low/high
         self.lra_low_ctrl = wx.TextCtrl(
-            self, value=_fmt_num(existing_profile.get("lra_low")) if is_edit else "5.0"
+            body, value=_fmt_num(existing_profile.get("lra_low")) if is_edit else "5.0"
         )
-        a11y.set_a11y(
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.lra_low"),
             self.lra_low_ctrl,
-            t("ui.genre_form.field.lra_low.name"),
-            t("ui.genre_form.field.lra_low.hint"),
+            a11y_name=t("ui.genre_form.field.lra_low.name"),
+            a11y_hint=t("ui.genre_form.field.lra_low.hint"),
         )
-        self._add_row(grid, t("ui.genre_form.field.lra_low"), self.lra_low_ctrl)
+        self.lra_low_ctrl.Bind(wx.EVT_KILL_FOCUS, self._on_number_blur)
 
         self.lra_high_ctrl = wx.TextCtrl(
-            self, value=_fmt_num(existing_profile.get("lra_high")) if is_edit else "10.0"
+            body, value=_fmt_num(existing_profile.get("lra_high")) if is_edit else "10.0"
         )
-        a11y.set_a11y(
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.lra_high"),
             self.lra_high_ctrl,
-            t("ui.genre_form.field.lra_high.name"),
-            t("ui.genre_form.field.lra_high.hint"),
+            a11y_name=t("ui.genre_form.field.lra_high.name"),
+            a11y_hint=t("ui.genre_form.field.lra_high.hint"),
         )
-        self._add_row(grid, t("ui.genre_form.field.lra_high"), self.lra_high_ctrl)
-
-        root.Add(grid, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=10)
+        self.lra_high_ctrl.Bind(wx.EVT_KILL_FOCUS, self._on_number_blur)
 
         # --- Notes (English + German pair, each multiline)
         stored_notes = existing_profile.get("notes") if is_edit else None
-
-        notes_en_label = wx.StaticText(self, label=t("ui.genre_form.field.notes_en"))
-        root.Add(notes_en_label, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
         self.notes_en_ctrl = wx.TextCtrl(
-            self,
+            body,
             value=localised_field(stored_notes, "en") if is_edit else "",
             style=wx.TE_MULTILINE,
         )
-        a11y.set_a11y(
-            self.notes_en_ctrl,
-            t("ui.genre_form.field.notes_en.name"),
-            t("ui.genre_form.field.notes.hint"),
-        )
         self.notes_en_ctrl.SetMinSize(wx.Size(-1, 60))
-        root.Add(self.notes_en_ctrl, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=10)
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.notes_en"),
+            self.notes_en_ctrl,
+            a11y_name=t("ui.genre_form.field.notes_en.name"),
+            a11y_hint=t("ui.genre_form.field.notes.hint"),
+        )
 
-        notes_de_label = wx.StaticText(self, label=t("ui.genre_form.field.notes_de"))
-        root.Add(notes_de_label, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
         self.notes_de_ctrl = wx.TextCtrl(
-            self,
+            body,
             value=localised_field(stored_notes, "de") if is_edit else "",
             style=wx.TE_MULTILINE,
         )
-        a11y.set_a11y(
-            self.notes_de_ctrl,
-            t("ui.genre_form.field.notes_de.name"),
-            t("ui.genre_form.field.notes.hint"),
-        )
         self.notes_de_ctrl.SetMinSize(wx.Size(-1, 60))
-        root.Add(self.notes_de_ctrl, proportion=1, flag=wx.EXPAND | wx.ALL, border=10)
+        self._add_field(
+            body_sizer,
+            body,
+            t("ui.genre_form.field.notes_de"),
+            self.notes_de_ctrl,
+            a11y_name=t("ui.genre_form.field.notes_de.name"),
+            a11y_hint=t("ui.genre_form.field.notes.hint"),
+        )
+
+        body.SetSizer(body_sizer)
+        body.FitInside()
+        root.Add(body, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=10)
 
         # --- OK / Cancel
         button_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
@@ -231,22 +313,64 @@ class GenreFormDialog(wx.Dialog):
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char)
 
         theme.apply(self)
-        self.display_name_en_ctrl.SetFocus()
+        # Fokus startet beim Schlüssel — das ist die erste echte
+        # Eingabe im Add-Mode und im Edit-Mode der schreibgeschützte
+        # Identifier, was Screenreadern beim Eintauchen sofort sagt
+        # welches Profil offen ist.
+        self.key_ctrl.SetFocus()
 
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _add_row(grid: wx.FlexGridSizer, label_text: str, widget: wx.Window) -> None:
-        label = wx.StaticText(widget.GetParent(), label=label_text)
-        grid.Add(label, flag=wx.ALIGN_CENTER_VERTICAL)
-        grid.Add(widget, flag=wx.EXPAND)
+    def _add_field(
+        sizer: wx.BoxSizer,
+        parent: wx.Window,
+        label_text: str,
+        widget: wx.Window,
+        *,
+        a11y_name: str,
+        a11y_hint: str,
+    ) -> None:
+        """Lay out one labelled field in vertical order.
+
+        Adds a ``wx.StaticText`` directly above the widget, sets the
+        widget's accessible name+hint via :func:`a11y.set_a11y`, and
+        stretches the widget to fill its row. Putting the label above
+        the field is what makes VoiceOver, NVDA and Orca read the
+        field's name automatically when the user lands on it — the
+        previously-used 2-column grid relied on left-of association,
+        which macOS VoiceOver does not honour for text fields.
+        """
+        label = wx.StaticText(parent, label=label_text)
+        sizer.Add(label, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=4)
+        a11y.set_a11y(widget, a11y_name, a11y_hint)
+        sizer.Add(
+            widget,
+            flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            border=4,
+        )
 
     def _on_char(self, event: wx.KeyEvent) -> None:
         if event.GetKeyCode() == wx.WXK_ESCAPE:
             self.EndModal(wx.ID_CANCEL)
             return
+        event.Skip()
+
+    def _on_number_blur(self, event: wx.FocusEvent) -> None:
+        """Tidy a LUFS / LRA field when the user moves focus away.
+
+        Plain integers gain a ``.0`` suffix, decimal commas become
+        periods. Anything that doesn't look like a number passes
+        through untouched so validation can complain about it on OK.
+        """
+        widget = event.GetEventObject()
+        if isinstance(widget, wx.TextCtrl):
+            current = widget.GetValue()
+            tidied = normalise_number_field(current)
+            if tidied != current:
+                widget.ChangeValue(tidied)
         event.Skip()
 
     def _on_ok(self, event: wx.CommandEvent) -> None:
@@ -280,9 +404,22 @@ class GenreFormDialog(wx.Dialog):
         if not _KEY_RE.match(raw_key):
             raise _ValidationError(t("ui.genre_form.error.bad_key"))
 
-        category_text = self.category_ctrl.GetValue().strip()
-        if not category_text:
-            raise _ValidationError(t("ui.genre_form.error.category_required"))
+        # New-category text field wins over the popup selection: the
+        # user can have a category pre-selected from edit mode and
+        # still type a fresh name to switch to a new bucket.
+        new_category_text = self.new_category_ctrl.GetValue().strip()
+        if new_category_text:
+            category_text = new_category_text
+        else:
+            sel = self.category_ctrl.GetSelection()
+            # Index 0 is the "<please select>" placeholder — treat it
+            # as "no category chosen" so we don't silently bucket the
+            # new genre under whatever sat at the top of the list.
+            if sel == wx.NOT_FOUND or sel == 0:
+                raise _ValidationError(t("ui.genre_form.error.category_required"))
+            category_text = self.category_ctrl.GetString(sel).strip()
+            if not category_text:
+                raise _ValidationError(t("ui.genre_form.error.category_required"))
         category_key, new_category = self._resolve_category(category_text)
 
         target_lufs = _parse_num(

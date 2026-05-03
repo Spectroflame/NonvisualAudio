@@ -1,246 +1,46 @@
-NONVISUALAUDIO — ÄNDERUNGEN IN VERSION 2.0
-=============================================
+NONVISUALAUDIO — VERSION 2.0
+==============================
 
-Eine zusammenfassende Übersicht dessen, was in der neuen Version
-anders ist. Richtet sich an Nutzerinnen und Nutzer, nicht an
-Entwickler.
+Neu in 2.0 — Kurzfassung. Details: F1 → „README anzeigen".
 
 
-DEUTSCHE SPRACHE
+Sprache
+  Komplett auf Deutsch. Auswahl im Sprache-Menü.
 
-NonvisualAudio gibt es jetzt komplett auf Deutsch. Alle Menüs,
-Schaltflächen, Hilfetexte, Fehlermeldungen und — das ist der größte
-Block — der gesamte Analyse-Report lesen sich in deutscher Sprache,
-wenn du die App auf Deutsch betreibst.
+Farbschemata
+  Neue Farbschemata verfügbar im Ansicht-Menü.
 
-Die Zahlen im Report folgen dabei der deutschen Schreibweise:
-„minus 21,4 LUFS" mit Komma als Dezimaltrenner statt „minus 21.4".
+Report in Blöcke auftrennen
+  „Report-Abschnitte wählen…" entscheidet pro Lauf, welche Blöcke
+  der Report enthält.
 
-Beim Start erkennt die App automatisch, welche Sprache dein
-System nutzt, und wählt entsprechend Deutsch oder Englisch. Im
-neuen Menü „Sprache" kannst du die Auswahl jederzeit überschreiben:
-Automatisch (System), English oder Deutsch. Die Wahl wird gespeichert
-und greift nach einem Neustart der App.
+Projekt-Modus
+  Mehrere Dateien als ein durchgehendes Stück analysieren — Album,
+  Hörspiel, Podcast-Staffel. Eigener Konsistenz-Block über alle
+  Tracks im Report.
 
+Referenz-Projekt
+  Mehrere Referenz-Dateien oder ein ganzer Ordner werden zu einem
+  Referenz-Projekt zusammengefasst — Album gegen Album.
 
-FARBSCHEMA-AUSWAHL
+Genre-Editor
+  Profile selbst anlegen, ändern, löschen, zurücksetzen. Filter
+  nach Herkunft (Alle / Mitgeliefert / Eigen / Geändert). LUFS- und
+  LRA-Eingaben werden automatisch in die erwartete Form gebracht.
 
-Im Menü „Ansicht" gibt es vier Modi zur Auswahl:
+Dateien hinzufügen
+  Drag-and-Drop von Dateien oder Ordnern, Cmd+V / Strg+V aus der
+  Zwischenablage, plus automatische Erkennung beim Start, wenn dort
+  schon Audio-Dateien liegen. WMA wird zusätzlich unterstützt.
 
-  Automatisch: folgt dem Hell-/Dunkelmodus deines Betriebssystems.
-  Hell: weißer Hintergrund, schwarze Schrift.
-  Dunkel: dunkelgrauer Hintergrund, helle Schrift.
-  Hoher Kontrast: schwarzer Hintergrund, gelbe Schrift für
-                  maximalen Kontrast.
+Hilfe
+  F1 öffnet einen kompakten Über-/Hilfe-Dialog mit den Buttons
+  „README anzeigen" und „Fehler melden".
 
-Der Wechsel greift sofort, ohne Neustart. Die Einstellung wird
-gespeichert, sodass der nächste Start wieder im gewählten Schema
-öffnet.
+Details
+  „Luft" heißt im deutschen Frequenz-Report jetzt „obere Höhen".
 
 
-GENRE-PROFILE SELBST ANLEGEN
-
-Die App bringt 42 Genre-Profile als Vergleichsreferenzen mit —
-vom klassischen Hörspiel bis zum Streaming-Pop. Neu ist: Du kannst
-jetzt im Menü „Bearbeiten" → „Genre-Profile bearbeiten..." eigene
-Profile hinzufügen, bestehende bearbeiten, löschen oder auf den
-Werkszustand zurücksetzen.
-
-Jeder Eintrag in der Liste zeigt vorne einen Tag:
-
-  mitgeliefert: ein mit der App ausgeliefertes Standard-Profil.
-  eigen:        ein von dir hinzugefügtes Profil.
-  geändert:     ein mitgeliefertes Profil, bei dem du Werte
-                geändert hast.
-
-Löschen ist nur bei eigenen Profilen möglich. Bei „geändert" gibt
-es den Button „Auf Standard zurücksetzen", der das Profil wieder
-auf die Originalwerte bringt.
-
-Beim Anlegen eines neuen Profils kannst du sowohl einen deutschen
-als auch einen englischen Anzeigenamen und Beschreibungstext angeben.
-So bleibt dein Profil auch brauchbar, wenn du später die Sprache
-wechselst.
-
-Eigene Profile und Anpassungen liegen im Benutzer-Datenordner der
-App — die mitgelieferten Profile werden nicht überschrieben.
-
-
-DATEIEN PER DRAG-AND-DROP ODER ZWISCHENABLAGE HINZUFÜGEN
-
-Du musst den Datei-Auswahl-Dialog nicht mehr zwingend benutzen.
-Es gibt jetzt drei zusätzliche Wege:
-
-Drag-and-Drop: Audio-Dateien und Ordner direkt auf das Hauptfenster
-               oder die Dateiliste ziehen. Ordner werden rekursiv
-               nach Audio-Dateien durchsucht, Duplikate werden
-               automatisch weggefiltert.
-
-Kopieren und Einfügen: Im Finder bzw. Explorer eine oder mehrere
-               Audio-Dateien markieren, mit Cmd+C bzw. Strg+C
-               kopieren, zurück zu NonvisualAudio wechseln und mit
-               Cmd+V bzw. Strg+V einfügen. Funktioniert aus jedem
-               Bereich des Hauptfensters, also auch aus der
-               Dateiliste heraus.
-
-Automatische Erkennung beim Start: Wenn beim Start der App bereits
-               Audio-Dateien in deiner Zwischenablage liegen,
-               fragt ein Dialog freundlich nach, ob die Dateien
-               direkt zur Analyse hinzugefügt werden sollen.
-               Ein „Ja" bzw. Enter übernimmt sie, „Nein" bzw.
-               Escape verwirft die Nachfrage.
-
-
-WMA WIRD JETZT UNTERSTÜTZT
-
-Das Windows-Media-Format .wma ist jetzt zusätzlich zu WAV, AIFF,
-MP3, M4A/AAC, FLAC, OGG und Opus als Eingabeformat erlaubt.
-
-
-ÜBER-/HILFE-DIALOG
-
-F1 öffnet einen kompakten Über-/Hilfe-Dialog. Darin stehen
-Versionsnummer, Beschreibung, Lizenz, Credits und der GitHub-Link.
-Zwei Buttons machen den Dialog praktisch:
-
-  README anzeigen: öffnet die mitgelieferte README im Standard-
-  Textbetrachter oder Browser. Da liest sich der komplette
-  Anwender-Funktionsüberblick.
-
-  Fehler melden: ruft direkt die GitHub-Issues-Seite des Projekts auf,
-  damit Bugreports mit zwei Klicks landen, statt durch Menüs zu suchen.
-
-Im Hilfe-Menü findest du den gleichen Eintrag als „Über
-NonvisualAudio" (auf macOS auch im Anwendungs-Menü). Cmd+Shift+? auf
-deutscher Mac-Tastatur öffnet ihn ebenfalls.
-
-
-GETEILTER REPORT — NUR DIE GEWÜNSCHTEN ABSCHNITTE
-
-Im Hauptfenster gibt es den Button „Report-Abschnitte wählen…".
-Dort kannst du in einem Dialog ankreuzen, welche Blöcke der Report
-enthalten soll: Datei-Info, Lautheit, Dynamik, Frequenzbalance,
-Gesamturteil, Genre/Referenz-Vergleich oder Empfehlungen — beliebig
-kombinierbar. Wer nur die Lautheit braucht, bekommt auch nur die.
-Wer alles will, lässt es so wie es ist (Standard: alle Abschnitte).
-
-Die Auswahl wird zwischen App-Starts gemerkt, sodass du sie nur einmal
-einstellen musst.
-
-
-REFERENZ KANN JETZT EIN GANZES PROJEKT SEIN
-
-Die Referenz-Auswahl akzeptiert jetzt mehrere Dateien oder einen
-ganzen Ordner. Bei einer einzelnen Datei läuft der Vergleich wie
-bisher eins-zu-eins. Bei mehreren Dateien wird die Referenz mit der
-gleichen Projekt-Pipeline zusammengeführt wie das Ziel, sodass z. B.
-ein frisch gemastertes Album als Ganzes gegen ein bereits
-veröffentlichtes Album verglichen werden kann — nicht Track für
-Track, sondern als zwei Gesamt-Master gegeneinander.
-
-Bedienung:
-
-  „Referenz-Dateien wählen…" öffnet jetzt einen Mehrfach-Auswahl-
-  Dialog.
-
-  Drag-and-Drop auf das Referenz-Feld funktioniert ebenfalls — eine
-  oder mehrere Dateien oder ein kompletter Ordner.
-
-  Im Report heißt die Vergleichs-Sektion bei einem mehrteiligen
-  Referenz-Material „Referenz-Projekt: …" statt „Referenz-Dateiname:
-  …".
-
-
-PROJEKT-MODUS FÜR ALBEN UND HÖRSPIELE
-
-Neu ist die Checkbox „Alle Dateien zusammen als ein Projekt
-analysieren". Wenn aktiviert, behandelt die App die ganze Auswahl
-als ein durchgehendes Stück:
-
-  Lautheit, Dynamik und Frequenzbalance werden über alle Tracks
-  hinweg gemessen, als wäre die Sammlung ein einziges großes File.
-  Die Lautheit wird dabei mit dem ffmpeg-Concat-Filter direkt aus den
-  zusammengeschalteten Audiostreams berechnet — also ohne Genauigkeits-
-  verlust durch Mittelwert-Annäherungen.
-
-  Im Report-Header steht „Projekt" statt „Datei-Info", und die
-  Verdikte sprechen das Projekt direkt an („Das Projekt ist laut..."
-  statt „Die Datei ist laut...").
-
-  Zusätzlich gibt es den neuen Block „Konsistenz über alle Tracks":
-  eine kurze Zeile, die sagt, um wie viele LU sich die Track-
-  Lautheiten unterscheiden und welcher Track der lauteste und welcher
-  der leiseste ist.
-
-Sicherheitsnetze:
-
-  Beim App-Start ist der Projekt-Modus immer aus. So kann er nicht
-  versehentlich aus einer alten Sitzung „kleben" bleiben.
-
-  Wenn der Projekt-Modus an ist, aber nur eine Datei in der Liste
-  steht, fragt die App vor der Analyse nach: lieber als normale
-  Einzeldatei-Analyse fahren, als Ein-Track-Projekt durchziehen oder
-  abbrechen, um zuerst weitere Dateien hinzuzufügen.
-
-
-„LUFT" HEISST IN DER DEUTSCHEN AUSGABE JETZT „OBERE HÖHEN"
-
-Im Frequenz-Report wurde der oberste Bereich oberhalb 6 kHz von
-„Luft" in „obere Höhen" umbenannt. „Luft" ist im englischen Audio-
-Jargon eingebürgert, klingt im Deutschen aber unnötig fremd. „Obere
-Höhen" ist verständlicher und neutraler.
-
-
-MAUS-TOOLTIPS ERGÄNZEND ZUM SCREENREADER-HINWEIS
-
-Jedes beschriftete Element im Fenster zeigt beim Überfahren mit
-der Maus einen kleinen Info-Hinweis. Das ist die gleiche
-Beschreibung, die der Screenreader als Zusatztext vorliest — jetzt
-gibt's sie auch visuell, etwa wenn eine sehende Begleitung mit
-deiner Kopie arbeitet oder die Kurzhilfe am Bildschirm überprüfen
-möchte.
-
-
-MENÜS AUFGERÄUMT
-
-Die Menüleiste wurde neu sortiert, damit jede Aktion mit einem
-einzigen Pfeil-Druck von der Menüleiste aus erreichbar ist — ohne
-Untermenü-Drilldown:
-
-  Bearbeiten → Genre-Profile bearbeiten
-  Ansicht → vier Farbschema-Einträge als Radio-Buttons
-  Sprache → Automatisch, English, Deutsch als Radio-Buttons
-  Hilfe → Über NonvisualAudio
-
-Auf macOS entfällt das Datei-Menü, weil „Beenden" dort laut
-System-Konvention im Anwendungs-Menü wohnt.
-
-
-KORREKTUREN
-
-Ein paar Fehler aus den Vorversionen wurden behoben:
-
-Nach einem Sprachwechsel blieben die Klangcharakter-Beschreibungen
-der Genre-Profile teilweise englisch, obwohl der Rest der App
-bereits auf Deutsch umgeschaltet war. Das ist jetzt konsistent.
-
-Der Eintrag „Über NonvisualAudio" war auf macOS schwer zu finden,
-weil das System ihn eigenmächtig verschoben hat. Er bleibt jetzt
-verlässlich im Hilfe-Menü sichtbar.
-
-
-HINWEISE ZUM DATENSCHUTZ
-
-NonvisualAudio arbeitet weiterhin ausschließlich lokal. Es werden
-keine Daten ins Netz gesendet, kein Telemetrie, keine Cloud. Neu
-in Version 2.0 ist allerdings: Wenn du eine Sprache oder ein
-Farbschema im Menü auswählst, speichert die App eine sehr kleine
-Einstellungsdatei in deinem Benutzer-Datenordner — solange du
-nichts umstellst, wird auch nichts angelegt. Genau das gleiche
-Verzeichnis nutzt der Genre-Editor für eigene Profile.
-
-Die Pfade:
-
-  macOS:   ~/Library/Application Support/NonvisualAudio/
-  Windows: %APPDATA%\NonvisualAudio\
-  Linux:   ~/.config/NonvisualAudio/
+Datenschutz
+  Weiterhin komplett lokal. Konfiguration und Genre-Overrides
+  werden nur geschrieben, wenn du sie tatsächlich änderst.

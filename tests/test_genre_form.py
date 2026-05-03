@@ -12,6 +12,7 @@ import pytest
 from nonvisualaudio.ui.genre_form_dialog import (
     _ValidationError,
     _parse_num,
+    normalise_number_field,
     slugify,
 )
 
@@ -52,3 +53,32 @@ def test_parse_num_rejects_empty():
 def test_parse_num_rejects_infinity():
     with pytest.raises(_ValidationError):
         _parse_num("inf", "X")
+
+
+def test_normalise_number_field_appends_decimal_to_integer():
+    assert normalise_number_field("3") == "3.0"
+    assert normalise_number_field("-15") == "-15.0"
+    assert normalise_number_field("+8") == "+8.0"
+
+
+def test_normalise_number_field_keeps_existing_decimal():
+    assert normalise_number_field("3.5") == "3.5"
+    assert normalise_number_field("-14.2") == "-14.2"
+
+
+def test_normalise_number_field_replaces_comma_with_period():
+    assert normalise_number_field("3,5") == "3.5"
+    assert normalise_number_field("-14,2") == "-14.2"
+
+
+def test_normalise_number_field_strips_surrounding_whitespace():
+    assert normalise_number_field("  -7  ") == "-7.0"
+    assert normalise_number_field("  3,5  ") == "3.5"
+
+
+def test_normalise_number_field_preserves_non_numeric_text():
+    # Validation runs on save and will surface a real error there;
+    # the blur handler must not mutate text that doesn't parse.
+    assert normalise_number_field("abc") == "abc"
+    assert normalise_number_field("") == ""
+    assert normalise_number_field("3.5.5") == "3.5.5"

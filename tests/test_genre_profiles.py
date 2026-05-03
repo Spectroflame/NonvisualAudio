@@ -23,15 +23,16 @@ def isolated_user_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     genre_profiles.reload()
 
 
-def test_bundle_has_expected_profile_count():
+def test_bundle_has_expected_profile_count(isolated_user_dir: Path):
     # The JSON currently ships 42 profiles across 13 categories.
-    genre_profiles.reload()
+    # ``isolated_user_dir`` redirects the override file to an empty
+    # tmp path so any in-development overrides a developer has saved
+    # locally don't inflate the count.
     assert len(genre_profiles.GENRES) == 42
     assert len(genre_profiles.CATEGORY_ORDER) == 13
 
 
-def test_known_profile_loads_with_correct_numbers():
-    genre_profiles.reload()
+def test_known_profile_loads_with_correct_numbers(isolated_user_dir: Path):
     cl = genre_profiles.GENRES["classical_orchestral"]
     assert cl.display_name == "Classical — Symphonic or Orchestral"
     assert cl.category == "Classical"
@@ -40,8 +41,7 @@ def test_known_profile_loads_with_correct_numbers():
     assert cl.lra_high == 24.0
 
 
-def test_list_genres_preserves_category_order():
-    genre_profiles.reload()
+def test_list_genres_preserves_category_order(isolated_user_dir: Path):
     seen_categories: list[str] = []
     for p in genre_profiles.list_genres():
         if not seen_categories or seen_categories[-1] != p.category:
@@ -49,13 +49,47 @@ def test_list_genres_preserves_category_order():
     assert seen_categories == list(genre_profiles.CATEGORY_ORDER)
 
 
-def test_grouped_genres_matches_category_order():
-    genre_profiles.reload()
+def test_grouped_genres_matches_category_order(isolated_user_dir: Path):
     grouped = genre_profiles.grouped_genres()
     assert [c for c, _ in grouped] == list(genre_profiles.CATEGORY_ORDER)
     # Every category must contain at least one profile.
     for _, profiles in grouped:
         assert profiles
+
+
+def test_save_user_overrides_unlinks_file_when_empty(isolated_user_dir: Path):
+    # Seed a non-trivial override on disk.
+    genre_profiles.save_user_overrides(
+        [{"key": "custom", "display_name": "Custom"}],
+        [
+            {
+                "key": "my_genre",
+                "category_key": "custom",
+                "display_name": "My Genre",
+                "target_lufs": -14.0,
+                "lra_low": 5.0,
+                "lra_high": 10.0,
+                "notes": "x",
+            }
+        ],
+    )
+    override_path = isolated_user_dir / "genres.json"
+    assert override_path.is_file()
+
+    # Saving with both lists empty must unlink the file rather than
+    # leaving an empty stub behind. The privacy promise is "nothing
+    # on disk if you have nothing to customise".
+    genre_profiles.save_user_overrides([], [])
+    assert not override_path.exists()
+
+
+def test_save_user_overrides_does_not_crash_when_no_file_to_remove(
+    isolated_user_dir: Path,
+):
+    # No file present yet; calling save with empty lists is a no-op
+    # and must not raise.
+    genre_profiles.save_user_overrides([], [])
+    assert not (isolated_user_dir / "genres.json").exists()
 
 
 def test_user_override_adds_new_profile(isolated_user_dir: Path):

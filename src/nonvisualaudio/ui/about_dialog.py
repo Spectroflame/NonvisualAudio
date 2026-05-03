@@ -14,15 +14,14 @@ The action buttons sit in a normal button row, focusable in tab order.
 from __future__ import annotations
 
 import logging
-import sys
 import webbrowser
-from pathlib import Path
 
 import wx
 
 from nonvisualaudio import __version__
 from nonvisualaudio.localization import t
 from nonvisualaudio.ui import a11y, theme
+from nonvisualaudio.ui.help_viewer import open_help
 
 log = logging.getLogger("nonvisualaudio.about")
 
@@ -35,40 +34,6 @@ _CREDITS = (
     "sounddevice and PortAudio — in-memory click playback",
     "scipy.signal, numpy, soundfile — analysis primitives",
 )
-
-
-# --------------------------------------------------------------------------- #
-# README discovery
-# --------------------------------------------------------------------------- #
-
-
-def _readme_candidates() -> list[Path]:
-    """Locations to probe for a user-facing README.
-
-    Order matters: in a packaged build the README sits next to the
-    executable; in a dev checkout it lives at the repo root.
-    """
-    out: list[Path] = []
-    here = Path(__file__).resolve()
-    repo_root = here.parents[3]
-    for name in ("README.txt", "README.md"):
-        out.append(repo_root / name)
-    if getattr(sys, "frozen", False):
-        try:
-            exe_dir = Path(sys.executable).resolve().parent
-            for name in ("README.txt", "README.md"):
-                out.append(exe_dir / name)
-                out.append(exe_dir.parent / name)
-        except Exception:  # noqa: BLE001 — best-effort
-            pass
-    return out
-
-
-def _locate_readme() -> Path | None:
-    for path in _readme_candidates():
-        if path.is_file():
-            return path
-    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -195,27 +160,19 @@ class AboutDialog(wx.Dialog):
         event.Skip()
 
     def _on_show_readme(self, _event: wx.CommandEvent) -> None:
-        path = _locate_readme()
-        if path is None:
-            log.warning("README not found in any candidate location")
-            wx.MessageBox(
-                t("ui.about.readme_missing.body"),
-                t("ui.about.readme_missing.title"),
-                style=wx.OK | wx.ICON_WARNING,
-                parent=self,
-            )
+        # Open the bundled HTML help in the active UI language. The
+        # help_viewer helper picks help_<lang>.html if it exists and
+        # falls back to English; we surface a friendly error only
+        # when both languages are missing (e.g. a broken install).
+        if open_help():
             return
-        log.info("opening README: %s", path)
-        try:
-            webbrowser.open(path.as_uri(), new=2)
-        except Exception as exc:  # noqa: BLE001 — OS-level issue
-            log.error("webbrowser.open(README) failed: %s", exc)
-            wx.MessageBox(
-                t("ui.about.readme_missing.body"),
-                t("ui.about.readme_missing.title"),
-                style=wx.OK | wx.ICON_WARNING,
-                parent=self,
-            )
+        log.warning("help HTML not found in any bundled location")
+        wx.MessageBox(
+            t("ui.about.readme_missing.body"),
+            t("ui.about.readme_missing.title"),
+            style=wx.OK | wx.ICON_WARNING,
+            parent=self,
+        )
 
     def _on_report_bug(self, _event: wx.CommandEvent) -> None:
         log.info("opening issues page: %s", _ISSUES_URL)

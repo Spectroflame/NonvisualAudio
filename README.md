@@ -219,8 +219,9 @@ The four layers are strictly top-to-bottom:
   is imported anywhere in the source. Verifiable by `grep`.
 - Logging is disabled by default (`WARNING` level) and goes to stderr
   only. Set `NVA_DEBUG=1` to enable DEBUG output during development.
-- No preferences file, no cache directory, no telemetry. The app leaves
-  no trace on disk after quitting.
+- Preferences file (small JSON) and user-genre overrides live under
+  the OS data dir; nothing is written until the user changes a
+  setting or saves a custom genre. No telemetry.
 
 ## License
 

@@ -199,10 +199,11 @@ PRIVACY
 
 NonvisualAudio does not connect to the Internet at any point. The
 source code contains no network libraries. No telemetry. No crash
-reporting. No preferences file. Nothing is written to your disk other
-than a short audio click played during analysis, and that click is
-generated in memory and never touches the file system in the released
-version. When you quit the app it leaves no trace behind.
+reporting.
+
+A small preferences file (language, theme, your report-section choice)
+and user-saved genre profiles live under your OS data folder; nothing
+else is written to disk.
 
 
 WHAT IT DOES NOT DO

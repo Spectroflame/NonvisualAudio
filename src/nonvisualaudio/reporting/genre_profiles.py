@@ -315,8 +315,23 @@ def save_user_overrides(
     Only call this with the subset that actually differs from the
     bundle — the caller (the editor) is in charge of pruning entries
     whose value is identical to the bundled default.
+
+    When both lists are empty (the user just deleted the last
+    override), the JSON file is removed entirely instead of leaving
+    an empty stub on disk. That keeps the privacy promise that
+    "nothing is written to disk if you don't customise anything"
+    intact even after a customise-then-undo round trip.
     """
     path = user_genres_path()
+    if not categories and not profiles:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            log.warning("could not remove empty override at %s: %s", path, exc)
+        reload()
+        return path
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": 1,

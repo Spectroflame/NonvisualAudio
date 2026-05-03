@@ -44,6 +44,35 @@ class GenreEditorDialog(wx.Dialog):
         intro = wx.StaticText(self, label=t("ui.genre_editor.intro"))
         root.Add(intro, flag=wx.ALL, border=10)
 
+        # Filter row: an "origin" picker that narrows the list to all,
+        # built-in only, user-added, or modified built-ins. Default
+        # stays "all" so the dialog opens looking like before.
+        filter_row = wx.BoxSizer(wx.HORIZONTAL)
+        filter_label = wx.StaticText(
+            self, label=t("ui.genre_editor.filter_label")
+        )
+        filter_row.Add(filter_label, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
+        # Filter values map to the same origin tokens that
+        # genre_profiles.profile_origin returns; "all" is a special
+        # sentinel that disables filtering.
+        self._filter_keys: list[str] = ["all", "built_in", "user", "modified"]
+        filter_choices = [
+            t("ui.genre_editor.filter.all"),
+            t("ui.genre_editor.filter.built_in"),
+            t("ui.genre_editor.filter.user"),
+            t("ui.genre_editor.filter.modified"),
+        ]
+        self.filter_ctrl = wx.Choice(self, choices=filter_choices)
+        self.filter_ctrl.SetSelection(0)
+        a11y.set_a11y(
+            self.filter_ctrl,
+            t("ui.genre_editor.filter_name"),
+            t("ui.genre_editor.filter_hint"),
+        )
+        self.filter_ctrl.Bind(wx.EVT_CHOICE, self._on_filter_changed)
+        filter_row.Add(self.filter_ctrl, proportion=1, flag=wx.EXPAND)
+        root.Add(filter_row, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+
         body = wx.BoxSizer(wx.HORIZONTAL)
 
         self.list_ctrl = wx.ListBox(self, style=wx.LB_SINGLE)
@@ -134,6 +163,16 @@ class GenreEditorDialog(wx.Dialog):
             return t("ui.genre_editor.origin.modified")
         return t("ui.genre_editor.origin.built_in")
 
+    def _current_filter(self) -> str:
+        idx = self.filter_ctrl.GetSelection()
+        if 0 <= idx < len(self._filter_keys):
+            return self._filter_keys[idx]
+        return "all"
+
+    def _on_filter_changed(self, event: wx.CommandEvent) -> None:
+        self._rebuild_list()
+        self._refresh_button_state()
+
     def _rebuild_list(self) -> None:
         # Use the already-localised GenreProfile objects so display and
         # sort order follow the current UI language.
@@ -145,9 +184,13 @@ class GenreEditorDialog(wx.Dialog):
                 p.display_name.lower(),
             )
         )
+        active_filter = self._current_filter()
         self._list_keys: list[str] = []
         labels: list[str] = []
         for profile in loaded:
+            origin_key = genre_profiles.profile_origin(profile.key)
+            if active_filter != "all" and origin_key != active_filter:
+                continue
             origin = self._origin_label(profile.key)
             labels.append(
                 t(

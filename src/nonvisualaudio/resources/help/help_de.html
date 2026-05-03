@@ -70,10 +70,11 @@
     </ol>
   </li>
   <li><a href="#genres">Genre-Profile</a></li>
-  <li><a href="#referenz">Vergleich mit Referenz-Datei</a></li>
+  <li><a href="#referenz">Vergleich mit Referenz</a></li>
+  <li><a href="#sektionen">Report-Abschnitte wählen</a></li>
+  <li><a href="#projekt">Projekt-Modus für Alben und Hörspiele</a></li>
   <li><a href="#report">Den Report lesen</a></li>
   <li><a href="#shortcuts">Tastenkombinationen</a></li>
-  <li><a href="#barrierefreiheit">Barrierefreiheits-Features</a></li>
   <li><a href="#datenschutz">Datenschutz</a></li>
 </ol>
 </nav>
@@ -135,11 +136,26 @@
     <kbd>Genres wählen...</kbd> öffnet den Auswahl-Dialog; beliebig
     viele Genres sind gleichzeitig möglich.
   </dd>
-  <dt>Referenz-Datei</dt>
+  <dt>Referenz</dt>
   <dd>
-    Zeigt die Audio-Datei, die als A/B-Referenz dient, falls du eine
-    ausgewählt hast. <kbd>Referenz entfernen</kbd> löscht die
-    Auswahl.
+    Zeigt die Audio-Daten, die als A/B-Referenz dienen — entweder
+    eine einzelne Datei oder mehrere Dateien (Stichwort
+    Referenz-Projekt; siehe
+    <a href="#referenz">Vergleich mit Referenz</a>).
+    <kbd>Referenz entfernen</kbd> löscht die Auswahl.
+  </dd>
+  <dt>Ausgewählte Report-Abschnitte</dt>
+  <dd>
+    Zeigt, welche Blöcke im Report enthalten sein werden — alle, oder
+    eine Teilmenge wie nur Lautheit oder nur Frequenzbalance.
+    <kbd>Report-Abschnitte wählen...</kbd> öffnet den Auswahl-Dialog;
+    siehe <a href="#sektionen">Report-Abschnitte wählen</a>.
+  </dd>
+  <dt>Projekt-Modus</dt>
+  <dd>
+    Eine Checkbox „Alle Dateien zusammen als ein Projekt analysieren".
+    Beim Start der App immer aus; siehe
+    <a href="#projekt">Projekt-Modus für Alben und Hörspiele</a>.
   </dd>
   <dt>Fortschrittsbalken und Status-Zeile</dt>
   <dd>
@@ -208,13 +224,18 @@
 <section id="menu-hilfe">
 <h3>Hilfe</h3>
 <p>
-  <kbd>Hilfe öffnen</kbd> (<kbd>F1</kbd> bzw. <kbd>Cmd+Umschalt+ß</kbd>
-  auf einer deutschen Mac-Tastatur) öffnet dieses Handbuch im
-  Standard-Browser.
+  <kbd>Über NonvisualAudio</kbd> (<kbd>F1</kbd> bzw.
+  <kbd>Cmd+Umschalt+ß</kbd> auf einer deutschen Mac-Tastatur) öffnet
+  einen kompakten Über-/Hilfe-Dialog. Darin stehen Version,
+  Beschreibung, Lizenz, Credits und der GitHub-Link, plus zwei
+  Action-Buttons:
 </p>
-<p>
-  <kbd>Über NonvisualAudio</kbd> zeigt Version, Lizenz und Credits.
-</p>
+<ul>
+  <li><kbd>README anzeigen</kbd> öffnet dieses Handbuch in der gerade
+      aktiven Oberflächensprache im Standard-Browser.</li>
+  <li><kbd>Fehler melden</kbd> ruft die GitHub-Issues-Seite des
+      Projekts auf, sodass Bugreports mit zwei Klicks landen.</li>
+</ul>
 </section>
 
 </section>
@@ -306,7 +327,7 @@
   <dd>Kern der Sprachverständlichkeit. Die Präsenz der Stimme sitzt hier.</dd>
   <dt>Präsenz (2 bis 6 kHz)</dt>
   <dd>Klarheit, Biss, Konsonanten. Hier hört das Ohr am empfindlichsten.</dd>
-  <dt>Luft (6 bis 20 kHz)</dt>
+  <dt>Obere Höhen (6 bis 20 kHz)</dt>
   <dd>Becken-Glanz, Streicher-Obertöne, Atem, Zischlaute.</dd>
 </dl>
 </section>
@@ -321,7 +342,7 @@
 <ul>
   <li>die Frequenz in Hz bzw. kHz,</li>
   <li>den Bereich, in dem sie liegt (Subbass, Bass, untere Mitten,
-      Mitten, Präsenz oder Luft),</li>
+      Mitten, Präsenz oder obere Höhen),</li>
   <li>um wie viele dB sie über dem umgebenden Spektrum liegt,</li>
   <li>einen Klartext-Hinweis darauf, wonach sie typischerweise
       klingt (z. B. „kastiger, näselnder Klang", „Zischlaute",
@@ -368,39 +389,134 @@
       angepasst hast.</li>
 </ul>
 <p>
+  Oben im Editor sitzt das Filter-Einblendmenü <kbd>Anzeigen:</kbd>
+  mit den Werten <em>Alle</em>, <em>Mitgeliefert</em>, <em>Eigen</em>
+  und <em>Geändert</em>. So lassen sich z. B. alle eigenen Profile
+  auf einen Blick sehen, ohne durch die 42 mitgelieferten zu blättern.
+</p>
+<p>
   <kbd>Löschen</kbd> ist nur für <code>eigen</code>-Einträge möglich.
   <kbd>Auf Standard zurücksetzen</kbd> gilt für
   <code>geändert</code>-Einträge und stellt die Originalwerte
   wieder her.
+</p>
+<h3>Profil hinzufügen oder bearbeiten</h3>
+<p>
+  Im Add-/Edit-Formular liegen die Felder zeilenweise — Beschriftung
+  steht jeweils direkt über dem Eingabefeld, damit der Screenreader
+  beim Eintauchen ins Feld den Namen mit ansagt. Initial liegt der
+  Fokus auf dem Schlüssel-Feld.
+</p>
+<p>
+  Die Kategorie wird über ein <strong>Einblendmenü</strong> gewählt
+  (VoiceOver: „popup menu"). Standardwert ist
+  <em>&lt;bitte auswählen&gt;</em>; OK ohne Auswahl löst eine
+  Validierungs-Fehlermeldung aus. Für eine neue Kategorie das eigene
+  Feld <kbd>Oder neuer Kategorie-Name</kbd> direkt darunter nutzen —
+  ist es ausgefüllt, hat es Vorrang vor dem Einblendmenü.
+</p>
+<p>
+  Beim Verlassen der Felder Ziel-LUFS, LRA unten und LRA oben werden
+  die Eingaben automatisch in die erwartete Form gebracht: aus „-15"
+  wird „-15.0", aus „3,5" wird „3.5". Was nicht als Zahl lesbar ist,
+  bleibt stehen und löst auf OK eine Validierungs-Fehlermeldung aus.
 </p>
 <p>
   Beim Anlegen eines Profils kannst du sowohl einen deutschen als
   auch einen englischen Namen und Beschreibungstext eintragen; der
   Report wählt dann automatisch die passende Sprache. Alle
   Änderungen liegen im Benutzer-Datenordner — die mitgelieferten
-  Profile werden nie überschrieben.
+  Profile werden nie überschrieben. Beim Löschen des letzten eigenen
+  Profils wird die Override-Datei wieder entfernt; der Datenordner
+  bleibt nur dann mit Inhalt zurück, wenn tatsächlich Anpassungen
+  gespeichert sind.
 </p>
 </section>
 
 <section id="referenz">
-<h2>7. Vergleich mit Referenz-Datei</h2>
+<h2>7. Vergleich mit Referenz</h2>
 <p>
-  Über <kbd>Referenz-Datei wählen...</kbd> lässt sich eine zweite
-  Audio-Datei festlegen. Der Report enthält dann einen direkten
-  Vergleich damit: Lautheits-Differenz, Dynamik-Differenz und
-  Band-für-Band-Unterschied im Spektrum. Praktisch für
-  „Liegt mein Master im gleichen Rahmen wie Song X aus dem selben
-  Album?".
+  Über <kbd>Referenz-Dateien wählen...</kbd> lässt sich Vergleichs-
+  Audio festlegen. Der Mehrfach-Auswahl-Dialog akzeptiert eine oder
+  mehrere Dateien; alternativ einen kompletten Ordner auf das
+  Referenz-Feld ziehen. Je nach Anzahl gibt es zwei Modi:
 </p>
+<ul>
+  <li><strong>Eine Datei</strong> — klassischer A/B-Vergleich. Der
+      Report enthält Lautheits-Differenz, Dynamik-Differenz und
+      Band-für-Band-Unterschiede im Spektrum.</li>
+  <li><strong>Mehrere Dateien oder ein Ordner</strong> — alle
+      Referenz-Dateien werden mit derselben Pipeline wie das Ziel zu
+      einem <em>Referenz-Projekt</em> zusammengefasst (Lautheit
+      exakt via ffmpeg-concat-Filter, Dynamik und Spektrum auf den
+      kombinierten Samples). Praktisch um z. B. ein frisch
+      gemastertes Album als Ganzes gegen ein älteres Album als
+      Ganzes zu vergleichen — nicht Track für Track, sondern
+      Master gegen Master.</li>
+</ul>
 <p>
+  Im Report-Header der Vergleichs-Sektion steht „Referenz-Datei: …"
+  bei einer einzelnen Datei oder „Referenz-Projekt: …" bei mehreren.
   Referenz- und Genre-Vergleich lassen sich kombinieren — jedes
   gewählte Genre plus die Referenz erzeugen jeweils einen eigenen
   Abschnitt im Report.
 </p>
 </section>
 
+<section id="sektionen">
+<h2>8. Report-Abschnitte wählen</h2>
+<p>
+  Standardmäßig enthält der Report alle Blöcke (Datei-Info, Lautheit,
+  Dynamik, Frequenzbalance, Gesamturteil, Vergleich, Empfehlungen).
+  Über die Schaltfläche <kbd>Report-Abschnitte wählen...</kbd> im
+  Hauptfenster lassen sich gezielt nur einzelne Blöcke aktivieren —
+  zum Beispiel nur Lautheit, oder nur Frequenzbalance plus
+  Empfehlungen.
+</p>
+<p>
+  Im Auswahl-Dialog steht je eine Checkbox pro Abschnitt; die
+  Buttons <kbd>Alle aktivieren</kbd> und <kbd>Alle deaktivieren</kbd>
+  sind Schnellschalter. Die Wahl bleibt zwischen App-Starts erhalten,
+  sodass sie nur einmal eingestellt werden muss.
+</p>
+</section>
+
+<section id="projekt">
+<h2>9. Projekt-Modus für Alben und Hörspiele</h2>
+<p>
+  Die Checkbox <kbd>Alle Dateien zusammen als ein Projekt
+  analysieren</kbd> behandelt die ganze Auswahl wie ein einziges,
+  durchgängiges Stück:
+</p>
+<ul>
+  <li>Lautheit, Dynamik und Frequenzbalance werden über alle Tracks
+      hinweg gemessen, als wäre die Sammlung eine einzige große
+      Datei. Die Lautheit wird dabei via ffmpeg-Concat-Filter direkt
+      aus den zusammengeschalteten Audio-Streams berechnet — also
+      ohne Genauigkeitsverlust durch Mittelwert-Annäherungen.</li>
+  <li>Im Report-Header steht „Projekt" statt „Datei-Info". Die
+      Verdikte sprechen das Projekt direkt an („Das Projekt ist
+      laut..." statt „Die Datei ist laut...").</li>
+  <li>Es gibt einen zusätzlichen Block „Konsistenz über alle Tracks":
+      eine kurze Zeile, die sagt, um wie viele LU sich die Track-
+      Lautheiten unterscheiden und welcher Track der lauteste und
+      welcher der leiseste ist.</li>
+</ul>
+<p>
+  Sicherheitsnetze:
+</p>
+<ul>
+  <li>Beim App-Start ist der Projekt-Modus immer aus, damit er nicht
+      versehentlich aus einer alten Sitzung „kleben" bleibt.</li>
+  <li>Wenn der Projekt-Modus an ist, aber nur eine Datei in der Liste
+      steht, fragt die App vor der Analyse nach: lieber als normale
+      Einzeldatei-Analyse fahren, als Ein-Track-Projekt durchziehen
+      oder abbrechen, um zuerst weitere Dateien hinzuzufügen.</li>
+</ul>
+</section>
+
 <section id="report">
-<h2>8. Den Report lesen</h2>
+<h2>10. Den Report lesen</h2>
 <p>
   Der Report ist reiner Klartext. Abschnitts-Überschriften stehen in
   GROSSBUCHSTABEN auf einer eigenen Zeile, damit Screenreader
@@ -422,11 +538,18 @@
   <li><strong>GESAMTURTEIL</strong> — ein Absatz, der Lautheit,
       Dynamik und Klangneigung zusammenfasst.</li>
   <li><strong>VERGLEICH MIT ...</strong> — je ein Abschnitt pro
-      ausgewähltem Genre und einer für die Referenz-Datei, falls
-      vorhanden.</li>
+      ausgewähltem Genre und einer für die Referenz-Datei oder das
+      Referenz-Projekt, falls vorhanden.</li>
   <li><strong>EMPFEHLUNGEN</strong> — konkrete EQ- und Mastering-
       Vorschläge aus den Messwerten abgeleitet.</li>
+  <li>Im Projekt-Modus zusätzlich <strong>KONSISTENZ ÜBER ALLE
+      TRACKS</strong> — Lautheits-Spanne und lautester /
+      leisester Track als eine Zeile.</li>
 </ol>
+<p>
+  Welche Blöcke tatsächlich erscheinen, hängt von der Auswahl unter
+  <a href="#sektionen">Report-Abschnitte wählen</a> ab.
+</p>
 <p>
   Zahlen werden ausgeschrieben: „minus 21,4 LUFS" statt „-21,4
   LUFS" auf Deutsch bzw. „minus 21.4 LUFS" auf Englisch — so spricht
@@ -435,7 +558,7 @@
 </section>
 
 <section id="shortcuts">
-<h2>9. Tastenkombinationen</h2>
+<h2>11. Tastenkombinationen</h2>
 <p>
   In diesem Abschnitt steht <kbd>Cmd</kbd> für die Befehlstaste auf
   macOS und <kbd>Strg</kbd> für die Steuerungstaste unter Windows
@@ -454,7 +577,8 @@
   <dt><kbd>Cmd+Q</kbd> / <kbd>Strg+Q</kbd></dt>
   <dd>App beenden.</dd>
   <dt><kbd>F1</kbd>, oder <kbd>Cmd+Umschalt+ß</kbd> auf deutscher Mac-Tastatur</dt>
-  <dd>Diese Hilfe öffnen.</dd>
+  <dd>Den Über-/Hilfe-Dialog öffnen. Von dort führt
+      <kbd>README anzeigen</kbd> zu diesem Handbuch.</dd>
   <dt>Im Ergebnis-Fenster: <kbd>Cmd+Umschalt+C</kbd> / <kbd>Strg+Umschalt+C</kbd></dt>
   <dd>Den kompletten Report in die Zwischenablage kopieren.</dd>
   <dt>In jedem Dialog: <kbd>Escape</kbd></dt>
@@ -462,31 +586,8 @@
 </dl>
 </section>
 
-<section id="barrierefreiheit">
-<h2>10. Barrierefreiheits-Features</h2>
-<ul>
-  <li>Jedes Bedienelement hat einen Screenreader-Namen und eine
-      Beschreibung, die sich mit <kbd>VO+H</kbd> auf macOS oder der
-      Objekt-Durchsicht von NVDA unter Windows abrufen lässt.</li>
-  <li>Dieselbe Beschreibung dient auch als Maus-Tooltip — sinnvoll
-      für sehende Mitarbeitende an derselben App.</li>
-  <li>Vier Farbschemata inklusive eines Hoher-Kontrast-Modus
-      (<a href="#menu-ansicht">Ansicht-Menü</a>).</li>
-  <li>Nur-lesbare Textfelder tragen dieselben Infos, die der
-      Screenreader bekommt — Pfeiltasten funktionieren Zeile für
-      Zeile.</li>
-  <li>Ein Metronom-Klicken während der Analyse bestätigt akustisch,
-      dass etwas passiert; unabhängig vom visuellen
-      Fortschrittsbalken.</li>
-  <li>Das Ergebnis-Fenster öffnet sich mit dem Fokus im Report-Text,
-      sodass das Vorlesen sofort beginnt.</li>
-  <li>Alle Zahlen werden natürlich gesprochen: „minus 21,4" statt
-      Minuszeichen plus Ziffern.</li>
-</ul>
-</section>
-
 <section id="datenschutz">
-<h2>11. Datenschutz</h2>
+<h2>12. Datenschutz</h2>
 <p>
   Es werden keine Daten über das Netz gesendet. NonvisualAudio hat
   keine Telemetrie, keine Cloud, keine Analytics. Eine winzige

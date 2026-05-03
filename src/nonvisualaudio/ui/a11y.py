@@ -29,9 +29,22 @@ def set_a11y(widget: Any, name: str, description: str = "") -> None:
     caller to import wx. All ``wx.Window`` subclasses implement
     ``SetName``, ``SetHelpText`` and ``SetToolTip`` so duck typing is
     safe here.
+
+    On macOS, wxPython's ``SetName`` writes to NSAccessibility's
+    ``accessibilityIdentifier`` rather than its ``accessibilityTitle``
+    — VoiceOver reads the latter, so a separate call into
+    :mod:`nonvisualaudio.ui.macos_a11y` patches the title via the
+    Objective-C runtime. That call is a cheap no-op everywhere except
+    macOS.
     """
     if hasattr(widget, "SetName"):
         widget.SetName(name)
+    # Local import keeps Linux / Windows builds from loading the
+    # ctypes-backed bridge module unnecessarily; the module itself
+    # already gates its initialisation on sys.platform.
+    from nonvisualaudio.ui import macos_a11y
+
+    macos_a11y.set_accessibility_title(widget, name)
     if description:
         update_help(widget, description)
 

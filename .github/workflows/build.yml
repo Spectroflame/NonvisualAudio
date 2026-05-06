@@ -87,15 +87,24 @@ jobs:
           PACKAGES="wxPython numpy scipy soundfile sounddevice pyloudnorm cffi"
           mkdir -p /tmp/whl/arm64 /tmp/whl/x86_64 /tmp/whl/universal2
 
+          # Specifying a high macOS version per arch lets pip accept
+          # wheels with any older minimum: scipy's arm64 wheels jumped
+          # to macosx_12_0 in 1.15, while older numpy/cffi/sounddevice
+          # still ship macosx_11_0 — the upper bound here is "what the
+          # newest dep happens to demand". x86_64 keeps a 10.13 floor
+          # to stay compatible with the Intel-Mac generation we care
+          # about. The wheels' own embedded minimum is what ships in
+          # the bundle, so picking a permissive ceiling here doesn't
+          # raise the runtime requirement on user machines.
           python3.12 -m pip download \
-            --platform=macosx_11_0_arm64 \
+            --platform=macosx_14_0_arm64 \
             --python-version=312 \
             --only-binary=:all: \
             -d /tmp/whl/arm64 \
             ${PACKAGES}
 
           python3.12 -m pip download \
-            --platform=macosx_11_0_x86_64 \
+            --platform=macosx_10_13_x86_64 \
             --python-version=312 \
             --only-binary=:all: \
             -d /tmp/whl/x86_64 \

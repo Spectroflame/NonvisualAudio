@@ -87,28 +87,43 @@ jobs:
           PACKAGES="wxPython numpy scipy soundfile sounddevice pyloudnorm cffi"
           mkdir -p /tmp/whl/arm64 /tmp/whl/x86_64 /tmp/whl/universal2
 
-          # Specifying a high macOS version per arch lets pip accept
-          # wheels with any older minimum: scipy's arm64 wheels jumped
-          # to macosx_12_0 in 1.15, while older numpy/cffi/sounddevice
-          # still ship macosx_11_0 — the upper bound here is "what the
-          # newest dep happens to demand". x86_64 keeps a 10.13 floor
-          # to stay compatible with the Intel-Mac generation we care
-          # about. The wheels' own embedded minimum is what ships in
-          # the bundle, so picking a permissive ceiling here doesn't
-          # raise the runtime requirement on user machines.
-          python3.12 -m pip download \
-            --platform=macosx_14_0_arm64 \
-            --python-version=312 \
-            --only-binary=:all: \
-            -d /tmp/whl/arm64 \
-            ${PACKAGES}
-
+          # We resolve the x86_64 wheels FIRST because they are the
+          # more constrained arch — newer scipy / numpy releases
+          # have started skipping x86_64 builds, so whatever pip
+          # picks here is the latest version that still ships both
+          # an arm64 AND an x86_64 wheel. The arm64 download then
+          # gets pinned to those exact versions; otherwise pip
+          # happily resolves arm64 to a newer release (scipy 1.17.x
+          # was the first casualty), no x86_64 counterpart exists,
+          # and delocate-merge has nothing to fuse.
+          #
+          # The platform tags are deliberately permissive ceilings
+          # ("we'll accept anything older than this"). The wheel's
+          # own embedded LC_BUILD_VERSION is what ends up in the
+          # shipped bundle, so widening the ceiling doesn't raise
+          # the runtime requirement on user machines.
           python3.12 -m pip download \
             --platform=macosx_10_13_x86_64 \
             --python-version=312 \
             --only-binary=:all: \
             -d /tmp/whl/x86_64 \
             ${PACKAGES}
+
+          PINS=""
+          for whl in /tmp/whl/x86_64/*.whl; do
+            base=$(basename "${whl}" .whl)
+            dist=$(echo "${base}" | cut -d- -f1)
+            version=$(echo "${base}" | cut -d- -f2)
+            PINS="${PINS} ${dist}==${version}"
+          done
+          echo "Pinning arm64 download to: ${PINS}"
+
+          python3.12 -m pip download \
+            --platform=macosx_14_0_arm64 \
+            --python-version=312 \
+            --only-binary=:all: \
+            -d /tmp/whl/arm64 \
+            ${PINS}
 
           # Pair each arm64 wheel with its x86_64 counterpart, fuse
           # into a universal2 wheel. Pure-Python wheels (no arch

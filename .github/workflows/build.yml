@@ -68,10 +68,33 @@ jobs:
         # and every artifact match the GitHub release tag exactly.
         run: python3.12 scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
 
-      - name: Install Python dependencies
+      - name: Install Python dependencies (universal2 wheels)
+        # Pip prefers the most-specific wheel match, so on the arm64
+        # runner it picks arm64-only wheels even when a universal2
+        # wheel is published on PyPI for the same package. PyInstaller's
+        # universal2 build then refuses to fuse the resulting arm64-only
+        # .so files (cffi's _cffi_backend was the first casualty).
+        # Forcing --platform=macosx_11_0_universal2 with --target makes
+        # pip download the universal2 wheel for every package that
+        # ships one. The native deps we care about (numpy, scipy,
+        # wxPython, soundfile, sounddevice, cffi) all do.
+        #
+        # cffi has to be listed explicitly even though it's only a
+        # transitive dep of soundfile / sounddevice — without it the
+        # implicit pull-in through `pip install -e .` would happen
+        # before the universal2 install and resolve to an arm64 wheel.
         run: |
+          set -eux
           python3.12 -m pip install --upgrade pip
-          python3.12 -m pip install -e .
+          SITE_PKGS=$(python3.12 -c 'import site; print(site.getsitepackages()[0])')
+          python3.12 -m pip install \
+            --platform=macosx_11_0_universal2 \
+            --python-version=312 \
+            --only-binary=:all: \
+            --upgrade \
+            --target="${SITE_PKGS}" \
+            wxPython numpy scipy soundfile sounddevice pyloudnorm cffi
+          python3.12 -m pip install --no-deps -e .
           python3.12 -m pip install pyinstaller
 
       - name: Bundle universal2 ffmpeg
@@ -168,17 +191,37 @@ jobs:
 
       - name: Bundle static ffmpeg
         shell: pwsh
+        # Resolve the win64-gpl asset URL through the GitHub API
+        # rather than guessing the filename. BtbN bumps the "latest"
+        # release regularly and has historically renamed the asset
+        # (e.g. dropping the "-master-" segment), which silently
+        # breaks a hard-coded /releases/latest/download/<file> URL.
+        # The API call is cheap and self-healing.
         run: |
           $ErrorActionPreference = 'Stop'
-          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip'
+          $headers = @{ 'User-Agent' = 'NonvisualAudio-build' }
+          if ($env:GITHUB_TOKEN) {
+            $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN"
+          }
+          $release = Invoke-RestMethod -Headers $headers `
+            -Uri 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest'
+          $asset = $release.assets |
+            Where-Object { $_.name -match '^ffmpeg-.*-win64-gpl(?!-shared).*\.zip$' } |
+            Select-Object -First 1
+          if (-not $asset) {
+            throw "No win64-gpl asset found in BtbN/FFmpeg-Builds release '$($release.tag_name)'"
+          }
+          Write-Host "Downloading $($asset.name) from $($asset.browser_download_url)"
           $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg.zip'
           $extract = Join-Path $env:RUNNER_TEMP 'ffmpeg'
-          Invoke-WebRequest -Uri $url -OutFile $zip
+          Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath $extract -Force
           $exe = Get-ChildItem -Path $extract -Recurse -Filter ffmpeg.exe | Select-Object -First 1
           if (-not $exe) { throw 'ffmpeg.exe not found in downloaded archive' }
           New-Item -ItemType Directory -Force -Path src\nonvisualaudio\resources\bin\win | Out-Null
           Copy-Item $exe.FullName src\nonvisualaudio\resources\bin\win\ffmpeg.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build .exe folder
         run: pyinstaller --clean --noconfirm NonvisualAudio.spec

@@ -102,7 +102,16 @@ exe = EXE(
     # picks the native toolkit on its own.
     console=False,
     disable_windowed_traceback=False,
-    target_arch=None,
+    # On macOS we ship a single universal2 (fat) bundle that runs
+    # natively on Apple Silicon and Intel — the GitHub Actions Intel
+    # Mac runner pool has been unreliable for months and a separate
+    # x86_64 matrix row was failing to dequeue. PyInstaller can only
+    # produce a universal2 bundle when the Python interpreter and
+    # every loaded .dylib / .so already carries both slices, which
+    # the CI workflow ensures by installing python.org's universal2
+    # build and pulling universal2 wheels for numpy / scipy / wxPython
+    # / soundfile / sounddevice. Other platforms keep the host arch.
+    target_arch="universal2" if sys.platform == "darwin" else None,
     codesign_identity=None,
     entitlements_file=None,
 )

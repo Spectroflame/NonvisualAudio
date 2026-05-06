@@ -13,58 +13,105 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------ #
-  # macOS — Apple Silicon (arm64) and Intel (x86_64). GitHub's
-  # macos-14 runner image is arm64, macos-13 is the last image still
-  # served on Intel hardware. Each matrix row installs Homebrew's
-  # native ffmpeg, so the resulting .app is fully native on the
-  # matching CPU class.
+  # macOS — single universal2 (fat) bundle that runs natively on
+  # Apple Silicon and Intel. The previous matrix row for macos-13
+  # (Intel) was unreliable: GitHub's public Intel runner pool is
+  # essentially drained, the x86_64 job sat in queue for >1h on the
+  # last release and was eventually cancelled. Building universal2
+  # on the macos-14 (arm64) runner sidesteps the queue entirely.
+  #
+  # Three things have to be universal2 for the resulting .app to
+  # actually run on both architectures:
+  #
+  #  - The Python interpreter. actions/setup-python only ships
+  #    single-arch builds, so we install the python.org installer,
+  #    which is the canonical universal2 (fat) interpreter.
+  #  - Every native .so / .dylib loaded at import time. numpy, scipy,
+  #    wxPython, soundfile, and sounddevice all publish universal2
+  #    wheels on PyPI for current versions; pip picks them
+  #    automatically because the running interpreter is universal2.
+  #  - The bundled ffmpeg. Homebrew on macos-14 only installs an
+  #    arm64 binary, so we spin up an x86_64 Homebrew prefix under
+  #    Rosetta, install ffmpeg there too, and stitch the two
+  #    binaries together with `lipo`.
   # ------------------------------------------------------------------ #
   macos:
-    name: macOS ${{ matrix.arch }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            arch: arm64
-          - runner: macos-13
-            arch: x86_64
-    runs-on: ${{ matrix.runner }}
+    name: macOS Universal2
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Install python.org universal2 Python 3.12
+        # actions/setup-python's macOS cache holds an arm64-only build
+        # which would silently produce a single-arch bundle. The
+        # python.org installer is the only mainstream universal2
+        # Python distribution, so we install it directly.
+        run: |
+          set -eux
+          PY_VERSION=3.12.8
+          curl -fL --retry 3 -o /tmp/python.pkg \
+            "https://www.python.org/ftp/python/${PY_VERSION}/python-${PY_VERSION}-macos11.pkg"
+          sudo installer -pkg /tmp/python.pkg -target /
+          PY_BIN=/Library/Frameworks/Python.framework/Versions/3.12/bin
+          echo "${PY_BIN}" >> "$GITHUB_PATH"
+          # Fail loudly if the interpreter isn't a fat binary —
+          # a stealth single-arch install would only surface as a
+          # broken .app on Intel users' machines otherwise.
+          file "${PY_BIN}/python3.12" | tee /tmp/python_arch.txt
+          grep -q "x86_64" /tmp/python_arch.txt
+          grep -q "arm64" /tmp/python_arch.txt
 
       - name: Sync version with pushed git tag
         if: startsWith(github.ref, 'refs/tags/v')
         # Write the tag's version number (without the leading v) into
         # pyproject.toml so the About dialog, CFBundleShortVersionString,
         # and every artifact match the GitHub release tag exactly.
-        run: python scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
+        run: python3.12 scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
-          pip install pyinstaller
+          python3.12 -m pip install --upgrade pip
+          python3.12 -m pip install -e .
+          python3.12 -m pip install pyinstaller
 
-      - name: Bundle static ffmpeg (Homebrew)
-        # Homebrew ships a native ffmpeg that matches the runner's
-        # architecture. We copy the raw binary into the resources tree
-        # so PyInstaller picks it up automatically.
+      - name: Bundle universal2 ffmpeg
+        # arm64 ffmpeg comes from the runner's native Homebrew (the
+        # exact path the previous arm64-only build used). x86_64
+        # ffmpeg comes from a second Homebrew prefix installed under
+        # Rosetta — the Intel installer lives at /usr/local while the
+        # Apple Silicon one lives at /opt/homebrew, so the two don't
+        # collide. `lipo -create` merges both Mach-O slices into one
+        # fat binary.
         run: |
           set -eux
           brew update --quiet || true
           brew install ffmpeg
-          mkdir -p src/nonvisualaudio/resources/bin/darwin
-          cp "$(brew --prefix)/bin/ffmpeg" src/nonvisualaudio/resources/bin/darwin/ffmpeg
-          chmod +x src/nonvisualaudio/resources/bin/darwin/ffmpeg
-          file src/nonvisualaudio/resources/bin/darwin/ffmpeg
+          ARM64_FFMPEG="$(brew --prefix)/bin/ffmpeg"
+          file "${ARM64_FFMPEG}"
 
-      - name: Build .app bundle
-        run: pyinstaller --clean --noconfirm NonvisualAudio.spec
+          if [ ! -x /usr/local/bin/brew ]; then
+            arch -x86_64 /bin/bash -c \
+              'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+          fi
+          arch -x86_64 /usr/local/bin/brew update --quiet || true
+          arch -x86_64 /usr/local/bin/brew install ffmpeg
+          X86_FFMPEG=/usr/local/bin/ffmpeg
+          file "${X86_FFMPEG}"
+
+          mkdir -p src/nonvisualaudio/resources/bin/darwin
+          lipo -create -output src/nonvisualaudio/resources/bin/darwin/ffmpeg \
+            "${ARM64_FFMPEG}" "${X86_FFMPEG}"
+          chmod +x src/nonvisualaudio/resources/bin/darwin/ffmpeg
+          file src/nonvisualaudio/resources/bin/darwin/ffmpeg | tee /tmp/ffmpeg_arch.txt
+          grep -q "x86_64" /tmp/ffmpeg_arch.txt
+          grep -q "arm64" /tmp/ffmpeg_arch.txt
+
+      - name: Build .app bundle (universal2)
+        # --target-architecture is set on the CLI as a belt-and-braces
+        # guard for PyInstaller versions that don't honour the
+        # spec-level target_arch. The spec also sets it on macOS, so
+        # both code paths agree.
+        run: pyinstaller --clean --noconfirm --target-architecture universal2 NonvisualAudio.spec
 
       - name: Ad-hoc code sign
         # Ad-hoc signing is enough for local execution; users still need
@@ -72,16 +119,27 @@ jobs:
         # in the README).
         run: codesign --force --deep --sign - dist/NonvisualAudio.app
 
+      - name: Verify the bundle is universal2
+        # If a single .so in the dependency chain ever gets pulled in
+        # arm64-only the .app would silently degrade to "arm64 with
+        # arm64-only Python sub-bundles" and break on Intel users.
+        # Surface that here, not in a bug report.
+        run: |
+          set -eux
+          file dist/NonvisualAudio.app/Contents/MacOS/NonvisualAudio | tee /tmp/exe_arch.txt
+          grep -q "x86_64" /tmp/exe_arch.txt
+          grep -q "arm64" /tmp/exe_arch.txt
+
       - name: Package as zip
         run: |
           cd dist
           ditto -c -k --sequesterRsrc --keepParent \
-            NonvisualAudio.app NonvisualAudio-macOS-${{ matrix.arch }}.zip
+            NonvisualAudio.app NonvisualAudio-macOS.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: NonvisualAudio-macOS-${{ matrix.arch }}
-          path: dist/NonvisualAudio-macOS-${{ matrix.arch }}.zip
+          name: NonvisualAudio-macOS
+          path: dist/NonvisualAudio-macOS.zip
           if-no-files-found: error
 
   # ------------------------------------------------------------------ #
@@ -207,8 +265,9 @@ jobs:
           if-no-files-found: error
 
   # ------------------------------------------------------------------ #
-  # Attach the four artifacts to a GitHub Release when a v* tag is
-  # pushed. Manual (workflow_dispatch) runs skip this step.
+  # Attach the three artifacts (macOS universal2, Windows x64, Linux
+  # x64) to a GitHub Release when a v* tag is pushed. Manual
+  # (workflow_dispatch) runs skip this step.
   # ------------------------------------------------------------------ #
   release:
     name: Publish GitHub release

@@ -18,28 +18,22 @@ translations.
 
 Windows specifics:
 
-NVDA does not announce ``SetHelpText`` / MSAA ``accDescription`` by
-default — that requires the user to enable "Report object descriptions"
-in NVDA's settings — and ``SetToolTip`` only fires on hover, which
-screen-reader users never trigger. The result is that the hint text
-never reaches NVDA users out of the box.
+NVDA's announcement order on focus is *name → role → state →
+description*. The name and the description need to stay in their own
+channels: putting the description into the name pushes the role and
+state behind a wall of supplementary text, which is especially painful
+on stateful controls (a CheckBox's checked/unchecked, a Choice's
+selected item, a Gauge's value).
 
-To close that gap, on Windows we register a ``wx.Accessible``
-subclass that:
-
-* Folds ``name + description`` into the accessible NAME for the
-  control kinds where NVDA naturally announces only a short label
-  (buttons, checkboxes, choices, gauges). NVDA reads the name on
-  every focus change, so the hint is always heard.
-* Surfaces the raw description through ``GetDescription`` so the
-  proper MSAA ``accDescription`` is also populated for users who do
-  enable the description-reporting setting, and for other AT clients
-  that ignore the embedded form.
-
-For text-input widgets (``wx.TextCtrl``, ``wx.ListBox``) NVDA already
-reads the contained value, so embedding the hint into the name would
-just duplicate the announcement. They keep the description-only
-branch.
+To make the description channel reliable, on Windows we register a
+``wx.Accessible`` subclass that surfaces the raw description through
+``GetDescription``. wxWidgets' default already mirrors ``SetHelpText``
+into MSAA ``accDescription`` on most builds, but the routing is
+implementation-defined; an explicit override makes the behaviour
+deterministic. NVDA reads ``accDescription`` after the role and state
+when the "Report object descriptions" option is enabled (which is the
+NVDA factory default), so the hint reaches the user without delaying
+the part they care about most.
 
 The wxAccessible registration is gated on ``sys.platform``, so macOS
 keeps using the NSAccessibility bridge in :mod:`macos_a11y` and Linux
@@ -65,57 +59,33 @@ _WX_ACC_USABLE = sys.platform == "win32" and hasattr(wx, "Accessible")
 if _WX_ACC_USABLE:
 
     class _A11yProvider(wx.Accessible):
-        """Push a combined name + description into MSAA on Windows.
+        """Expose the widget's hint as MSAA ``accDescription``.
 
-        The composite name is what NVDA actually announces on focus;
-        the raw description is also exposed via ``GetDescription`` so
-        clients that read MSAA ``accDescription`` (NVDA with the
-        relevant setting on, JAWS, etc.) get an unmangled hint.
+        We deliberately do not override ``GetName``: NVDA reads the
+        name first, before role and state, so folding the hint into
+        the name would block the state announcement on stateful
+        controls. Letting ``GetName`` fall through to the wx default
+        keeps the name short while ``GetDescription`` carries the
+        hint, which NVDA reads after the state.
 
-        Returning ``wx.ACC_NOT_IMPLEMENTED`` for empty fields lets
-        wxWidgets fall through to its default behaviour, which is the
-        right thing — we only want to override when we have something
-        more useful to say than the platform default.
+        Returning ``wx.ACC_NOT_IMPLEMENTED`` for empty descriptions
+        lets wxWidgets fall through to its default behaviour, which
+        is the right thing — we only want to override when we have
+        something more useful to say than the platform default.
         """
 
-        def __init__(
-            self,
-            window: wx.Window,
-            composite_name: str,
-            description: str,
-        ) -> None:
+        def __init__(self, window: wx.Window, description: str) -> None:
             super().__init__(window)
-            self._name = composite_name
             self._description = description
 
-        def update(self, composite_name: str, description: str) -> None:
-            """Refresh the strings without re-allocating the provider."""
-            self._name = composite_name
+        def update(self, description: str) -> None:
+            """Refresh the description without re-allocating the provider."""
             self._description = description
-
-        def GetName(self, child_id: int):  # noqa: N802 — wx API name
-            if self._name:
-                return wx.ACC_OK, self._name
-            return wx.ACC_NOT_IMPLEMENTED, ""
 
         def GetDescription(self, child_id: int):  # noqa: N802 — wx API name
             if self._description:
                 return wx.ACC_OK, self._description
             return wx.ACC_NOT_IMPLEMENTED, ""
-
-
-# Widget classes whose default screen-reader announcement is just a
-# short label / role / state — for these, folding the hint into the
-# accessible name is genuinely useful because there is no other
-# channel that NVDA reads automatically. wx.TextCtrl and wx.ListBox
-# already expose their value, so we leave their name alone and only
-# populate ``accDescription``.
-_EMBED_HINT_INTO_NAME: tuple[type, ...] = (
-    wx.Button,
-    wx.CheckBox,
-    wx.Choice,
-    wx.Gauge,
-)
 
 
 def set_a11y(widget: Any, name: str, description: str = "") -> None:
@@ -134,8 +104,8 @@ def set_a11y(widget: Any, name: str, description: str = "") -> None:
     macOS.
 
     On Windows, ``set_a11y`` additionally registers a wx.Accessible
-    so the hint reaches NVDA via the accessible name (see the module
-    docstring for why ``SetHelpText`` and ``SetToolTip`` aren't enough).
+    so the description is exposed via MSAA ``accDescription`` (see the
+    module docstring for why we keep description and name separate).
     """
     if hasattr(widget, "SetName"):
         widget.SetName(name)
@@ -146,11 +116,10 @@ def set_a11y(widget: Any, name: str, description: str = "") -> None:
 
     macos_a11y.set_accessibility_title(widget, name)
 
-    # Stash the pieces on the widget so update_help can rebuild the
-    # composite name on Windows whenever the description changes.
-    # Plain attribute assignment is safe — wxPython widgets are
-    # ordinary Python objects with a __dict__.
-    widget._a11y_name = name
+    # Stash the description on the widget so update_help can refresh
+    # the wx.Accessible whenever the description changes. Plain
+    # attribute assignment is safe — wxPython widgets are ordinary
+    # Python objects with a __dict__.
     widget._a11y_description = description
     _push_windows_accessible(widget)
 
@@ -170,13 +139,12 @@ def update_help(widget: Any, description: str) -> None:
         widget.SetHelpText(description)
     if description and hasattr(widget, "SetToolTip"):
         widget.SetToolTip(description)
-    if hasattr(widget, "_a11y_name"):
-        widget._a11y_description = description
-        _push_windows_accessible(widget)
+    widget._a11y_description = description
+    _push_windows_accessible(widget)
 
 
 def _push_windows_accessible(widget: Any) -> None:
-    """Update the widget's wx.Accessible from its stored name + hint.
+    """Update the widget's wx.Accessible from its stored description.
 
     No-op on non-Windows platforms. Reuses the same ``_A11yProvider``
     instance across calls so a high-frequency caller (the progress
@@ -185,25 +153,15 @@ def _push_windows_accessible(widget: Any) -> None:
     """
     if not _WX_ACC_USABLE:
         return
-    name = getattr(widget, "_a11y_name", "") or ""
     description = getattr(widget, "_a11y_description", "") or ""
-    if not name and not description:
-        return
-    if (
-        name
-        and description
-        and isinstance(widget, _EMBED_HINT_INTO_NAME)
-    ):
-        # The period + space separator gives NVDA a natural prosody
-        # break between label and hint without sounding like a
-        # run-on phrase.
-        composite = f"{name}. {description}"
-    else:
-        composite = name or description
     provider = getattr(widget, "_a11y_provider", None)
     if provider is None:
+        if not description:
+            # Nothing to override yet — let the wx default Accessible
+            # handle this widget until a description shows up.
+            return
         try:
-            provider = _A11yProvider(widget, composite, description)
+            provider = _A11yProvider(widget, description)
             widget.SetAccessible(provider)
             widget._a11y_provider = provider
         except Exception:  # noqa: BLE001
@@ -214,4 +172,4 @@ def _push_windows_accessible(widget: Any) -> None:
             # take over.
             return
     else:
-        provider.update(composite, description)
+        provider.update(description)

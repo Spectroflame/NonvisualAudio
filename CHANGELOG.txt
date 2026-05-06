@@ -1,3 +1,21 @@
+NONVISUALAUDIO — VERSION 2.0.1
+==============================
+
+Hotfix für die Windows-Barrierefreiheit.
+
+NVDA — Beschreibungen nicht mehr in den Steuerelement-Namen
+  Bisher las NVDA bei Schaltflächen, Kontrollkästchen, Auswahlfeldern
+  und Fortschrittsanzeigen die Beschreibung gemeinsam mit dem Namen
+  vor, sodass der Status (z. B. „aktiviert/deaktiviert") erst nach
+  dem ganzen Hinweistext kam. Beschreibungen laufen jetzt sauber
+  über MSAA accDescription, also liest NVDA in der Reihenfolge
+  Name → Rolle → Status und die Beschreibung — bei aktivierter
+  Option „Objektbeschreibungen ansagen" (NVDA-Standard) — am Ende.
+
+VoiceOver, Orca und sehende Nutzer
+  Keine Änderung. Die Tooltipp-Anzeige beim Hover bleibt erhalten.
+
+
 NONVISUALAUDIO — VERSION 2.0
 ==============================
 

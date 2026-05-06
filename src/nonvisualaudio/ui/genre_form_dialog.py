@@ -317,7 +317,16 @@ class GenreFormDialog(wx.Dialog):
         # Eingabe im Add-Mode und im Edit-Mode der schreibgeschützte
         # Identifier, was Screenreadern beim Eintauchen sofort sagt
         # welches Profil offen ist.
-        self.key_ctrl.SetFocus()
+        #
+        # Auf macOS reicht ein direkter SetFocus aus __init__ heraus.
+        # Unter wxMSW läuft beim ShowModal() aber nach __init__ noch
+        # WM_INITDIALOG, das den Fokus auf das erste fokussierbare
+        # Kind (bzw. den Default-Button) setzt und unseren direkten
+        # SetFocus damit wieder überschreibt. wx.CallAfter schiebt
+        # die Fokus-Zuweisung in den nächsten Idle-Zyklus, nachdem
+        # WM_INITDIALOG durch ist, und wirkt auf macOS / GTK wie der
+        # bisherige direkte Aufruf — am Endzustand ändert sich nichts.
+        wx.CallAfter(self.key_ctrl.SetFocus)
 
     # ------------------------------------------------------------------ #
     # Helpers
@@ -351,6 +360,21 @@ class GenreFormDialog(wx.Dialog):
             flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
             border=4,
         )
+        # The widget was created by the caller before this helper, so
+        # in Z-order the StaticText currently sits AFTER its widget.
+        # NVDA on Windows pairs each focusable control with the
+        # wx.StaticText that immediately precedes it in Z-order — with
+        # the labels mis-aligned, the category popup would inherit the
+        # previous field's label ("Schlüssel") and the first field
+        # ended up unlabelled. Re-anchoring the label fixes the pairing
+        # without changing visible layout. macOS VoiceOver and GTK
+        # Orca rely on the wx.Accessible / NSAccessibility paths set
+        # in :func:`a11y.set_a11y`, so the reorder is a no-op there.
+        if wx.Platform == "__WXMSW__":
+            try:
+                label.MoveBeforeInTabOrder(widget)
+            except Exception:  # noqa: BLE001 — never break a form on a hint
+                pass
 
     def _on_char(self, event: wx.KeyEvent) -> None:
         if event.GetKeyCode() == wx.WXK_ESCAPE:

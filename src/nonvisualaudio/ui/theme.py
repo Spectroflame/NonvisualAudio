@@ -137,7 +137,18 @@ def _apply_to(
     elif isinstance(w, (wx.TextCtrl, wx.ListBox)):
         w.SetBackgroundColour(bg)
         w.SetForegroundColour(fg)
-    elif isinstance(w, (wx.StaticText, wx.CheckBox)):
+    elif isinstance(w, wx.CheckBox):
+        # On wxMSW, calling SetForegroundColour on a wx.CheckBox flips
+        # the native BS_AUTOCHECKBOX into owner-drawn mode. That drops
+        # the system-supplied UI Automation / MSAA "checkbox" role and
+        # NVDA then announces it as a generic control without the
+        # checked / unchecked state. Keep checkboxes native on Windows
+        # at the cost of not honouring our palette for them — Windows
+        # already themes native checkboxes via system dark / high-
+        # contrast modes.
+        if wx.Platform != "__WXMSW__":
+            w.SetForegroundColour(fg)
+    elif isinstance(w, wx.StaticText):
         w.SetForegroundColour(fg)
     for child in w.GetChildren():
         _apply_to(child, fg, bg, panel_bg)

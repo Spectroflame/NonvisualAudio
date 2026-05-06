@@ -107,11 +107,11 @@ jobs:
           grep -q "arm64" /tmp/ffmpeg_arch.txt
 
       - name: Build .app bundle (universal2)
-        # --target-architecture is set on the CLI as a belt-and-braces
-        # guard for PyInstaller versions that don't honour the
-        # spec-level target_arch. The spec also sets it on macOS, so
-        # both code paths agree.
-        run: pyinstaller --clean --noconfirm --target-architecture universal2 NonvisualAudio.spec
+        # The fat-binary toggle lives in NonvisualAudio.spec
+        # (target_arch="universal2" on darwin). PyInstaller refuses
+        # --target-architecture when a .spec file is supplied — that
+        # flag is makespec-only — so we rely solely on the spec.
+        run: pyinstaller --clean --noconfirm NonvisualAudio.spec
 
       - name: Ad-hoc code sign
         # Ad-hoc signing is enough for local execution; users still need

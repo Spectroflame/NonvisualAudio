@@ -111,6 +111,10 @@ exe = EXE(
     # the CI workflow ensures by installing python.org's universal2
     # build and pulling universal2 wheels for numpy / scipy / wxPython
     # / soundfile / sounddevice. Other platforms keep the host arch.
+    #
+    # PyInstaller refuses the equivalent --target-architecture CLI
+    # flag when a .spec file is supplied (it's a makespec-only
+    # option), so this is the canonical place to set it.
     target_arch="universal2" if sys.platform == "darwin" else None,
     codesign_identity=None,
     entitlements_file=None,

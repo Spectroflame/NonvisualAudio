@@ -1,3 +1,22 @@
+NONVISUALAUDIO — VERSION 2.0.2
+==============================
+
+Hotfix für den macOS-Universal2-Build.
+
+App startete nicht (kein Fenster, keine Fehlermeldung)
+  Numpy bringt auf Apple Silicon kein eigenes libgfortran mit
+  (verwendet Apples Accelerate-Framework), auf Intel schon.
+  Beim Bauen der gemeinsamen Universal2-Wheels blieben numpys
+  libgfortran / libquadmath / libgcc_s daher x86_64-only — und
+  PyInstaller verlinkte genau diese Kopien als globalen
+  @rpath-Eintrag. Beim Start lud scipy seine arm64-Routinen, die
+  gegen @rpath/libgfortran.5.dylib linken, und dyld stieß auf
+  die x86_64-only Datei → ImportError → der Prozess endete still.
+  Der Build hängt jetzt den arm64-Slice (aus scipys eigenem,
+  bereits universal2 vorliegenden libgfortran) in numpys Kopie
+  rein, sodass die Library auf beiden Architekturen lädt.
+
+
 NONVISUALAUDIO — VERSION 2.0.1
 ==============================
 

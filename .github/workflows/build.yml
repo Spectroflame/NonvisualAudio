@@ -202,6 +202,71 @@ jobs:
         # flag is makespec-only — so we rely solely on the spec.
         run: pyinstaller --clean --noconfirm NonvisualAudio.spec
 
+      - name: Splice arm64 slice into x86_64-only dylibs
+        # numpy on Apple Silicon uses Apple's Accelerate framework
+        # instead of bundling libgfortran / libquadmath / libgcc_s; on
+        # Intel it bundles them. delocate-merge cannot fuse a file
+        # that exists in only one of the two source wheels, so the
+        # merged universal2 numpy wheel ships those runtime dylibs
+        # as x86_64-only inside numpy/.dylibs/.
+        #
+        # PyInstaller's COLLECT step then plants a flattened symlink
+        # at Contents/Frameworks/libgfortran.5.dylib pointing into
+        # numpy/.dylibs/. When scipy's universal2 .so files load
+        # @rpath/libgfortran.5.dylib at runtime on arm64, dyld
+        # follows that symlink to numpy's x86_64-only copy and the
+        # load fails with "incompatible architecture", crashing the
+        # app at startup with no window and no error visible to a
+        # Finder-launched user.
+        #
+        # scipy ships its own libgfortran (and friends) on both
+        # arches, so the merged scipy/.dylibs/libgfortran.5.dylib IS
+        # universal2. The arm64 slice in there is ABI-compatible with
+        # numpy's copy (same compatibility version, same gfortran
+        # release cycle), so we splice it into each x86_64-only
+        # sibling. lipo concatenates the slices verbatim — each slice
+        # keeps its own install_name and dependency table, dyld just
+        # picks the slice that matches the running architecture.
+        run: |
+          set -euxo pipefail
+          APP=dist/NonvisualAudio.app
+          WORK=$(mktemp -d)
+
+          file_archs() {
+            lipo -info "$1" 2>/dev/null | sed -E 's/^.*: //'
+          }
+
+          is_x86_64_only() {
+            local archs
+            archs=$(file_archs "$1") || return 1
+            case "$archs" in
+              *arm64*) return 1 ;;
+              *x86_64*) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          while IFS= read -r lib; do
+            is_x86_64_only "$lib" || continue
+            name=$(basename "$lib")
+            sibling=""
+            while IFS= read -r candidate; do
+              [ "$candidate" = "$lib" ] && continue
+              case "$(file_archs "$candidate")" in
+                *arm64*) sibling="$candidate"; break ;;
+              esac
+            done < <(find "$APP" -type f -name "$name")
+            if [ -z "$sibling" ]; then
+              echo "::warning::no arm64 sibling for x86_64-only ${lib#$APP/}"
+              continue
+            fi
+            slice="$WORK/${name}.arm64"
+            lipo "$sibling" -thin arm64 -output "$slice"
+            lipo "$lib" "$slice" -create -output "${lib}.fat"
+            mv "${lib}.fat" "$lib"
+            echo "spliced arm64 from ${sibling#$APP/} into ${lib#$APP/}"
+          done < <(find "$APP" -type f \( -name "*.dylib" -o -name "*.so" \))
+
       - name: Ad-hoc code sign
         # Ad-hoc signing is enough for local execution; users still need
         # to clear the quarantine attribute on first launch (documented

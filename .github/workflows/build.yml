@@ -68,32 +68,74 @@ jobs:
         # and every artifact match the GitHub release tag exactly.
         run: python3.12 scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
 
-      - name: Install Python dependencies (universal2 wheels)
-        # Pip prefers the most-specific wheel match, so on the arm64
-        # runner it picks arm64-only wheels even when a universal2
-        # wheel is published on PyPI for the same package. PyInstaller's
-        # universal2 build then refuses to fuse the resulting arm64-only
-        # .so files (cffi's _cffi_backend was the first casualty).
-        # Forcing --platform=macosx_11_0_universal2 with --target makes
-        # pip download the universal2 wheel for every package that
-        # ships one. The native deps we care about (numpy, scipy,
-        # wxPython, soundfile, sounddevice, cffi) all do.
-        #
-        # cffi has to be listed explicitly even though it's only a
-        # transitive dep of soundfile / sounddevice — without it the
-        # implicit pull-in through `pip install -e .` would happen
-        # before the universal2 install and resolve to an arm64 wheel.
+      - name: Install Python dependencies (universal2 via delocate-fuse)
+        # numpy, scipy and several others stopped publishing universal2
+        # wheels on PyPI a while back — they ship arm64 and x86_64
+        # wheels separately to keep download sizes reasonable. So a
+        # single `pip install --platform=universal2 --only-binary=:all:`
+        # cannot resolve them. Instead we download each native dep
+        # twice (once per arch), fuse the two wheels into one
+        # universal2 wheel with delocate-fuse (which lipo-merges the
+        # internal .so / .dylib payloads), and install from the fused
+        # wheelhouse. PyInstaller then sees fat binaries everywhere
+        # and the universal2 build succeeds.
         run: |
           set -eux
           python3.12 -m pip install --upgrade pip
-          SITE_PKGS=$(python3.12 -c 'import site; print(site.getsitepackages()[0])')
-          python3.12 -m pip install \
-            --platform=macosx_11_0_universal2 \
+          python3.12 -m pip install delocate
+
+          PACKAGES="wxPython numpy scipy soundfile sounddevice pyloudnorm cffi"
+          mkdir -p /tmp/whl/arm64 /tmp/whl/x86_64 /tmp/whl/universal2
+
+          python3.12 -m pip download \
+            --platform=macosx_11_0_arm64 \
             --python-version=312 \
             --only-binary=:all: \
+            -d /tmp/whl/arm64 \
+            ${PACKAGES}
+
+          python3.12 -m pip download \
+            --platform=macosx_11_0_x86_64 \
+            --python-version=312 \
+            --only-binary=:all: \
+            -d /tmp/whl/x86_64 \
+            ${PACKAGES}
+
+          # Pair each arm64 wheel with its x86_64 counterpart, fuse
+          # into a universal2 wheel. Pure-Python wheels (no arch
+          # suffix in the filename) and any wheel that already ships
+          # as universal2 are copied through unchanged.
+          for whl in /tmp/whl/arm64/*.whl; do
+            name=$(basename "${whl}")
+            if [[ "${name}" == *_arm64.whl ]]; then
+              stem=$(echo "${name}" | sed -E 's/-macosx_[0-9_]+_arm64\.whl$//')
+              x64=$(ls /tmp/whl/x86_64/${stem}-macosx_*_x86_64.whl 2>/dev/null | head -1 || true)
+              if [ -n "${x64}" ]; then
+                delocate-fuse "${whl}" "${x64}" -w /tmp/whl/universal2/
+              else
+                echo "::warning::no x86_64 counterpart for ${name}, copying arm64-only"
+                cp "${whl}" /tmp/whl/universal2/
+              fi
+            else
+              cp -n "${whl}" /tmp/whl/universal2/ || true
+            fi
+          done
+          # Pick up any wheels that arrived only via the x86_64
+          # download (rare, but possible for arch-asymmetric trees).
+          for whl in /tmp/whl/x86_64/*.whl; do
+            name=$(basename "${whl}")
+            if [[ "${name}" != *_x86_64.whl ]]; then
+              cp -n "${whl}" /tmp/whl/universal2/ || true
+            fi
+          done
+
+          ls -la /tmp/whl/universal2/
+
+          python3.12 -m pip install \
+            --no-index \
+            --find-links=/tmp/whl/universal2 \
             --upgrade \
-            --target="${SITE_PKGS}" \
-            wxPython numpy scipy soundfile sounddevice pyloudnorm cffi
+            ${PACKAGES}
           python3.12 -m pip install --no-deps -e .
           python3.12 -m pip install pyinstaller
 

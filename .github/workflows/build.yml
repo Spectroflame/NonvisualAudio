@@ -30,10 +30,11 @@ jobs:
   #    wxPython, soundfile, and sounddevice all publish universal2
   #    wheels on PyPI for current versions; pip picks them
   #    automatically because the running interpreter is universal2.
-  #  - The bundled ffmpeg. Homebrew on macos-14 only installs an
-  #    arm64 binary, so we spin up an x86_64 Homebrew prefix under
-  #    Rosetta, install ffmpeg there too, and stitch the two
-  #    binaries together with `lipo`.
+  #  - The bundled ffmpeg. We lipo together two STATICALLY linked
+  #    builds (x86_64 from evermeet.cx, arm64 from martin-riedl.de).
+  #    Homebrew's ffmpeg is dynamically linked against ~50 Cellar
+  #    dylibs that never reach the .app — shipping it broke the
+  #    loudness scan on every Mac without Homebrew.
   # ------------------------------------------------------------------ #
   macos:
     name: macOS Universal2
@@ -163,33 +164,56 @@ jobs:
           python3.12 -m pip install --no-deps -e .
           python3.12 -m pip install pyinstaller
 
-      - name: Bundle universal2 ffmpeg
-        # arm64 ffmpeg comes from the runner's native Homebrew (the
-        # exact path the previous arm64-only build used). x86_64
-        # ffmpeg comes from a second Homebrew prefix installed under
-        # Rosetta — the Intel installer lives at /usr/local while the
-        # Apple Silicon one lives at /opt/homebrew, so the two don't
-        # collide. `lipo -create` merges both Mach-O slices into one
-        # fat binary.
+      - name: Bundle universal2 ffmpeg (static, self-contained)
+        # Both slices come from STATICALLY linked ffmpeg builds, so the
+        # fused binary has no @rpath dependencies and runs on any Mac
+        # without Homebrew.
+        #
+        # The previous step used `brew install ffmpeg`, which is
+        # dynamically linked against ~50 Cellar dylibs. Those dylibs
+        # never made it into the .app, so the shipped ffmpeg failed to
+        # launch with "Library not loaded: @rpath/libav*.dylib" on every
+        # machine without a matching Homebrew install — the 2.0.2
+        # Intel-Mac loudness-scan failure.
+        #
+        #  - x86_64: evermeet.cx static build, resolved via its JSON
+        #    /info API so no version-stamped filename is hard-coded.
+        #  - arm64:  ffmpeg.martin-riedl.de static build; /redirect/latest
+        #    is a stable URL that 307s to the current release.
+        #
+        # `lipo -create` fuses the two Mach-O slices into one fat binary.
         run: |
           set -eux
-          brew update --quiet || true
-          brew install ffmpeg
-          ARM64_FFMPEG="$(brew --prefix)/bin/ffmpeg"
-          file "${ARM64_FFMPEG}"
+          mkdir -p /tmp/ff/x86_64 /tmp/ff/arm64
 
-          if [ ! -x /usr/local/bin/brew ]; then
-            arch -x86_64 /bin/bash -c \
-              'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-          fi
-          arch -x86_64 /usr/local/bin/brew update --quiet || true
-          arch -x86_64 /usr/local/bin/brew install ffmpeg
-          X86_FFMPEG=/usr/local/bin/ffmpeg
-          file "${X86_FFMPEG}"
+          X86_URL=$(curl -fsSL --retry 3 \
+            https://evermeet.cx/ffmpeg/info/ffmpeg/release \
+            | python3.12 -c 'import json,sys; print(json.load(sys.stdin)["download"]["zip"]["url"])')
+          curl -fsSL --retry 3 -o /tmp/ff/x86_64.zip "${X86_URL}"
+          unzip -o /tmp/ff/x86_64.zip -d /tmp/ff/x86_64
+          X86_FFMPEG=$(find /tmp/ff/x86_64 -type f -name ffmpeg | head -1)
+
+          curl -fsSL --retry 3 -o /tmp/ff/arm64.zip \
+            https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip
+          unzip -o /tmp/ff/arm64.zip -d /tmp/ff/arm64
+          ARM64_FFMPEG=$(find /tmp/ff/arm64 -type f -name ffmpeg | head -1)
+
+          # Each slice must be the expected arch AND self-contained:
+          # no @rpath or Homebrew-prefix dylib references. A dynamically
+          # linked binary slipping through here is exactly the bug this
+          # step exists to prevent, so fail the build loudly.
+          file "${X86_FFMPEG}"   | grep -q x86_64
+          file "${ARM64_FFMPEG}" | grep -q arm64
+          for f in "${X86_FFMPEG}" "${ARM64_FFMPEG}"; do
+            if otool -L "$f" | tail -n +2 | grep -Ev '^\s+(/System/|/usr/lib/)'; then
+              echo "::error::${f} has non-system dylib dependencies — not static"
+              exit 1
+            fi
+          done
 
           mkdir -p src/nonvisualaudio/resources/bin/darwin
           lipo -create -output src/nonvisualaudio/resources/bin/darwin/ffmpeg \
-            "${ARM64_FFMPEG}" "${X86_FFMPEG}"
+            "${X86_FFMPEG}" "${ARM64_FFMPEG}"
           chmod +x src/nonvisualaudio/resources/bin/darwin/ffmpeg
           file src/nonvisualaudio/resources/bin/darwin/ffmpeg | tee /tmp/ffmpeg_arch.txt
           grep -q "x86_64" /tmp/ffmpeg_arch.txt
@@ -273,7 +297,7 @@ jobs:
         # in the README).
         run: codesign --force --deep --sign - dist/NonvisualAudio.app
 
-      - name: Verify the bundle is universal2
+      - name: Verify the bundle is universal2 and ffmpeg is self-contained
         # If a single .so in the dependency chain ever gets pulled in
         # arm64-only the .app would silently degrade to "arm64 with
         # arm64-only Python sub-bundles" and break on Intel users.
@@ -283,6 +307,28 @@ jobs:
           file dist/NonvisualAudio.app/Contents/MacOS/NonvisualAudio | tee /tmp/exe_arch.txt
           grep -q "x86_64" /tmp/exe_arch.txt
           grep -q "arm64" /tmp/exe_arch.txt
+
+          # The bundled ffmpeg is the part that broke on Intel in 2.0.2:
+          # a dynamically linked binary whose dylibs were not in the
+          # .app. Verify it is universal2, has no non-system dylib
+          # dependencies, and genuinely launches under both architectures
+          # (Rosetta covers x86_64 on the arm64 runner).
+          FF=dist/NonvisualAudio.app/Contents/Frameworks/nonvisualaudio/resources/bin/darwin/ffmpeg
+          file "$FF" | tee /tmp/ff_arch.txt
+          grep -q "x86_64" /tmp/ff_arch.txt
+          grep -q "arm64" /tmp/ff_arch.txt
+          # otool -L on a fat binary repeats the listing once per
+          # architecture, each block prefixed with an unindented
+          # "<path> (architecture X):" header. Keep only the indented
+          # dependency lines, then anything that is not /System or
+          # /usr/lib is a real non-system dependency.
+          if otool -L "$FF" | grep -E '^[[:space:]]' \
+               | grep -Ev '^[[:space:]]+(/System/|/usr/lib/)'; then
+            echo "::error::bundled ffmpeg has non-system dylib dependencies"
+            exit 1
+          fi
+          arch -arm64  "$FF" -version | head -1
+          arch -x86_64 "$FF" -version | head -1
 
       - name: Package as zip
         run: |
@@ -403,12 +449,25 @@ jobs:
             libwebkit2gtk-4.0-37
 
       - name: Install Python dependencies (wxPython from extras index)
+        # wxPython has no manylinux wheel on PyPI — only the extras
+        # index ships prebuilt Linux wheels. The original step gave up
+        # after the default 15 s read timeout, so a brief blip on
+        # extras.wxpython.org killed the whole release. We now retry
+        # with a generous timeout, which absorbs transient outages.
+        #
+        # --only-binary=wxPython is a deliberate guard: if the wheel
+        # genuinely cannot be fetched, pip fails fast and clearly here
+        # instead of silently attempting a source build that would
+        # only collapse ~25 minutes later on missing GTK dev headers.
+        # A sustained outage is rare and best handled by re-running.
         run: |
           python -m pip install --upgrade pip
-          pip install -U \
+          pip install --retries 5 --timeout 120 -U \
+            --only-binary=wxPython \
             -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 \
             wxPython
-          pip install numpy scipy soundfile sounddevice pyloudnorm
+          pip install --retries 5 --timeout 120 \
+            numpy scipy soundfile sounddevice pyloudnorm
           pip install --no-deps -e .
           pip install pyinstaller
 

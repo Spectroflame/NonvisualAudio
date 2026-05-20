@@ -10,7 +10,7 @@ Linux it stays a folder under ``dist/NonvisualAudio``.
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 try:
     import tomllib  # Python 3.11+
@@ -53,6 +53,20 @@ _ffmpeg_dst = f"nonvisualaudio/resources/bin/{_platform}"
 datas = []
 if _ffmpeg_src.is_file():
     datas.append((str(_ffmpeg_src), _ffmpeg_dst))
+
+# Ship the nonvisualaudio package's own dist-info. The About dialog
+# reads the version via importlib.metadata.version("nonvisualaudio");
+# without the metadata in the bundle that lookup fails, pyproject.toml
+# is not shipped either, and the version silently degrades to the
+# "0.0.0+unknown" fallback. CI installs the package before invoking
+# PyInstaller, so the metadata is always present there.
+try:
+    datas += copy_metadata("nonvisualaudio")
+except Exception:
+    # No installed metadata in this environment — e.g. a bare local
+    # spec run without `pip install -e .`. Shipped CI builds always
+    # install the package first, so they are unaffected.
+    pass
 
 # Data resources (genre profiles JSON, localisation catalogues, help
 # HTML). Bundled verbatim at package root so importlib.resources and

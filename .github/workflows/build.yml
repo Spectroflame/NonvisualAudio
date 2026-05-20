@@ -317,7 +317,13 @@ jobs:
           file "$FF" | tee /tmp/ff_arch.txt
           grep -q "x86_64" /tmp/ff_arch.txt
           grep -q "arm64" /tmp/ff_arch.txt
-          if otool -L "$FF" | tail -n +2 | grep -Ev '^\s+(/System/|/usr/lib/)'; then
+          # otool -L on a fat binary repeats the listing once per
+          # architecture, each block prefixed with an unindented
+          # "<path> (architecture X):" header. Keep only the indented
+          # dependency lines, then anything that is not /System or
+          # /usr/lib is a real non-system dependency.
+          if otool -L "$FF" | grep -E '^[[:space:]]' \
+               | grep -Ev '^[[:space:]]+(/System/|/usr/lib/)'; then
             echo "::error::bundled ffmpeg has non-system dylib dependencies"
             exit 1
           fi

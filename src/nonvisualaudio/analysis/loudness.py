@@ -24,6 +24,11 @@ filter when ``framelog=info`` is passed. Those lines look like:
 
 Note that "LUFS" only appears once, after the I: value, so the S: regex
 must not require "LUFS" as a suffix.
+
+The same per-frame lines carry ``FTPK:`` (this frame's true peak) and
+``TPK:`` (the running maximum). We scan ``FTPK`` to find *when* the
+loudest true peak occurs and report that timestamp, which gives the
+user a position to jump to in their DAW.
 """
 
 from __future__ import annotations
@@ -44,6 +49,43 @@ _RE_I = re.compile(r"\bI:\s*(-?\d+(?:\.\d+)?)\s*LUFS")
 _RE_LRA = re.compile(r"\bLRA:\s*(-?\d+(?:\.\d+)?)\s*LU\b")
 _RE_PEAK = re.compile(r"\bPeak:\s*(-?\d+(?:\.\d+)?)\s*dBFS")
 _RE_SHORT_TERM = re.compile(r"\bS:\s*(-?\d+(?:\.\d+)?|-inf)")
+# Per-frame readings used to locate *when* the loudest true peak occurs:
+# ``t:`` is the frame timestamp, ``FTPK:`` the frame's true peak. ``\bFTPK``
+# will not match the cumulative ``TPK:`` field — there is no word boundary
+# inside "FTPK".
+_RE_FRAME_T = re.compile(r"\bt:\s*(\d+(?:\.\d+)?)")
+_RE_FRAME_TPK = re.compile(r"\bFTPK:\s*(-?\d+(?:\.\d+)?|-inf)")
+
+
+def _peak_time(progress: str) -> float | None:
+    """Return the timestamp of the loudest true-peak frame, in seconds.
+
+    Scans the per-frame progress lines for the highest ``FTPK`` reading
+    and returns the ``t:`` of that frame. The first frame wins on a tie,
+    so the timestamp points at the onset of the loudest moment. Returns
+    None when no frame carried a finite peak reading.
+    """
+    best_peak = -math.inf
+    best_time: float | None = None
+    for line in progress.splitlines():
+        m_peak = _RE_FRAME_TPK.search(line)
+        if m_peak is None or m_peak.group(1) == "-inf":
+            continue
+        try:
+            peak = float(m_peak.group(1))
+        except ValueError:
+            continue
+        if peak <= best_peak:
+            continue
+        m_time = _RE_FRAME_T.search(line)
+        if m_time is None:
+            continue
+        try:
+            best_time = float(m_time.group(1))
+        except ValueError:
+            continue
+        best_peak = peak
+    return best_time
 
 
 def _parse(stderr_text: str, filename: str) -> LoudnessMetrics:
@@ -87,6 +129,7 @@ def _parse(stderr_text: str, filename: str) -> LoudnessMetrics:
         short_term_max_lufs=float(short_max),
         true_peak_dbtp=float(m_peak.group(1)),
         loudness_range_lu=float(m_lra.group(1)),
+        true_peak_time_seconds=_peak_time(progress),
     )
 
 

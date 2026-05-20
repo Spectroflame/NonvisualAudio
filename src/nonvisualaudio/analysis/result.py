@@ -11,6 +11,9 @@ class LoudnessMetrics:
     short_term_max_lufs: float     # highest short-term LUFS reading
     true_peak_dbtp: float          # maximum true peak across channels
     loudness_range_lu: float       # LRA (LU)
+    # Position of the loudest true-peak frame, in seconds from the start.
+    # None when ffmpeg emitted no usable per-frame peak readings.
+    true_peak_time_seconds: float | None = None
 
 
 @dataclass(frozen=True)

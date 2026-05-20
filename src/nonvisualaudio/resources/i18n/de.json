@@ -35,7 +35,7 @@
   "ui.btn.delete": "&Löschen",
   "ui.btn.reset_builtin": "Auf &Standard zurücksetzen",
   "ui.btn.choose_sections": "Report-Abschnitte wählen...",
-  "ui.btn.project_mode": "Alle Dateien zusammen als ein Projekt analysieren",
+  "ui.btn.project_mode": "Projektmodus",
 
   "ui.label.open_file": "Audio-Datei öffnen",
   "ui.hint.open_file": "Wähle die Audio-Datei aus, die analysiert werden soll.",
@@ -70,8 +70,8 @@
   "ui.hint.sections_picker": "Wähle, welche Abschnitte im Report erscheinen — z. B. nur Lautheit und Dynamik oder nur Frequenzbalance. Standard: alle Abschnitte.",
   "ui.label.selected_sections": "Ausgewählte Report-Abschnitte",
   "ui.hint.selected_sections": "Welche Abschnitte der Report enthält. „Report-Abschnitte wählen“ ändert die Auswahl.",
-  "ui.label.project_mode": "Projekt-Modus",
-  "ui.hint.project_mode": "Wenn aktiviert, werden alle gewählten Dateien als ein durchgängiges Projekt behandelt. Lautheit, Dynamik und Frequenzbalance werden über die gesamte Sammlung gemessen, als wäre es eine einzige Datei. Zusätzlich wird ein Block zur Track-Konsistenz angehängt.",
+  "ui.label.project_mode": "Projektmodus",
+  "ui.hint.project_mode": "Wenn aktiviert, werden alle gewählten Dateien als ein durchgängiges Projekt behandelt. Lautheit, Dynamik und Frequenzbalance werden über die gesamte Sammlung gemessen, als wäre es eine einzige Datei. Zusätzlich wird ein Block zur Track-Konsistenz angehängt. Im Projektmodus verhält sich die Übersteuerungsanzeige anders als bei der Einzeldatei-Analyse: Der Zeitstempel der lautesten True-Peak-Spitze entfällt, weil die Messung über die zusammengefügte Projekt-Zeitachse läuft und sich keiner einzelnen Datei zuordnen lässt.",
   "ui.project_mode.single_file.title": "Projekt-Modus mit nur einer Datei",
   "ui.project_mode.single_file.body": "Im Projekt-Modus werden mehrere Tracks zu einer einzigen Analyse zusammengefasst — in der Liste liegt aber nur eine Datei, da gibt es nichts zu kombinieren.\n\nJa: Projekt-Modus ausschalten und normale Einzeldatei-Analyse starten (empfohlen).\nNein: Projekt-Modus an lassen und die Datei als Ein-Track-Projekt analysieren.\nAbbrechen: zurück, um zuerst mehr Dateien hinzuzufügen.",
 
@@ -367,6 +367,7 @@
   "report.loudness.integrated": "Integrierte Lautheit: {value} LUFS.",
   "report.loudness.short_term": "Kurzzeit-Peaklautheit: {value} LUFS.",
   "report.loudness.true_peak": "True Peak: {value} dBTP.",
+  "report.loudness.true_peak_time": "Die höchste Spitze tritt bei {time} auf.",
   "report.loudness.lra": "Lautheitsbereich: {value} LU.",
   "report.loudness.verdict.very_loud": "Die Datei ist sehr laut und wahrscheinlich stark limitiert.",
   "report.loudness.verdict.loud": "Die Datei ist laut, wie für moderne Streaming-Master üblich.",

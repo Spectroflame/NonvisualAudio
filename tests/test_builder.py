@@ -65,6 +65,24 @@ def test_report_contains_no_markdown_symbols():
         assert bad not in report, f"markdown symbol {bad!r} leaked into report"
 
 
+def test_true_peak_timestamp_appears_when_present():
+    loud = LoudnessMetrics(
+        integrated_lufs=-21.4,
+        short_term_max_lufs=-14.2,
+        true_peak_dbtp=-1.1,
+        loudness_range_lu=8.7,
+        true_peak_time_seconds=125.0,
+    )
+    report = build_report(_make_result(loudness=loud))
+    assert "The highest peak occurs at" in report
+
+
+def test_true_peak_timestamp_omitted_when_unknown():
+    # The default fixture leaves true_peak_time_seconds at None.
+    report = build_report(_make_result())
+    assert "highest peak occurs" not in report
+
+
 def test_report_spells_negatives_as_minus():
     report = build_report(_make_result())
     assert "minus 21.4" in report

@@ -7,6 +7,7 @@ characters are safe.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import shutil
@@ -56,14 +57,49 @@ def _install_hint() -> str:
     return t("error.ffmpeg.install.linux")
 
 
+@functools.lru_cache(maxsize=8)
+def _binary_runs(path: str) -> bool:
+    """Return True if the binary at ``path`` actually launches.
+
+    A bundled binary can be present on disk yet be unusable — e.g. a
+    macOS build whose dynamic-library dependencies are missing or built
+    for the wrong architecture. ``-version`` is cheap and exercises the
+    dynamic loader, so a clean exit means the binary is genuinely
+    runnable. The result is cached: ``find_ffmpeg`` is called several
+    times per analysis and the answer cannot change mid-run.
+    """
+    try:
+        proc = subprocess.run(
+            [path, "-version"],
+            capture_output=True,
+            timeout=10.0,
+            env={"PATH": os.environ.get("PATH", "")},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("ffmpeg probe of %s failed: %s", path, exc)
+        return False
+    return proc.returncode == 0
+
+
 def find_ffmpeg() -> str:
-    """Return the path to ffmpeg. Prefer bundled, fall back to PATH."""
+    """Return the path to a working ffmpeg.
+
+    Prefer the bundled binary, but verify it actually launches before
+    committing to it: a bundled ffmpeg can be present yet unusable
+    (missing or wrong-architecture dylibs). If it fails to start, fall
+    back to a system ffmpeg on PATH so the analysis still runs.
+    """
     bundled = _bundled_binary("ffmpeg")
+    system = shutil.which("ffmpeg")
     if bundled is not None:
-        return str(bundled)
-    path = shutil.which("ffmpeg")
-    if path:
-        return path
+        if _binary_runs(str(bundled)):
+            return str(bundled)
+        log.warning(
+            "bundled ffmpeg at %s did not launch; falling back to PATH",
+            bundled,
+        )
+    if system and _binary_runs(system):
+        return system
     raise MissingFFmpegError(
         title=t("error.ffmpeg.missing.title"),
         body=t("error.ffmpeg.missing.body"),

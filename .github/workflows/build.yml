@@ -435,16 +435,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: python scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
 
-      - name: Install system libraries for wxPython
-        # Two sets of packages:
-        #  - Runtime libs the app loads (libgtk-3-0, …).
-        #  - The matching -dev headers plus a compiler. wxPython has no
-        #    manylinux wheel on PyPI, only the extras index ships
-        #    prebuilt Linux wheels. If that index is unreachable pip
-        #    falls back to building wxPython from the PyPI sdist — the
-        #    -dev headers are what make that fallback succeed instead
-        #    of dying on "GTK+ development files not found", which is
-        #    how a transient extras.wxpython.org outage broke the build.
+      - name: Install system libraries needed by wxPython
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -455,28 +446,24 @@ jobs:
             libxxf86vm1 \
             libgstreamer1.0-0 \
             libgstreamer-plugins-base1.0-0 \
-            libwebkit2gtk-4.0-37 \
-            build-essential \
-            libgtk-3-dev \
-            libsdl2-dev \
-            libnotify-dev \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            libwebkit2gtk-4.0-dev \
-            libcurl4-openssl-dev \
-            libxtst-dev \
-            libsecret-1-dev
+            libwebkit2gtk-4.0-37
 
-      - name: Install Python dependencies
-        # Prefer the prebuilt wxPython wheel from the extras index, but
-        # tolerate it being slow or briefly down: --retries and a
-        # generous --timeout absorb transient network blips (the
-        # default 15 s timeout gave up far too eagerly). If the wheel
-        # genuinely cannot be fetched pip falls back to a source build
-        # from the PyPI sdist, which the -dev headers above make work.
+      - name: Install Python dependencies (wxPython from extras index)
+        # wxPython has no manylinux wheel on PyPI — only the extras
+        # index ships prebuilt Linux wheels. The original step gave up
+        # after the default 15 s read timeout, so a brief blip on
+        # extras.wxpython.org killed the whole release. We now retry
+        # with a generous timeout, which absorbs transient outages.
+        #
+        # --only-binary=wxPython is a deliberate guard: if the wheel
+        # genuinely cannot be fetched, pip fails fast and clearly here
+        # instead of silently attempting a source build that would
+        # only collapse ~25 minutes later on missing GTK dev headers.
+        # A sustained outage is rare and best handled by re-running.
         run: |
           python -m pip install --upgrade pip
-          pip install --retries 5 --timeout 120 -U --prefer-binary \
+          pip install --retries 5 --timeout 120 -U \
+            --only-binary=wxPython \
             -f https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-22.04 \
             wxPython
           pip install --retries 5 --timeout 120 \

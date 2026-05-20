@@ -94,10 +94,13 @@ def test_resolve_lang_normalises_locale_strings():
 
 def test_resolve_lang_unknown_language_falls_through(monkeypatch: pytest.MonkeyPatch):
     # Unknown override + unknown preference + unknown env → English.
-    # Also neutralise ``locale.getlocale()`` because it caches the
-    # process-level locale independently of the environment.
+    # Every detection source has to be neutralised: env vars, the
+    # platform-native UI-language probes, and ``locale.getlocale()``
+    # (which caches the process locale independently of the environment).
     for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
         monkeypatch.setenv(var, "xx_ZZ")
+    monkeypatch.setattr(localization, "_detect_macos_lang", lambda: None)
+    monkeypatch.setattr(localization, "_detect_windows_lang", lambda: None)
     import locale as _locale
     monkeypatch.setattr(_locale, "getlocale", lambda *_a, **_k: ("xx_ZZ", None))
     assert localization.resolve_lang(env_override="xx", preference="xx") == "en"
@@ -107,6 +110,32 @@ def test_detect_system_lang_reads_env_vars(monkeypatch: pytest.MonkeyPatch):
     for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("LANG", "de_DE.UTF-8")
+    assert localization.detect_system_lang() == "de"
+
+
+def test_detect_macos_lang_parses_apple_languages(monkeypatch: pytest.MonkeyPatch):
+    # `defaults read -g AppleLanguages` prints a plist array; the first
+    # quoted token is the user's preferred UI language.
+    class _FakeProc:
+        returncode = 0
+        stdout = '(\n    "de-DE",\n    "en-US"\n)\n'
+
+    monkeypatch.setattr(
+        localization.subprocess, "run", lambda *_a, **_k: _FakeProc()
+    )
+    assert localization._detect_macos_lang() == "de"
+
+
+def test_detect_system_lang_uses_platform_probe_when_env_empty(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # No locale env vars — the case of a Finder-launched macOS app.
+    # Detection must fall through to the native platform probe instead
+    # of giving up and returning English.
+    for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(localization.sys, "platform", "darwin")
+    monkeypatch.setattr(localization, "_detect_macos_lang", lambda: "de")
     assert localization.detect_system_lang() == "de"
 
 

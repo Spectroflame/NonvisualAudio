@@ -22,6 +22,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import subprocess
+import sys
 from importlib.resources import files
 from pathlib import Path
 
@@ -164,19 +167,81 @@ def _normalise_lang(raw: str | None) -> str | None:
     return None
 
 
-def detect_system_lang() -> str:
-    """Best-effort system language detection, purely ENV-based.
+def _detect_macos_lang() -> str | None:
+    """Read the preferred UI language from macOS ``AppleLanguages``.
 
-    Uses ``LANG`` / ``LC_ALL`` / ``LC_MESSAGES`` — those are set on
-    every platform with a sensible locale configuration, including
-    macOS where the ``CFLocaleCopyCurrent`` hook writes them into the
-    process environment when wx initialises.
+    An app double-clicked in Finder inherits no ``LANG`` / ``LC_*``
+    variables — Finder does not set them — so the env-based probe sees
+    nothing and the app wrongly falls back to English. ``AppleLanguages``
+    is the ordered list macOS itself consults to pick an app's language;
+    its first entry (e.g. ``"de-DE"``) is the user's preferred UI
+    language.
+    """
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/defaults", "read", "-g", "AppleLanguages"],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    # The value is a plist array, e.g.  ( "de-DE", "en-US" ). The first
+    # quoted token is the preferred language.
+    match = re.search(r'"([^"]+)"', proc.stdout)
+    return _normalise_lang(match.group(1)) if match else None
+
+
+def _detect_windows_lang() -> str | None:
+    """Read the user's UI language via the Win32 locale API.
+
+    Like a Finder-launched macOS app, a Windows app started from a
+    shortcut has no ``LANG`` set. ``GetUserDefaultLocaleName`` returns
+    the user's locale (e.g. ``"de-DE"``) regardless.
+    """
+    try:
+        import ctypes
+
+        buffer = ctypes.create_unicode_buffer(85)  # LOCALE_NAME_MAX_LENGTH
+        if ctypes.windll.kernel32.GetUserDefaultLocaleName(
+            buffer, len(buffer)
+        ):
+            return _normalise_lang(buffer.value)
+    except Exception:  # noqa: BLE001 — Win32 probing is best-effort
+        pass
+    return None
+
+
+def detect_system_lang() -> str:
+    """Best-effort system UI-language detection.
+
+    Resolution order:
+
+    1. Locale environment variables — an intentional signal, reliably
+       set on Linux desktops and in any terminal session.
+    2. The platform's native UI-language API. This is the only thing
+       that works for a macOS app double-clicked in Finder or a Windows
+       app started from a shortcut: neither inherits ``LANG`` / ``LC_*``,
+       so without this step they always fell back to English.
+    3. The ``locale`` module.
+    4. English.
     """
     for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
-        value = os.environ.get(var)
-        resolved = _normalise_lang(value)
+        resolved = _normalise_lang(os.environ.get(var))
         if resolved:
             return resolved
+
+    if sys.platform == "darwin":
+        resolved = _detect_macos_lang()
+        if resolved:
+            return resolved
+    elif sys.platform.startswith("win"):
+        resolved = _detect_windows_lang()
+        if resolved:
+            return resolved
+
     try:
         import locale
 

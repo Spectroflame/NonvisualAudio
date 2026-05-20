@@ -71,3 +71,52 @@ def test_falls_back_to_integrated_when_no_progress_short_term():
     m = _parse(only_summary, "fake.wav")
     assert m.integrated_lufs == -23.0
     assert m.short_term_max_lufs == -23.0
+
+
+def test_true_peak_timestamp_is_the_first_loudest_ftpk_frame():
+    m = _parse(SAMPLE_PROGRESS, "fake.wav")
+    # FTPK peaks at -1.5 dBFS; that value is reached first at t: 6.0
+    # (t: 9.0 ties but the earlier frame must win).
+    assert m.true_peak_time_seconds == 6.0
+
+
+def test_true_peak_timestamp_is_none_without_progress_frames():
+    only_summary = (
+        "[Parsed_ebur128_0 @ 0x1] Summary:\n"
+        "  Integrated loudness:\n"
+        "    I:         -23.0 LUFS\n"
+        "    Threshold: -33.0 LUFS\n"
+        "  Loudness range:\n"
+        "    LRA:         5.0 LU\n"
+        "    Threshold: -43.0 LUFS\n"
+        "    LRA low:   -28.0 LUFS\n"
+        "    LRA high:  -20.0 LUFS\n"
+        "  True peak:\n"
+        "    Peak:       -2.0 dBFS\n"
+    )
+    m = _parse(only_summary, "fake.wav")
+    assert m.true_peak_time_seconds is None
+
+
+def test_true_peak_timestamp_ignores_inf_frames():
+    # Leading silence reports FTPK: -inf — those frames must not be
+    # picked, and must not crash the float() conversion.
+    progress = (
+        "[Parsed_ebur128_0 @ 0x1] t: 0.1 M:-120 S:-120 I:-70 LUFS "
+        "LRA: 0.0 LU FTPK: -inf dBFS TPK: -inf dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] t: 4.2 M:-10 S:-11 I:-12 LUFS "
+        "LRA: 1.0 LU FTPK: -3.0 dBFS TPK: -3.0 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] Summary:\n"
+        "  Integrated loudness:\n"
+        "    I:         -12.0 LUFS\n"
+        "    Threshold: -22.0 LUFS\n"
+        "  Loudness range:\n"
+        "    LRA:         1.0 LU\n"
+        "    Threshold: -32.0 LUFS\n"
+        "    LRA low:   -13.0 LUFS\n"
+        "    LRA high:  -12.0 LUFS\n"
+        "  True peak:\n"
+        "    Peak:       -3.0 dBFS\n"
+    )
+    m = _parse(progress, "fake.wav")
+    assert m.true_peak_time_seconds == 4.2

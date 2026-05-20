@@ -35,7 +35,7 @@
   "ui.btn.delete": "&Delete",
   "ui.btn.reset_builtin": "&Reset to Built-in",
   "ui.btn.choose_sections": "Choose Report Sections...",
-  "ui.btn.project_mode": "Analyze all files together as one project",
+  "ui.btn.project_mode": "Project mode",
 
   "ui.label.open_file": "Open audio file",
   "ui.hint.open_file": "Select the audio file you want to analyze.",
@@ -71,7 +71,7 @@
   "ui.label.selected_sections": "Selected report sections",
   "ui.hint.selected_sections": "Which sections the report will include. Use the Choose Report Sections button to change this.",
   "ui.label.project_mode": "Project mode",
-  "ui.hint.project_mode": "When enabled, all selected files are treated as one continuous project. Loudness, dynamics, and frequency balance are measured across the whole set as if it were a single file, and a cross-track consistency block is added.",
+  "ui.hint.project_mode": "When enabled, all selected files are treated as one continuous project. Loudness, dynamics, and frequency balance are measured across the whole set as if it were a single file, and a cross-track consistency block is added. In project mode the clipping display behaves differently than in single-file analysis: the timestamp of the loudest true peak is omitted, because the measurement runs across the combined project timeline and cannot be tied to a single file.",
   "ui.project_mode.single_file.title": "Project mode with only one file",
   "ui.project_mode.single_file.body": "Project mode combines several tracks into a single analysis, but only one file is in the list — there is nothing to combine.\n\nYes: switch project mode off and run a normal single-file analysis (recommended).\nNo: keep project mode on and run a one-track project anyway.\nCancel: go back and add more files first.",
 
@@ -367,6 +367,7 @@
   "report.loudness.integrated": "Integrated loudness: {value} LUFS.",
   "report.loudness.short_term": "Short term peak loudness: {value} LUFS.",
   "report.loudness.true_peak": "True peak: {value} dBTP.",
+  "report.loudness.true_peak_time": "The highest peak occurs at {time}.",
   "report.loudness.lra": "Loudness range: {value} LU.",
   "report.loudness.verdict.very_loud": "The file is very loud and likely heavily limited.",
   "report.loudness.verdict.loud": "The file is loud, consistent with modern streaming masters.",

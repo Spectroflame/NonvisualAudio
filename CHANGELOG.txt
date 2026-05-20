@@ -1,3 +1,46 @@
+NONVISUALAUDIO — VERSION 2.0.3
+==============================
+
+Stabilitäts-Release: macOS-Analyse repariert, neue Zeitangabe für die
+True-Peak-Spitze, zuverlässigere automatische Spracherkennung.
+
+Lautheitsmessung auf macOS brach mit einem Fehler ab
+  Das in 2.0.2 mitgelieferte macOS-FFmpeg war dynamisch gelinkt, und
+  die zugehörigen Bibliotheken lagen nicht passend im App-Bundle. Auf
+  jedem Mac ohne Homebrew startete FFmpeg dadurch nicht, und die
+  Analyse brach beim Schritt „Lautheit wird gemessen" ab. Es wird
+  jetzt ein statisch gelinktes, eigenständiges FFmpeg gebündelt, das
+  auf Intel- und Apple-Silicon-Macs ohne weitere Installation läuft.
+
+True Peak — Zeitpunkt der lautesten Spitze
+  Der Lautheits-Block nennt jetzt zusätzlich zum True-Peak-Wert den
+  Zeitpunkt, an dem die höchste Spitze auftritt — in Stunden, Minuten
+  und Sekunden. So lässt sich die Stelle direkt in der DAW ansteuern,
+  besonders praktisch, wenn Übersteuerung erkannt wird. Die Angabe
+  erscheint bei der Einzeldatei-Analyse; im Projektmodus entfällt sie,
+  da die Messung über die zusammengefügte Projekt-Zeitachse läuft.
+
+Sprache wurde nicht immer automatisch erkannt
+  Beim Start per Doppelklick (macOS Finder bzw. Windows-Verknüpfung)
+  lief die App trotz deutschem System teils auf Englisch, weil dabei
+  keine Locale-Umgebungsvariablen gesetzt sind. Die Erkennung fragt
+  jetzt zusätzlich die System-Spracheinstellung direkt ab — unter
+  macOS „AppleLanguages", unter Windows die Locale-API.
+
+Projektmodus — kürzerer Name, klarerer Hinweis
+  Das Kontrollkästchen heißt jetzt schlicht „Projektmodus". Der
+  Hilfetext erklärt zusätzlich, dass sich die Übersteuerungsanzeige
+  im Projektmodus anders verhält als bei der Einzeldatei-Analyse.
+
+Versionsnummer im Info-Dialog
+  Der Info-Dialog zeigte „0.0.0" statt der echten Version, weil die
+  Paket-Metadaten nicht ins App-Bundle aufgenommen wurden. Behoben.
+
+Build-Stabilität
+  Der Linux-Build verkraftet jetzt kurzzeitige Netzwerk-Aussetzer
+  beim Beziehen von wxPython.
+
+
 NONVISUALAUDIO — VERSION 2.0.2
 ==============================
 

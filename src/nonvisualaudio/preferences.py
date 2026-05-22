@@ -105,3 +105,16 @@ def load_report_sections() -> list[str] | None:
 
 def save_report_sections(keys: list[str]) -> None:
     _update("report_sections", list(keys))
+
+
+def load_verbose_logging() -> bool:
+    """Return whether verbose (un-redacted) logging is enabled.
+
+    Defaults to ``False`` — the privacy-preserving setting — so a fresh
+    install never writes full file paths or the user name into the logs.
+    """
+    return load().get("verbose_logging") is True
+
+
+def save_verbose_logging(enabled: bool) -> None:
+    _update("verbose_logging", bool(enabled))

@@ -9,7 +9,7 @@ import traceback
 
 import wx
 
-from nonvisualaudio import localization, preferences
+from nonvisualaudio import localization, logging_setup, preferences
 from nonvisualaudio.errors import UserFacingError
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
@@ -35,6 +35,11 @@ def _configure_logging() -> None:
     )
     if debug:
         logging.getLogger("nonvisualaudio").info("Debug logging enabled (NVA_DEBUG=1).")
+    # Add the rotating file log on top of the stderr handler so support
+    # cases can be diagnosed after the fact — stderr is invisible to the
+    # user in a bundled app. The stderr handler keeps its own threshold.
+    logging_setup.init_file_logging()
+    logging_setup.install_excepthooks()
 
 
 class NonvisualAudioApp(wx.App):
@@ -109,12 +114,16 @@ def _configure_theme() -> None:
 def main() -> int:
     _configure_logging()
     _configure_language()
+    # The banner is logged after language resolution so it records the
+    # language the session actually runs in.
+    logging_setup.log_session_banner()
     _configure_theme()
     app = NonvisualAudioApp(False)
     try:
         app.MainLoop()
     except UserFacingError as exc:
         # Startup-time errors never had a chance to reach the event loop.
+        logging.getLogger("nonvisualaudio").exception("startup error: %s", exc)
         show_error(None, exc)
         return 1
     return 0

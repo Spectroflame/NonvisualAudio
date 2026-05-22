@@ -35,10 +35,13 @@ _msg_send_void = None
 _msg_send_id = None
 _msg_send_bool_sel = None
 _NSSTRING_CLASS: int = 0
+_NSAPPLICATION_CLASS: int = 0
 _SEL_STRING_FROM_UTF8: int = 0
 _SEL_SET_ACCESSIBILITY_TITLE: int = 0
 _SEL_DOCUMENT_VIEW: int = 0
 _SEL_RESPONDS_TO_SELECTOR: int = 0
+_SEL_SHARED_APPLICATION: int = 0
+_SEL_SET_HELP_MENU: int = 0
 
 
 def _initialise_runtime() -> bool:
@@ -51,9 +54,10 @@ def _initialise_runtime() -> bool:
     """
     global _libobjc
     global _msg_send_charp, _msg_send_void, _msg_send_id, _msg_send_bool_sel
-    global _NSSTRING_CLASS
+    global _NSSTRING_CLASS, _NSAPPLICATION_CLASS
     global _SEL_STRING_FROM_UTF8, _SEL_SET_ACCESSIBILITY_TITLE
     global _SEL_DOCUMENT_VIEW, _SEL_RESPONDS_TO_SELECTOR
+    global _SEL_SHARED_APPLICATION, _SEL_SET_HELP_MENU
 
     libobjc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.A.dylib")
     _libobjc = libobjc
@@ -112,6 +116,7 @@ def _initialise_runtime() -> bool:
     _msg_send_bool_sel = proto_bool_sel(msg_send_addr)
 
     _NSSTRING_CLASS = libobjc.objc_getClass(b"NSString")
+    _NSAPPLICATION_CLASS = libobjc.objc_getClass(b"NSApplication")
     _SEL_STRING_FROM_UTF8 = libobjc.sel_registerName(b"stringWithUTF8String:")
     _SEL_SET_ACCESSIBILITY_TITLE = libobjc.sel_registerName(
         b"setAccessibilityTitle:"
@@ -120,6 +125,8 @@ def _initialise_runtime() -> bool:
     _SEL_RESPONDS_TO_SELECTOR = libobjc.sel_registerName(
         b"respondsToSelector:"
     )
+    _SEL_SHARED_APPLICATION = libobjc.sel_registerName(b"sharedApplication")
+    _SEL_SET_HELP_MENU = libobjc.sel_registerName(b"setHelpMenu:")
 
     if not (
         _NSSTRING_CLASS
@@ -239,3 +246,35 @@ def set_accessibility_title(widget: Any, title: str) -> None:
             _apply_title(inner, ns_str)
     except Exception as exc:  # noqa: BLE001
         log.debug("setAccessibilityTitle failed: %s", exc)
+
+
+def clear_help_menu_search() -> None:
+    """Remove the macOS auto-added "Search Help" field from the Help menu.
+
+    Cocoa watches for an ``NSApplication.helpMenu`` and, if set (which it is
+    by default — wxWidgets nominates the menu titled "Help"/"Hilfe"), prepends
+    a Spotlight-style search field. VoiceOver lands on that search field on
+    every menu open and announces only "search field", which makes the actual
+    items below it effectively invisible to screen-reader users.
+
+    Setting ``[NSApp setHelpMenu:nil]`` after the menu bar is built tells
+    Cocoa not to treat any menu as the Help menu; the search field is gone,
+    the menu itself stays in place, and the items inside become the first
+    thing VoiceOver announces. No-op on non-macOS and on init failure.
+    """
+    if not _AVAILABLE or _NSAPPLICATION_CLASS == 0 or _SEL_SHARED_APPLICATION == 0:
+        return
+    try:
+        app_ptr = _msg_send_id(
+            ctypes.c_void_p(_NSAPPLICATION_CLASS),
+            _SEL_SHARED_APPLICATION,
+        )
+        if not app_ptr:
+            return
+        _msg_send_void(
+            ctypes.c_void_p(int(app_ptr)),
+            _SEL_SET_HELP_MENU,
+            ctypes.c_void_p(0),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("clear_help_menu_search failed: %s", exc)

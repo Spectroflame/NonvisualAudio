@@ -1,3 +1,17 @@
+NONVISUALAUDIO — IN ARBEIT
+==========================
+
+Zentrales Protokoll und Diagnosebericht
+  Die App schreibt jetzt fortlaufend ein Protokoll ihrer Aktivität
+  und etwaiger Abstürze in eine Datei (macOS: ~/Library/Logs,
+  Windows: %LOCALAPPDATA%). Über „Hilfe → Diagnosebericht erstellen"
+  lässt sich daraus ein Supportbericht speichern und an den
+  Entwickler senden. Aus Datenschutzgründen werden standardmäßig
+  keine vollständigen Dateipfade und kein Benutzername protokolliert;
+  bei Bedarf kann eine ausführliche Protokollierung im Diagnosedialog
+  eingeschaltet werden. Die bestehende Bedienung bleibt unverändert.
+
+
 NONVISUALAUDIO — VERSION 2.0.3
 ==============================
 

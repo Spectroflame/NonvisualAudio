@@ -38,3 +38,26 @@ def user_data_dir() -> Path:
 
 def user_genres_path() -> Path:
     return user_data_dir() / "genres.json"
+
+
+def user_log_dir() -> Path:
+    """Return the per-user log directory, following OS conventions.
+
+    macOS:   ~/Library/Logs/NonvisualAudio
+    Windows: %LOCALAPPDATA%/NonvisualAudio/Logs  (falls back to ~/AppData/Local)
+    Linux:   $XDG_STATE_HOME/NonvisualAudio/logs or ~/.local/state/NonvisualAudio/logs
+
+    Like :func:`user_data_dir`, importing this module never touches the
+    filesystem — only callers that write a log file create the folder.
+    """
+    system = platform.system()
+    home = Path.home()
+    if system == "Darwin":
+        return home / "Library" / "Logs" / _APP_NAME
+    if system == "Windows":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else home / "AppData" / "Local"
+        return base / _APP_NAME / "Logs"
+    xdg = os.environ.get("XDG_STATE_HOME")
+    base = Path(xdg) if xdg else home / ".local" / "state"
+    return base / _APP_NAME / "logs"

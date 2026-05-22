@@ -14,9 +14,11 @@ from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
 from nonvisualaudio.reporting.builder import SECTION_ORDER, ReportSections
 from nonvisualaudio.ui import a11y
+from nonvisualaudio.ui import macos_a11y
 from nonvisualaudio.ui import theme
 from nonvisualaudio.ui.about_dialog import show_about
 from nonvisualaudio.ui.click_sound import ClickTicker
+from nonvisualaudio.ui.diagnostics_dialog import show_diagnostics
 from nonvisualaudio.ui.drop import expand_audio_paths, parse_paste_text
 from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.ui.genre_dialog import GenreDialog
@@ -436,9 +438,18 @@ class MainWindow(wx.Frame):
             t("ui.menu.about"),
             t("ui.menu.about.hint"),
         )
+        diagnostics_item = help_menu.Append(
+            wx.ID_ANY,
+            t("ui.menu.diagnostics"),
+            t("ui.menu.diagnostics.hint"),
+        )
         menubar.Append(help_menu, t("ui.menu.help"))
 
         self.SetMenuBar(menubar)
+        # Strip the macOS auto "Search Help" field from the Help menu: it
+        # captures VoiceOver focus on every menu open and hides the actual
+        # items behind a "search field, interactive" announcement.
+        macos_a11y.clear_help_menu_search()
         if quit_item is not None:
             self.Bind(wx.EVT_MENU, self._on_quit_menu, quit_item)
         # macOS App-menu auto-entries: wire Quit and About by ID so they
@@ -446,6 +457,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_quit_menu, id=wx.ID_EXIT)
         self.Bind(wx.EVT_MENU, self._on_about, id=wx.ID_ABOUT)
         self.Bind(wx.EVT_MENU, self._on_about, about_item)
+        self.Bind(wx.EVT_MENU, self._on_diagnostics, diagnostics_item)
         # F1 routes through the same handler — accelerator wired below.
         self._about_menu_id = about_item.GetId()
         self.Bind(wx.EVT_MENU, self._on_edit_genres, genre_editor_item)
@@ -460,6 +472,9 @@ class MainWindow(wx.Frame):
 
     def _on_about(self, event: wx.CommandEvent) -> None:
         show_about(self)
+
+    def _on_diagnostics(self, event: wx.CommandEvent) -> None:
+        show_diagnostics(self)
 
     def _on_theme_chosen(self, theme_key: str) -> None:
         if theme_key == theme.current():

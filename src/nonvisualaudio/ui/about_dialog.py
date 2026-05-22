@@ -21,6 +21,7 @@ import wx
 from nonvisualaudio import __version__
 from nonvisualaudio.localization import t
 from nonvisualaudio.ui import a11y, theme
+from nonvisualaudio.ui.diagnostics_dialog import save_report
 from nonvisualaudio.ui.help_viewer import open_help
 
 log = logging.getLogger("nonvisualaudio.about")
@@ -117,6 +118,17 @@ class AboutDialog(wx.Dialog):
         self.bug_btn.Bind(wx.EVT_BUTTON, self._on_report_bug)
         button_row.Add(self.bug_btn, flag=wx.LEFT, border=8)
 
+        self.diagnostics_btn = wx.Button(
+            self, label=t("ui.about.btn.diagnostics")
+        )
+        a11y.set_a11y(
+            self.diagnostics_btn,
+            t("ui.about.diagnostics_name"),
+            t("ui.about.diagnostics_hint"),
+        )
+        self.diagnostics_btn.Bind(wx.EVT_BUTTON, self._on_save_diagnostics)
+        button_row.Add(self.diagnostics_btn, flag=wx.LEFT, border=8)
+
         button_row.AddStretchSpacer(1)
 
         self.close_btn = wx.Button(self, wx.ID_CLOSE, label=t("ui.btn.close"))
@@ -180,6 +192,12 @@ class AboutDialog(wx.Dialog):
             webbrowser.open(_ISSUES_URL, new=2)
         except Exception as exc:  # noqa: BLE001
             log.error("webbrowser.open(issues) failed: %s", exc)
+
+    def _on_save_diagnostics(self, _event: wx.CommandEvent) -> None:
+        # Writes the report into the log folder and shows a confirmation
+        # naming the file. Same code path as the Help menu's "Save Report"
+        # button so the two entry points stay in lockstep.
+        save_report(self)
 
 
 def show_about(parent: wx.Window | None) -> None:

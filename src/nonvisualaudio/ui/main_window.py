@@ -9,7 +9,13 @@ from pathlib import Path
 import wx
 
 from nonvisualaudio import preferences
-from nonvisualaudio.analysis.memory import MemoryEstimate, format_bytes
+from nonvisualaudio.analysis.memory import (
+    MemoryEstimate,
+    build_estimate,
+    estimate_file_bytes,
+    estimate_project_bytes,
+    format_bytes,
+)
 from nonvisualaudio.errors import UserFacingError
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
@@ -883,6 +889,14 @@ class MainWindow(wx.Frame):
                     "project mode auto-disabled: only one file in the list"
                 )
             # answer == wx.NO falls through and runs a one-track project.
+
+        # RAM pre-check: estimate the worst-case footprint and, only if
+        # it's concerning, ask the user before touching the UI or
+        # starting the click ticker. On systems with plenty of RAM this
+        # silently logs the numbers and falls through to the analysis.
+        if not self._ram_precheck():
+            return
+
         self.analyze_btn.Disable()
         self.open_btn.Disable()
         self.SetStatusText(t("status.running"))
@@ -914,15 +928,95 @@ class MainWindow(wx.Frame):
             project_mode=self._project_mode,
             project_name=self._derive_project_name(),
             reference_name=self._derive_reference_name(),
-            on_confirm_memory=self._on_confirm_memory,
+            # The pre-check above already accepted (or quietly cleared)
+            # the worst-case footprint. We still pass a callback so the
+            # pipeline keeps emitting its per-file RAM-estimate logs,
+            # but force-accept here to avoid a second mid-run dialog.
+            on_confirm_memory=lambda _estimate: True,
         )
+
+    def _ram_precheck(self) -> bool:
+        """Estimate RAM needs up front and confirm with the user if risky.
+
+        Returns ``True`` when the analysis may proceed (either the
+        estimate was harmless or the user clicked "yes" in the
+        warning dialog). Returns ``False`` when the user cancelled —
+        in that case the caller must leave the UI untouched and not
+        start the click ticker or worker.
+        """
+        estimate = self._collect_ram_estimate()
+        if estimate is None:
+            return True
+        log.info(
+            "ram pre-check: %s estimated %s (available %s, total %s)",
+            estimate.label,
+            format_bytes(estimate.estimated_bytes),
+            format_bytes(estimate.available_bytes),
+            format_bytes(estimate.total_bytes),
+        )
+        if not estimate.is_concerning:
+            return True
+        return self._on_confirm_memory(estimate)
+
+    def _collect_ram_estimate(self) -> MemoryEstimate | None:
+        """Build the worst-case RAM estimate for the run that's about to start.
+
+        Project mode is one combined pass over all targets, so it gets
+        the project-overhead formula. Otherwise we estimate each target
+        individually and report the largest — that's the file that will
+        either fit or trip the warning. A multi-file reference adds its
+        own project-style estimate; a single-file reference is treated
+        like any other file.
+        """
+        candidates: list[MemoryEstimate] = []
+        if self._target_paths:
+            if self._project_mode:
+                candidates.append(
+                    build_estimate(
+                        label=self._derive_project_name()
+                        or t("project.default_name"),
+                        estimated_bytes=estimate_project_bytes(self._target_paths),
+                    )
+                )
+            else:
+                for raw in self._target_paths:
+                    candidates.append(
+                        build_estimate(
+                            label=Path(raw).name,
+                            estimated_bytes=estimate_file_bytes(raw),
+                        )
+                    )
+        if self._reference_paths:
+            if len(self._reference_paths) == 1:
+                ref = self._reference_paths[0]
+                candidates.append(
+                    build_estimate(
+                        label=Path(ref).name,
+                        estimated_bytes=estimate_file_bytes(ref),
+                    )
+                )
+            else:
+                candidates.append(
+                    build_estimate(
+                        label=self._derive_reference_name()
+                        or t("project.reference_default_name"),
+                        estimated_bytes=estimate_project_bytes(
+                            self._reference_paths
+                        ),
+                    )
+                )
+        if not candidates:
+            return None
+        return max(candidates, key=lambda e: e.estimated_bytes)
 
     def _on_confirm_memory(self, estimate: MemoryEstimate) -> bool:
         """Show the RAM warning and return True if the user wants to proceed.
 
-        Runs on the UI thread (the worker marshals the call across).
-        Pre-formats the numbers so the dialog reads cleanly to screen
-        readers — one short sentence per fact, not a wall of numbers.
+        Called from the pre-check on the UI thread before the worker —
+        and therefore before the click ticker — starts, so the dialog
+        is not accompanied by the analysis-running click. Pre-formats
+        the numbers so the dialog reads cleanly to screen readers —
+        one short sentence per fact, not a wall of numbers.
         """
         log.warning(
             "ram guard triggered for %s: estimated %s, available %s, total %s",

@@ -1,5 +1,8 @@
-NONVISUALAUDIO — IN ARBEIT
-==========================
+NONVISUALAUDIO — VERSION 2.0.4
+==============================
+
+Stabilitäts-Release mit neuem Diagnosebericht, RAM-Vorabprüfung und
+einer Korrektur des True-Peak-Zeitstempels für sehr frühe Spitzen.
 
 Zentrales Protokoll und Diagnosebericht
   Die App schreibt jetzt fortlaufend ein Protokoll ihrer Aktivität
@@ -30,6 +33,21 @@ Stabilitätshärtung
   sichtbar im Protokoll: ein nicht ladbares libsndfile (führt zu
   langsamerer FFmpeg-Dekodierung) und ein Fehler beim Stoppen des
   Klick-Tickers im Shutdown werden geloggt statt verschluckt.
+
+RAM-Vorabprüfung vor jeder Analyse
+  Vor dem eigentlichen Lauf wird der zu erwartende Speicherbedarf
+  aus den Datei-Metadaten geschätzt und ins Protokoll geschrieben.
+  Übersteigt er einen sicheren Anteil des freien RAMs, fragt die
+  App vor dem Start, ob du fortfahren willst; passt er bequem
+  hinein, startet die Analyse ohne weitere Meldung. Lange
+  Dekodierungen auf RAM-knappen Systemen führen damit nicht mehr
+  zu stillen Abstürzen.
+
+True-Peak-Zeitstempel zeigte 0 Sekunden
+  Lag die lauteste Spitze in der ersten Sekunde einer Datei, gab
+  der Bericht den Zeitpunkt als „0 Sekunden" aus. Bei Werten unter
+  einer Sekunde steht jetzt eine Nachkommastelle, etwa
+  „0,4 Sekunden".
 
 
 NONVISUALAUDIO — VERSION 2.0.3

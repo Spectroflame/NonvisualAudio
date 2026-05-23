@@ -52,12 +52,24 @@ def load() -> dict[str, Any]:
     return data
 
 
-def save(prefs: dict[str, Any]) -> None:
+def save(prefs: dict[str, Any]) -> bool:
+    """Persist preferences to disk. Returns True on success, False on I/O error.
+
+    Failures are logged but never raised: a read-only data directory or
+    a full disk should not crash the UI callback that triggered the
+    save. The in-memory state stays valid; only the next session will
+    not see the change.
+    """
     path = _preferences_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(prefs, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as fh:
+            json.dump(prefs, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+    except OSError as exc:
+        log.warning("could not save preferences to %s: %s", path, exc)
+        return False
+    return True
 
 
 def _update(key: str, value: Any) -> None:

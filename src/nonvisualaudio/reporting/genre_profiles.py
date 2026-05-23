@@ -332,14 +332,22 @@ def save_user_overrides(
             log.warning("could not remove empty override at %s: %s", path, exc)
         reload()
         return path
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": 1,
         "categories": list(categories),
         "profiles": list(profiles),
     }
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+    except OSError as exc:
+        # Disk full, read-only home, missing permissions — none of these
+        # should crash the editor dialog. The in-memory state already
+        # holds the user's edits; only the persistence step failed, and
+        # the next launch will fall back to the bundled defaults.
+        log.error("could not save genre override to %s: %s", path, exc)
+        return path
     reload()
     return path

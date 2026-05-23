@@ -17,7 +17,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from nonvisualaudio import __version__, preferences
+from nonvisualaudio import __version__, logging_setup, preferences
+from nonvisualaudio.audio import ffmpeg_runner
 from nonvisualaudio.localization import current_lang
 from nonvisualaudio.logging_setup import LOG_FILENAME
 from nonvisualaudio.paths import user_log_dir
@@ -46,6 +47,14 @@ def _log_files() -> list[Path]:
 
 def system_info() -> str:
     """Return a short block of environment facts useful for triage."""
+    ffmpeg = ffmpeg_runner.active_ffmpeg_info()
+    if ffmpeg is None:
+        ffmpeg_line = "(not resolved yet — no analysis has run this session)"
+    else:
+        path, source = ffmpeg
+        # Redact the path the same way log lines are redacted, so this
+        # field honours the verbose-logging preference too.
+        ffmpeg_line = f"{source} ({logging_setup.redact(path)})"
     lines = [
         f"NonvisualAudio version : {__version__}",
         f"Operating system       : {platform.platform()}",
@@ -53,6 +62,7 @@ def system_info() -> str:
         f"Interface language     : {current_lang()}",
         f"Theme preference       : {preferences.load_theme() or 'auto'}",
         f"Verbose logging        : {'on' if preferences.load_verbose_logging() else 'off'}",
+        f"ffmpeg in use          : {ffmpeg_line}",
     ]
     return "\n".join(lines)
 
@@ -93,6 +103,27 @@ def default_report_path() -> Path:
     return user_log_dir() / f"NonvisualAudio-Diagnose-{stamp}.log"
 
 
+def _open_on_linux(target: str) -> bool:
+    """Try the common Linux openers in order, returning success.
+
+    ``xdg-open`` is the de-facto standard but isn't always installed
+    (minimal distros, headless boxes). ``gio open`` is the modern
+    GNOME/glib equivalent and ships with virtually every desktop Linux
+    that has a file manager. Each candidate that's missing raises
+    FileNotFoundError; non-zero exits are treated as failure too.
+    """
+    for argv in (["xdg-open", target], ["gio", "open", target]):
+        try:
+            subprocess.run(argv, check=True, timeout=5)
+            return True
+        except FileNotFoundError:
+            continue
+        except (subprocess.SubprocessError, OSError) as exc:
+            log.warning("opener %s failed: %s", argv[0], exc)
+            continue
+    return False
+
+
 def open_log_folder() -> bool:
     """Open the log directory in the OS file manager. Returns success."""
     log_dir = user_log_dir()
@@ -107,7 +138,9 @@ def open_log_folder() -> bool:
         elif sys.platform.startswith("win"):
             os.startfile(str(log_dir))  # type: ignore[attr-defined]  # noqa: S606
         else:
-            subprocess.run(["xdg-open", str(log_dir)], check=False)
+            if not _open_on_linux(str(log_dir)):
+                log.error("no usable file-manager opener found on PATH")
+                return False
     except (OSError, subprocess.SubprocessError) as exc:
         log.error("could not open log folder: %s", exc)
         return False

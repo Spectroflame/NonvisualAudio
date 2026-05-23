@@ -11,6 +11,26 @@ Zentrales Protokoll und Diagnosebericht
   bei Bedarf kann eine ausführliche Protokollierung im Diagnosedialog
   eingeschaltet werden. Die bestehende Bedienung bleibt unverändert.
 
+Stabilitätshärtung
+  FFmpeg-Auflösung: das gebündelte Binary wird weiterhin bevorzugt;
+  fällt es jedoch durch (z. B. veraltetes Bundle, Architektur-
+  Konflikt), greift der System-Fallback nicht mehr stillschweigend,
+  sondern wird laut im Protokoll vermerkt, und der aktive ffmpeg-Pfad
+  steht im Diagnosebericht. Dynamische-Linker-Variablen
+  (DYLD_LIBRARY_PATH bzw. LD_LIBRARY_PATH) werden an Subprozess-
+  Aufrufe durchgereicht, damit ein System-ffmpeg seine Bibliotheken
+  noch findet.
+  Einstellungen und Genre-Profile werden beim Schreiben fehler-
+  tolerant gespeichert: ein voller Datenträger oder fehlende
+  Schreibrechte führen nicht mehr zum Absturz eines UI-Dialogs,
+  sondern werden ins Protokoll geschrieben.
+  Unter Linux wird der Protokollordner zuerst über xdg-open, bei
+  dessen Fehlen über „gio open" geöffnet.
+  Diverse Stille-Fehler in den Shutdown- und Lade-Pfaden sind jetzt
+  sichtbar im Protokoll: ein nicht ladbares libsndfile (führt zu
+  langsamerer FFmpeg-Dekodierung) und ein Fehler beim Stoppen des
+  Klick-Tickers im Shutdown werden geloggt statt verschluckt.
+
 
 NONVISUALAUDIO — VERSION 2.0.3
 ==============================

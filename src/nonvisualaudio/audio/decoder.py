@@ -45,8 +45,11 @@ def _try_soundfile(path: Path) -> DecodedAudio | None:
     """Return decoded audio on success, None if soundfile can't handle it."""
     try:
         import soundfile as sf
-    except ImportError:
-        log.debug("soundfile not importable; skipping fast path")
+    except ImportError as exc:
+        # Surface this loud enough to appear in support logs: a broken
+        # libsndfile install means every analysis falls back to ffmpeg
+        # decoding, which is noticeably slower on large files.
+        log.warning("soundfile not importable; falling back to ffmpeg decoder: %s", exc)
         return None
     try:
         info = sf.info(str(path))

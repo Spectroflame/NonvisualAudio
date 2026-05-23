@@ -22,6 +22,38 @@ from nonvisualaudio.localization import t
 
 log = logging.getLogger("nonvisualaudio.ffmpeg")
 
+# Set by find_ffmpeg() the first time it resolves a working binary. The
+# diagnostic report reads this so a support log makes it obvious whether
+# the bundled binary or a system fallback was actually used. Tuple of
+# (path, "bundled" | "system").
+_active_info: tuple[str, str] | None = None
+
+
+def _subprocess_env() -> dict[str, str]:
+    """Build a minimal subprocess env that preserves dynamic-linker hints.
+
+    The bundled ffmpeg ships statically linked on every platform — but a
+    system fallback (or a developer running from source against a
+    Homebrew/MacPorts ffmpeg) may need ``DYLD_LIBRARY_PATH`` /
+    ``LD_LIBRARY_PATH`` to resolve its dynamic dependencies. Stripping
+    those out surfaces as cryptic "image not found" errors at the first
+    analysis run, which is exactly the kind of failure this hardening
+    pass exists to prevent.
+    """
+    env: dict[str, str] = {"PATH": os.environ.get("PATH", "")}
+    forward: tuple[str, ...]
+    if sys.platform == "darwin":
+        forward = ("DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH")
+    elif sys.platform.startswith("linux"):
+        forward = ("LD_LIBRARY_PATH",)
+    else:
+        forward = ()
+    for name in forward:
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    return env
+
 
 class FFmpegError(RuntimeError):
     """Raised when an ffmpeg invocation fails for a recoverable reason.
@@ -73,7 +105,7 @@ def _binary_runs(path: str) -> bool:
             [path, "-version"],
             capture_output=True,
             timeout=10.0,
-            env={"PATH": os.environ.get("PATH", "")},
+            env=_subprocess_env(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         log.warning("ffmpeg probe of %s failed: %s", path, exc)
@@ -87,24 +119,51 @@ def find_ffmpeg() -> str:
     Prefer the bundled binary, but verify it actually launches before
     committing to it: a bundled ffmpeg can be present yet unusable
     (missing or wrong-architecture dylibs). If it fails to start, fall
-    back to a system ffmpeg on PATH so the analysis still runs.
+    back to a system ffmpeg on PATH so the analysis still runs — and
+    log that prominently so the situation shows up in support reports.
+    The decision is cached for the life of the process; both paths get
+    re-probed only on the first call.
     """
+    global _active_info
+    if _active_info is not None:
+        return _active_info[0]
     bundled = _bundled_binary("ffmpeg")
     system = shutil.which("ffmpeg")
+    if bundled is not None and _binary_runs(str(bundled)):
+        _active_info = (str(bundled), "bundled")
+        log.info("ffmpeg resolved: bundled (%s)", bundled)
+        return str(bundled)
     if bundled is not None:
-        if _binary_runs(str(bundled)):
-            return str(bundled)
-        log.warning(
-            "bundled ffmpeg at %s did not launch; falling back to PATH",
+        log.error(
+            "bundled ffmpeg at %s did not launch — bundle may be stale or "
+            "platform-mismatched; attempting system PATH fallback",
             bundled,
         )
     if system and _binary_runs(system):
+        _active_info = (system, "system")
+        # Loud on purpose: a system fallback means the bundled install is
+        # either missing or broken on this user's machine. Catching this
+        # in a support log lets us refresh the bundle before more users
+        # hit the same wall.
+        log.error(
+            "ffmpeg resolved: system PATH (%s) — bundled binary was not usable",
+            system,
+        )
         return system
     raise MissingFFmpegError(
         title=t("error.ffmpeg.missing.title"),
         body=t("error.ffmpeg.missing.body"),
         hint=_install_hint(),
     )
+
+
+def active_ffmpeg_info() -> tuple[str, str] | None:
+    """Return ``(path, source)`` for the resolved ffmpeg, or None.
+
+    ``source`` is ``"bundled"`` or ``"system"``. Returns None until
+    :func:`find_ffmpeg` has been called at least once (no analysis run).
+    """
+    return _active_info
 
 
 def run(args: Sequence[str], *, timeout: float = 300.0) -> subprocess.CompletedProcess:
@@ -124,8 +183,10 @@ def run(args: Sequence[str], *, timeout: float = 300.0) -> subprocess.CompletedP
             check=False,
             capture_output=True,
             timeout=timeout,
-            # Explicitly inherit a minimal environment: no proxies, etc.
-            env={"PATH": os.environ.get("PATH", "")},
+            # Explicit minimal environment: PATH plus the platform's
+            # dynamic-linker hints so a non-statically-linked ffmpeg can
+            # still resolve its dylibs. See _subprocess_env().
+            env=_subprocess_env(),
         )
     except FileNotFoundError as exc:
         log.error("%s not found on PATH", binary)

@@ -982,6 +982,6 @@ class MainWindow(wx.Frame):
         # trailing tick after the window disappears.
         try:
             self._click_ticker.stop()
-        except Exception:  # noqa: BLE001 — never block shutdown on audio cleanup
-            pass
+        except Exception as exc:  # noqa: BLE001 — never block shutdown on audio cleanup
+            log.debug("click ticker stop raised during shutdown: %s", exc)
         self.Destroy()

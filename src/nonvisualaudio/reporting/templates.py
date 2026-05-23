@@ -76,6 +76,26 @@ def fmt_duration(seconds: float) -> str:
     return f"{secs} {seconds_label}"
 
 
+def fmt_peak_time(seconds: float) -> str:
+    """Format a peak position, with sub-second precision only when useful.
+
+    For peaks under one second we keep one decimal place so a 0.4 s
+    spike reads as "0.4 seconds" rather than the old "0 seconds" —
+    that was the bug: a sub-second peak at the very start of the file
+    looked rounded down to zero. From one second upward we fall back
+    to :func:`fmt_duration`'s whole-second formatting, because at
+    minute-level granularity tenths just add noise (a peak at "2
+    minutes 13.7 seconds" doesn't help the user any more than "2
+    minutes 13 seconds").
+    """
+    if not math.isfinite(seconds) or seconds < 0:
+        return t("templates.unknown_duration")
+    if seconds < 1.0:
+        secs_str = _localise_decimal(f"{round(seconds, 1):.1f}")
+        return f"{secs_str} {t('templates.seconds')}"
+    return fmt_duration(seconds)
+
+
 def heading(title: str) -> str:
     return title.upper()
 

@@ -317,6 +317,16 @@
   "worker.error.report_format.hint": "Die eigentliche Analyse war erfolgreich; bitte erneut versuchen.",
   "worker.error.all_failed.title": "Keine der {count} Dateien konnte analysiert werden",
   "worker.error.all_failed.body": "Jede Datei ist aus einem anderen Grund gescheitert. Die Details-Schaltfläche zeigt alle Fehler.",
+  "worker.error.ram_cancelled.title": "Analyse zum Schutz des Arbeitsspeichers abgebrochen",
+  "worker.error.ram_cancelled.body": "Die Analyse wurde nach der RAM-Warnung gestoppt. Es wurde keine Datei analysiert.",
+  "worker.error.ram_cancelled.hint": "Andere Programme schließen, um RAM freizugeben, die Datei in kürzere Abschnitte teilen oder die Analyse auf einem Rechner mit mehr Arbeitsspeicher ausführen.",
+
+  "ui.ram_warning.title": "Diese Analyse könnte sehr viel Arbeitsspeicher benötigen",
+  "ui.ram_warning.lead": "Die Analyse von {label} kann ungewöhnlich viel RAM beanspruchen.",
+  "ui.ram_warning.estimate": "Erwarteter Spitzenbedarf: etwa {estimated}.",
+  "ui.ram_warning.available": "Aktuell verfügbarer Arbeitsspeicher: etwa {available} von {total} insgesamt.",
+  "ui.ram_warning.available_unknown": "Der aktuell verfügbare Arbeitsspeicher konnte nicht ermittelt werden.",
+  "ui.ram_warning.question": "Soll die Analyse trotzdem fortgesetzt werden? „Nein“ bricht ab, damit zuerst Arbeitsspeicher freigegeben werden kann.",
 
   "pipeline.decoding": "Audio wird dekodiert",
   "pipeline.loudness": "Lautheit wird gemessen",

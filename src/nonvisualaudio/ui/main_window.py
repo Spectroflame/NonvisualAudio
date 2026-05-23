@@ -9,6 +9,7 @@ from pathlib import Path
 import wx
 
 from nonvisualaudio import preferences
+from nonvisualaudio.analysis.memory import MemoryEstimate, format_bytes
 from nonvisualaudio.errors import UserFacingError
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
@@ -913,7 +914,51 @@ class MainWindow(wx.Frame):
             project_mode=self._project_mode,
             project_name=self._derive_project_name(),
             reference_name=self._derive_reference_name(),
+            on_confirm_memory=self._on_confirm_memory,
         )
+
+    def _on_confirm_memory(self, estimate: MemoryEstimate) -> bool:
+        """Show the RAM warning and return True if the user wants to proceed.
+
+        Runs on the UI thread (the worker marshals the call across).
+        Pre-formats the numbers so the dialog reads cleanly to screen
+        readers — one short sentence per fact, not a wall of numbers.
+        """
+        log.warning(
+            "ram guard triggered for %s: estimated %s, available %s, total %s",
+            estimate.label,
+            format_bytes(estimate.estimated_bytes),
+            format_bytes(estimate.available_bytes),
+            format_bytes(estimate.total_bytes),
+        )
+        if estimate.available_bytes is not None:
+            availability_line = t(
+                "ui.ram_warning.available",
+                available=format_bytes(estimate.available_bytes),
+                total=format_bytes(estimate.total_bytes),
+            )
+        else:
+            availability_line = t("ui.ram_warning.available_unknown")
+        body = "\n\n".join(
+            [
+                t("ui.ram_warning.lead", label=estimate.label),
+                t(
+                    "ui.ram_warning.estimate",
+                    estimated=format_bytes(estimate.estimated_bytes),
+                ),
+                availability_line,
+                t("ui.ram_warning.question"),
+            ]
+        )
+        answer = wx.MessageBox(
+            body,
+            t("ui.ram_warning.title"),
+            style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+            parent=self,
+        )
+        proceed = answer == wx.YES
+        log.info("user %s the ram warning", "accepted" if proceed else "cancelled")
+        return proceed
 
     def _on_analysis_progress(self, percent: int, stage: str) -> None:
         self.progress.SetValue(max(0, min(100, int(percent))))

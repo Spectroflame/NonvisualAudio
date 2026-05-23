@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 
+from nonvisualaudio.analysis import memory
 from nonvisualaudio.analysis.dynamics import compute_dynamics
 from nonvisualaudio.analysis.loudness import measure_loudness
+from nonvisualaudio.analysis.memory import (
+    ConfirmMemoryCb,
+    RamCheckCancelled,
+)
 from nonvisualaudio.analysis.result import AnalysisResult, FileInfo
 from nonvisualaudio.analysis.spectrum import compute_spectrum
 from nonvisualaudio.audio.decoder import decode
 from nonvisualaudio.localization import t
+
+log = logging.getLogger("nonvisualaudio.pipeline")
 
 ProgressCb = Callable[[int, str], None]
 
@@ -36,6 +45,7 @@ def analyze(
     percent_start: int = 0,
     percent_end: int = 100,
     label_prefix: str = "",
+    confirm_memory_cb: ConfirmMemoryCb | None = None,
 ) -> AnalysisResult:
     """Run the full analysis pipeline on one audio file.
 
@@ -43,9 +53,35 @@ def analyze(
     each pipeline step. Percentages are mapped into the range
     ``[percent_start, percent_end]`` so callers that analyze two files
     (target + reference) can split one 0..100 bar across both halves.
+
+    ``confirm_memory_cb`` — if supplied — is consulted before decoding.
+    The RAM guard estimates the file's peak memory footprint and, when
+    that crosses the warning threshold, asks the callback whether to
+    proceed. Returning ``False`` aborts the run with
+    :class:`RamCheckCancelled` so the worker can surface a clean
+    cancellation message.
     """
     emit = _make_emit(progress_cb, percent_start, percent_end)
     prefix = f"{label_prefix}: " if label_prefix else ""
+    p = Path(path)
+
+    if confirm_memory_cb is not None:
+        estimate = memory.build_estimate(
+            label=p.name,
+            estimated_bytes=memory.estimate_file_bytes(p),
+        )
+        log.info(
+            "ram estimate for %s: %s (available %s, total %s)",
+            p.name,
+            memory.format_bytes(estimate.estimated_bytes),
+            memory.format_bytes(estimate.available_bytes),
+            memory.format_bytes(estimate.total_bytes),
+        )
+        if estimate.is_concerning and not confirm_memory_cb(estimate):
+            raise RamCheckCancelled()
+
+    t_start = time.perf_counter()
+    rss_start = memory.peak_rss_bytes()
 
     emit(0, f"{prefix}{t('pipeline.decoding')}")
     decoded = decode(path)
@@ -67,6 +103,22 @@ def analyze(
     spectrum = compute_spectrum(decoded.samples, decoded.sample_rate)
 
     emit(100, f"{prefix}{t('pipeline.done')}")
+
+    elapsed = time.perf_counter() - t_start
+    rss_end = memory.peak_rss_bytes()
+    rss_delta = (
+        rss_end - rss_start
+        if rss_start is not None and rss_end is not None
+        else None
+    )
+    log.info(
+        "analyze done: %s in %s, peak RAM Δ %s (peak %s)",
+        decoded.filename,
+        memory.format_seconds(elapsed),
+        memory.format_bytes(rss_delta) if rss_delta is not None else "?",
+        memory.format_bytes(rss_end),
+    )
+
     return AnalysisResult(
         file_info=file_info,
         loudness=loudness,

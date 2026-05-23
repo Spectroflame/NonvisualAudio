@@ -317,6 +317,16 @@
   "worker.error.report_format.hint": "The underlying analysis succeeded; please try again.",
   "worker.error.all_failed.title": "None of the {count} files could be analyzed",
   "worker.error.all_failed.body": "Each file failed for a different reason. Open the Details button to see them all.",
+  "worker.error.ram_cancelled.title": "Analysis cancelled to protect memory",
+  "worker.error.ram_cancelled.body": "You stopped the analysis after the memory warning. No file was analyzed.",
+  "worker.error.ram_cancelled.hint": "Close other apps to free RAM, split the file into shorter sections, or run the analysis on a machine with more memory.",
+
+  "ui.ram_warning.title": "This analysis may need a lot of memory",
+  "ui.ram_warning.lead": "The analysis of {label} could use much more RAM than usual.",
+  "ui.ram_warning.estimate": "Expected peak memory: about {estimated}.",
+  "ui.ram_warning.available": "Currently available memory: about {available} out of {total} total.",
+  "ui.ram_warning.available_unknown": "The amount of currently free memory could not be determined.",
+  "ui.ram_warning.question": "Continue with the analysis anyway? Choose No to cancel and free up memory first.",
 
   "pipeline.decoding": "Decoding audio",
   "pipeline.loudness": "Measuring loudness",

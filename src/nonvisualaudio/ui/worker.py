@@ -14,11 +14,15 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import wx
 
+from nonvisualaudio.analysis.memory import (
+    MemoryEstimate,
+    RamCheckCancelled,
+)
 from nonvisualaudio.analysis.pipeline import analyze
 from nonvisualaudio.analysis.project import analyze_project
 from nonvisualaudio.analysis.result import AnalysisResult
@@ -89,6 +93,7 @@ class AnalysisWorker:
         project_mode: bool = False,
         project_name: str | None = None,
         reference_name: str | None = None,
+        on_confirm_memory: Callable[[MemoryEstimate], bool] | None = None,
     ) -> None:
         self._targets = list(target_paths)
         self._genre_keys = list(genre_keys or [])
@@ -100,6 +105,10 @@ class AnalysisWorker:
         self._on_done = on_done
         self._on_error = on_error
         self._on_progress = on_progress
+        # The RAM guard runs the confirm dialog on the UI thread. When
+        # no callback is supplied (tests, headless callers), the guard
+        # is effectively disabled and analyses run unattended.
+        self._on_confirm_memory = on_confirm_memory
         self._sections = sections if sections is not None else ReportSections.all()
         self._project_mode = project_mode
         self._project_name = project_name
@@ -121,6 +130,34 @@ class AnalysisWorker:
 
     def _emit_error(self, err: UserFacingError) -> None:
         wx.CallAfter(self._on_error, err)
+
+    def _confirm_memory(self, estimate: MemoryEstimate) -> bool:
+        """Ask the UI thread whether to proceed with a memory-heavy run.
+
+        The worker runs on a background thread, but the warning dialog
+        belongs on the UI thread. We marshal the question across via
+        ``wx.CallAfter`` and block this thread on a one-shot event
+        until the user clicks an option. Without a UI callback (e.g.
+        in unit tests) we let the analysis proceed silently — the
+        guard is then effectively disabled.
+        """
+        if self._on_confirm_memory is None:
+            return True
+        answer: list[bool] = []
+        ready = threading.Event()
+
+        def _ask_ui() -> None:
+            try:
+                answer.append(bool(self._on_confirm_memory(estimate)))
+            except Exception:  # noqa: BLE001 — never let the dialog leak
+                log.exception("memory-confirm dialog crashed; defaulting to cancel")
+                answer.append(False)
+            finally:
+                ready.set()
+
+        wx.CallAfter(_ask_ui)
+        ready.wait()
+        return answer[0] if answer else False
 
     # ------------------------------------------------------------------ #
     # Actual analysis
@@ -150,6 +187,7 @@ class AnalysisWorker:
                 percent_start=percent_start,
                 percent_end=percent_end,
                 label_prefix=prefix,
+                confirm_memory_cb=self._confirm_memory,
             )
         # Multi-file reference: build a project-style reference. The
         # combined AnalysisResult plugs straight into the existing
@@ -160,6 +198,7 @@ class AnalysisWorker:
             progress_cb=self._emit_progress,
             percent_start=percent_start,
             percent_end=percent_end,
+            confirm_memory_cb=self._confirm_memory,
         )
         return ref_project.combined
 
@@ -200,6 +239,16 @@ class AnalysisWorker:
                 )
             except MissingFFmpegError as exc:
                 self._emit_error(exc)
+                return
+            except RamCheckCancelled:
+                log.info("ram guard cancelled the reference analysis")
+                self._emit_error(
+                    UserFacingError(
+                        title=t("worker.error.ram_cancelled.title"),
+                        body=t("worker.error.ram_cancelled.body"),
+                        hint=t("worker.error.ram_cancelled.hint"),
+                    )
+                )
                 return
             except UserFacingError as exc:
                 # A bad reference file is a hard stop: without the reference
@@ -247,11 +296,26 @@ class AnalysisWorker:
                     percent_start=slice_start,
                     percent_end=slice_end,
                     label_prefix=prefix,
+                    confirm_memory_cb=self._confirm_memory,
                 )
             except MissingFFmpegError as exc:
                 # FFmpeg missing is a global stop — continuing with other
                 # files would just fail the same way.
                 self._emit_error(exc)
+                return
+            except RamCheckCancelled:
+                # User declined the RAM warning for this file. We stop
+                # the whole batch — analysing the remainder after the
+                # user has signalled "this run is too big" would be
+                # surprising and almost always unwanted.
+                log.info("ram guard cancelled the run at file %d/%d", i + 1, n_targets)
+                self._emit_error(
+                    UserFacingError(
+                        title=t("worker.error.ram_cancelled.title"),
+                        body=t("worker.error.ram_cancelled.body"),
+                        hint=t("worker.error.ram_cancelled.hint"),
+                    )
+                )
                 return
             except UserFacingError as exc:
                 log.warning("file %d/%d failed: %s", i + 1, n_targets, exc)
@@ -398,6 +462,16 @@ class AnalysisWorker:
             except MissingFFmpegError as exc:
                 self._emit_error(exc)
                 return
+            except RamCheckCancelled:
+                log.info("ram guard cancelled the project reference analysis")
+                self._emit_error(
+                    UserFacingError(
+                        title=t("worker.error.ram_cancelled.title"),
+                        body=t("worker.error.ram_cancelled.body"),
+                        hint=t("worker.error.ram_cancelled.hint"),
+                    )
+                )
+                return
             except UserFacingError as exc:
                 self._emit_error(
                     UserFacingError(
@@ -419,9 +493,20 @@ class AnalysisWorker:
                 progress_cb=self._emit_progress,
                 percent_start=project_start,
                 percent_end=92,
+                confirm_memory_cb=self._confirm_memory,
             )
         except MissingFFmpegError as exc:
             self._emit_error(exc)
+            return
+        except RamCheckCancelled:
+            log.info("ram guard cancelled the project analysis")
+            self._emit_error(
+                UserFacingError(
+                    title=t("worker.error.ram_cancelled.title"),
+                    body=t("worker.error.ram_cancelled.body"),
+                    hint=t("worker.error.ram_cancelled.hint"),
+                )
+            )
             return
         except UserFacingError as exc:
             self._emit_error(exc)
@@ -494,6 +579,7 @@ def start_analysis(
     project_mode: bool = False,
     project_name: str | None = None,
     reference_name: str | None = None,
+    on_confirm_memory: Callable[[MemoryEstimate], bool] | None = None,
 ) -> AnalysisWorker:
     """Spin up the background worker. Returns it so callers can keep a ref."""
     worker = AnalysisWorker(
@@ -507,6 +593,7 @@ def start_analysis(
         project_mode=project_mode,
         project_name=project_name,
         reference_name=reference_name,
+        on_confirm_memory=on_confirm_memory,
     )
     worker.start()
     return worker

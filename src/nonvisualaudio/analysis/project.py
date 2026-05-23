@@ -24,15 +24,21 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
+from nonvisualaudio.analysis import memory
 from nonvisualaudio.analysis.dynamics import compute_dynamics
 from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128_summary
 from nonvisualaudio.analysis.loudness import measure_loudness
+from nonvisualaudio.analysis.memory import (
+    ConfirmMemoryCb,
+    RamCheckCancelled,
+)
 from nonvisualaudio.analysis.result import (
     AnalysisResult,
     FileInfo,
@@ -194,6 +200,7 @@ def analyze_project(
     progress_cb: ProgressCb | None = None,
     percent_start: int = 0,
     percent_end: int = 100,
+    confirm_memory_cb: ConfirmMemoryCb | None = None,
 ) -> ProjectResult:
     """Run a project-mode analysis over ``paths``.
 
@@ -201,10 +208,32 @@ def analyze_project(
     per-file dynamics and spectrum and the combined buffer for the
     whole-project dynamics/spectrum. Loudness is measured with
     ffmpeg — once per file plus one extra concatenation pass.
+
+    ``confirm_memory_cb`` — if supplied — is consulted before any file
+    is decoded. The estimate covers the worst case where every track
+    plus the concatenated buffer is held in RAM at the same time; a
+    ``False`` answer aborts the run with :class:`RamCheckCancelled`.
     """
     if not paths:
         raise ValueError("project analysis needs at least one file")
     label = project_name or t("project.default_name")
+
+    if confirm_memory_cb is not None:
+        estimate = memory.build_estimate(
+            label=label,
+            estimated_bytes=memory.estimate_project_bytes(paths),
+        )
+        log.info(
+            "ram estimate for project %s (%d files): %s "
+            "(available %s, total %s)",
+            label,
+            len(paths),
+            memory.format_bytes(estimate.estimated_bytes),
+            memory.format_bytes(estimate.available_bytes),
+            memory.format_bytes(estimate.total_bytes),
+        )
+        if estimate.is_concerning and not confirm_memory_cb(estimate):
+            raise RamCheckCancelled()
 
     span = max(percent_end - percent_start, 1)
 
@@ -212,6 +241,8 @@ def analyze_project(
         pct = percent_start + int(span * max(0, min(100, inner_percent)) / 100)
         _emit(progress_cb, pct, stage)
 
+    t_start = time.perf_counter()
+    rss_start = memory.peak_rss_bytes()
     n = len(paths)
     file_results: list[AnalysisResult] = []
     decoded_tracks: list[DecodedAudio] = []
@@ -286,11 +317,22 @@ def analyze_project(
     )
 
     _scaled(100, t("project.done"))
+    elapsed = time.perf_counter() - t_start
+    rss_end = memory.peak_rss_bytes()
+    rss_delta = (
+        rss_end - rss_start
+        if rss_start is not None and rss_end is not None
+        else None
+    )
     log.info(
-        "project analyzed: %d files, total %.1fs, combined I=%.1f LUFS",
+        "project analyzed: %d files, total %.1fs audio, combined I=%.1f LUFS, "
+        "wall time %s, peak RAM Δ %s (peak %s)",
         n,
         total_duration,
         combined_loudness.integrated_lufs,
+        memory.format_seconds(elapsed),
+        memory.format_bytes(rss_delta) if rss_delta is not None else "?",
+        memory.format_bytes(rss_end),
     )
     return ProjectResult(
         project_name=label,

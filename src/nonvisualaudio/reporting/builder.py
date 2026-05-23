@@ -23,6 +23,7 @@ from nonvisualaudio.localization import t, t_subject
 from nonvisualaudio.reporting.templates import (
     fmt_decimal,
     fmt_duration,
+    fmt_peak_time,
     fmt_hz,
     fmt_signed,
     heading,
@@ -173,7 +174,7 @@ def _loudness_section(loud: LoudnessMetrics, *, project: bool = False) -> str:
         lines.append(
             t(
                 "report.loudness.true_peak_time",
-                time=fmt_duration(loud.true_peak_time_seconds),
+                time=fmt_peak_time(loud.true_peak_time_seconds),
             )
         )
     lines.append(t("report.loudness.lra", value=fmt_signed(loud.loudness_range_lu)))

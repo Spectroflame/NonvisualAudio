@@ -26,6 +26,7 @@ import logging
 import math
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,7 +47,7 @@ from nonvisualaudio.analysis.result import (
 )
 from nonvisualaudio.analysis.spectrum import compute_spectrum
 from nonvisualaudio.analysis.stereo import compute_stereo
-from nonvisualaudio.audio.decoder import DecodedAudio, decode
+from nonvisualaudio.audio.decoder import DecodedAudio, decode, decode_and_measure
 from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
 from nonvisualaudio.errors import LoudnessMeasurementError
 from nonvisualaudio.localization import t
@@ -282,16 +283,26 @@ def analyze_project(
         slice_start = i * per_file_span
         prefix = t("project.file_label", index=i + 1, total=n)
         _scaled(int(slice_start), f"{prefix}: {t('pipeline.decoding')}")
-        decoded = decode(raw)
+
+        def _on_decode_progress(inner_pct: int, stage_key: str, *, _start=slice_start, _prefix=prefix) -> None:
+            label = (
+                t("pipeline.loudness") if stage_key == "loudness" else t("pipeline.decoding")
+            )
+            # Decode + loudness occupy 0..80% of this file's slice.
+            _scaled(int(_start + per_file_span * inner_pct * 0.008), f"{_prefix}: {label}")
+
+        decoded, loud = decode_and_measure(raw, on_progress=_on_decode_progress)
         decoded_tracks.append(decoded)
-        _scaled(int(slice_start + per_file_span * 0.3), f"{prefix}: {t('pipeline.loudness')}")
-        loud = measure_loudness(raw)
-        _scaled(int(slice_start + per_file_span * 0.7), f"{prefix}: {t('pipeline.dynamics')}")
-        dyn = compute_dynamics(decoded.samples, decoded.sample_rate)
-        _scaled(int(slice_start + per_file_span * 0.85), f"{prefix}: {t('pipeline.spectrum')}")
-        spec = compute_spectrum(decoded.samples, decoded.sample_rate)
-        _scaled(int(slice_start + per_file_span * 0.95), f"{prefix}: {t('pipeline.stereo')}")
-        stereo = compute_stereo(decoded.stereo_samples, decoded.sample_rate)
+        _scaled(int(slice_start + per_file_span * 0.8), f"{prefix}: {t('pipeline.measurements')}")
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_dyn = pool.submit(compute_dynamics, decoded.samples, decoded.sample_rate)
+            f_spec = pool.submit(compute_spectrum, decoded.samples, decoded.sample_rate)
+            f_stereo = pool.submit(
+                compute_stereo, decoded.stereo_samples, decoded.sample_rate
+            )
+            dyn = f_dyn.result()
+            spec = f_spec.result()
+            stereo = f_stereo.result()
         file_results.append(
             AnalysisResult(
                 file_info=FileInfo(

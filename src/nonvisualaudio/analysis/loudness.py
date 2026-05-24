@@ -36,12 +36,19 @@ from __future__ import annotations
 import logging
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from nonvisualaudio.analysis.result import LoudnessMetrics
-from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
+from nonvisualaudio.audio.ffmpeg_runner import (
+    FFmpegError,
+    find_ffmpeg,
+    run_split_streams,
+)
 from nonvisualaudio.errors import LoudnessMeasurementError
 from nonvisualaudio.localization import t
+
+LoudnessProgressCb = Callable[[int], None]
 
 log = logging.getLogger("nonvisualaudio.loudness")
 
@@ -133,8 +140,56 @@ def _parse(stderr_text: str, filename: str) -> LoudnessMetrics:
     )
 
 
-def measure_loudness(path: str | Path) -> LoudnessMetrics:
-    """Run ffmpeg ebur128 on ``path`` and return the parsed metrics."""
+def _make_progress_line_callback(
+    duration_seconds: float | None,
+    on_progress: LoudnessProgressCb | None,
+):
+    """Build a stderr line handler that emits 0..100 percent live.
+
+    ffmpeg's ebur128 filter writes a ``t:`` value in seconds on every
+    progress line. With the file's duration known, we map that into a
+    percentage and call back the caller. Returns ``None`` when there is
+    nothing to wire up so :func:`run_split_streams` can skip the
+    callback machinery entirely.
+    """
+    if on_progress is None or duration_seconds is None or duration_seconds <= 0:
+        return None
+    duration = float(duration_seconds)
+    state = {"last": -1}
+
+    def _handle(raw_line: bytes) -> None:
+        text = raw_line.decode("utf-8", errors="replace")
+        m = _RE_FRAME_T.search(text)
+        if m is None:
+            return
+        try:
+            t_sec = float(m.group(1))
+        except ValueError:
+            return
+        pct = int(100.0 * min(1.0, max(0.0, t_sec / duration)))
+        # Drop duplicates: ffmpeg emits roughly one progress line per
+        # second of audio, so the UI gets a smooth tick without
+        # hammering wx.CallAfter for unchanged values.
+        if pct == state["last"]:
+            return
+        state["last"] = pct
+        on_progress(pct)
+
+    return _handle
+
+
+def measure_loudness(
+    path: str | Path,
+    *,
+    on_progress: LoudnessProgressCb | None = None,
+    duration_seconds: float | None = None,
+) -> LoudnessMetrics:
+    """Run ffmpeg ebur128 on ``path`` and return the parsed metrics.
+
+    ``on_progress`` is fired live while ffmpeg scans the file when
+    ``duration_seconds`` is known — useful for very long inputs where
+    the loudness pass would otherwise look frozen for minutes.
+    """
     p = Path(path)
     args = [
         find_ffmpeg(),
@@ -151,8 +206,11 @@ def measure_loudness(path: str | Path) -> LoudnessMetrics:
         "null",
         "-",
     ]
+    progress_handler = _make_progress_line_callback(duration_seconds, on_progress)
     try:
-        proc = run(args, timeout=600.0)
+        _stdout, stderr = run_split_streams(
+            args, timeout=1200.0, stderr_line_callback=progress_handler
+        )
     except FFmpegError as exc:
         raw = str(exc)
         if raw.startswith("timeout:"):
@@ -166,5 +224,4 @@ def measure_loudness(path: str | Path) -> LoudnessMetrics:
             body=t("error.loudness.generic.body"),
             hint=t("error.loudness.generic.hint"),
         ) from exc
-    stderr = proc.stderr.decode("utf-8", errors="replace")
     return _parse(stderr, p.name)

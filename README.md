@@ -39,12 +39,30 @@ tree contains zero network libraries.
   track. Works independently of, and on top of, genre references
 - **Measurements**:
   - Integrated LUFS (EBU R128 / ITU BS.1770 via ffmpeg's `ebur128` filter)
-  - Short-term peak LUFS, true peak dBTP, loudness range (LRA)
-  - Crest factor, simplified DR score, compression assessment
+  - Short-term peak LUFS, true peak dBTP, loudness range (LRA) with a
+    verbal verdict (very narrow, narrow, typical, wide)
+  - Crest factor and simplified DR score — each value comes with a
+    one-line plain-language explanation, and the dynamics verdict
+    combines both crest *and* LRA so a heavily limited master with
+    intact transients is no longer falsely called "wide"
   - Energy per frequency band (sub, bass, low-mid, mid, presence, upper
     highs / "air")
   - Narrow spectral peaks called out in exact Hz with a character note
     ("boxiness", "sibilance", "nasal or telephone-like character", etc.)
+  - **Stereo image**: L/R correlation (mean + worst-block), mono level
+    drop in dB, and side-to-mid ratio — three numbers that surface
+    phase issues a sighted engineer would catch on a goniometer.
+    Critical readings auto-add concrete recommendations to the report
+- **Report tone**: verdicts are dezent hedged and corrective
+  suggestions are framed as starting points rather than commands — the
+  tool stops sounding like a golden hammer while keeping every concrete
+  number ("about 4 dB cut at 480 Hz, Q around 1.5") readable and
+  actionable
+- **Export**: the results window can save the report as plain text
+  (.txt), a self-contained HTML page, or GitHub-flavoured Markdown.
+  The HTML carries semantic `<h2>` headings (and a minimal dark-mode
+  stylesheet for sighted readers); Markdown collapses headings to
+  title case and preserves per-line structure
 - **Screen-reader-first UI**:
   - Built on wxPython so every widget is a native control on its
     platform (Cocoa on macOS, Win32 on Windows, GTK on Linux) and goes
@@ -60,7 +78,9 @@ tree contains zero network libraries.
     feedback that work is progressing (nothing is written to disk; the
     sample is held in memory and fed straight to PortAudio via
     sounddevice)
-  - Progress bar reports the current pipeline step
+  - Progress bar reports the current pipeline step and an EMA-smoothed
+    estimate of the remaining time — useful for hours-long inputs
+    like full audiobooks
   - All numbers in the report are spelled out ("minus 21.4 LUFS" rather
     than "-21.4") so screen readers speak them naturally
   - No Markdown symbols in output: just ALL CAPS section headings and
@@ -79,29 +99,35 @@ LOUDNESS SUMMARY
 Integrated loudness: minus 21.4 LUFS.
 Short term peak loudness: minus 14.2 LUFS.
 True peak: minus 1.1 dBTP.
-Loudness range: 8.7 LU.
-The file sits at a moderate loudness level typical of broadcast material.
+Loudness range: 8.7 LU — how much perceived loudness varies over time.
+That sits in the typical range for music mixes.
+The file sits at a moderate loudness level, in the broadcast ballpark.
 
 DYNAMICS SUMMARY
-Crest factor: 13.2 dB.
-Dynamic range score: 11.
-Dynamics are open and natural.
+Crest factor: 13.2 dB — the gap between peak and average level (higher
+means livelier transients).
+Dynamic range score: 11 — a simplified TT-DR figure (higher means more
+headroom against the loud passages).
+Dynamics come across as open and natural.
 
 FREQUENCY BALANCE
-The low end below 80 Hz is restrained.
-The bass region (80 to 250 Hz) is present and balanced.
-The midrange is noticeably forward compared to the bass.
-The air above 6 kHz is restrained.
+The loudest band in this file is the midrange (500 Hz to 2 kHz).
+The presence region (2 to 6 kHz) is 2.0 dB quieter.
+The bass region (80 to 250 Hz) is 3.0 dB quieter.
+The air region (6 to 20 kHz) is 10.0 dB quieter — the quietest band.
 
-Detected 2 prominent spectral peaks:
-Peak 1: 480 Hz (low midrange), about 4.2 dB above the surrounding spectrum.
-  Typically perceived as boxiness or a honky, boxy character.
-Peak 2: 3200 Hz (presence), about 5.1 dB above the surrounding spectrum.
-  Typically perceived as bite, edge, or harshness on vocals.
+STEREO IMAGE
+L/R correlation: 0.72 (range minus 1 to plus 1; plus 1 is fully correlated,
+0 is uncorrelated, minus 1 is out of phase).
+Mono level drop: minus 0.4 dB (0 dB means the file sounds the same when
+summed to mono).
+Side-to-mid ratio: minus 8.0 dB.
+The stereo image reads as natural with the channels still well correlated.
+Mono compatibility reads as excellent.
 
 RECOMMENDATIONS
-Consider a gentle cut of about 2 dB around 480 Hz with a wide Q to open up
-the midrange.
+For the low-midrange peak at 480 Hz, a cut of about 2 dB with Q around
+1.2 is a possible starting point — it tends to open up the midrange.
 ```
 
 ## Requirements
@@ -151,10 +177,11 @@ NVA_DEBUG=1 python -m nonvisualaudio
 pytest
 ```
 
-108 unit tests cover templates, report builder, splittable-report
+Around 200 unit tests cover templates, report builder, splittable-report
 section selection, project-mode aggregation and rendering,
-genre/reference comparison, dynamics, spectrum analysis, drop/paste,
-themes, and localisation.
+genre/reference comparison, dynamics, spectrum analysis, stereo-image
+metrics, TXT/HTML/Markdown export, drop/paste, themes, and
+localisation.
 
 ## Building a standalone macOS app
 
@@ -201,10 +228,13 @@ the quarantine attribute on first launch, for example with
 src/nonvisualaudio/
 ├── app.py                 # wxPython application entry point
 ├── errors.py              # UserFacingError — structured, friendly errors
-├── audio/                 # Decoding (soundfile first, ffmpeg fallback)
-├── analysis/              # Loudness, dynamics, spectrum — returns dataclasses
+├── audio/                 # Decoding (soundfile first; for ffmpeg the
+│                          # decode + ebur128 share a single pass)
+├── analysis/              # Loudness, dynamics, spectrum, stereo — each
+│                          # returns dataclasses; post-decode stages run
+│                          # in a thread pool for multi-core speedup
 ├── reporting/             # Templates, report builder, genre profiles,
-│                          # comparison sections
+│                          # comparison sections, TXT/HTML/MD export
 ├── ui/                    # wxPython widgets, background worker, click
 │                          # sound, results / genre / error dialogs
 └── resources/bin/darwin/  # Bundled ffmpeg (gitignored)

@@ -13,7 +13,9 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Sequence
 
@@ -164,6 +166,97 @@ def active_ffmpeg_info() -> tuple[str, str] | None:
     :func:`find_ffmpeg` has been called at least once (no analysis run).
     """
     return _active_info
+
+
+def run_split_streams(
+    args: Sequence[str],
+    *,
+    timeout: float = 600.0,
+    stderr_line_callback: Callable[[bytes], None] | None = None,
+) -> tuple[bytes, str]:
+    """Run ``args`` capturing stdout and stderr through separate pipes.
+
+    The two-stream variant exists for the combined decode + ebur128 pass:
+    stdout carries gigabytes of PCM, stderr carries the ebur128 progress
+    and summary, and the consumer needs both. ``subprocess.run`` would
+    work, but reading stderr only after stdout drains can deadlock if the
+    OS pipe buffers fill up — so we always read stderr from a worker
+    thread.
+
+    ``stderr_line_callback`` — if given — is fired synchronously on the
+    stderr thread for every full line. The caller uses this to parse
+    ebur128 ``t:`` markers and emit live progress while the ffmpeg pass
+    is still running. The callback must be cheap; exceptions are caught
+    and logged so a buggy callback cannot wedge the worker thread.
+    """
+    binary = Path(args[0]).name
+    log.debug("exec stream %s %s", binary, " ".join(str(a) for a in args[1:]))
+    t0 = time.time()
+    try:
+        proc = subprocess.Popen(
+            list(args),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_subprocess_env(),
+        )
+    except FileNotFoundError as exc:
+        log.error("%s not found on PATH", binary)
+        raise FFmpegError(f"binary_not_found:{args[0]}") from exc
+
+    stderr_chunks: list[bytes] = []
+
+    def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        try:
+            for line in iter(proc.stderr.readline, b""):
+                stderr_chunks.append(line)
+                if stderr_line_callback is not None:
+                    try:
+                        stderr_line_callback(line)
+                    except Exception:  # noqa: BLE001 — never let a UI callback wedge ffmpeg
+                        log.exception("stderr_line_callback raised")
+        finally:
+            try:
+                proc.stderr.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
+    try:
+        assert proc.stdout is not None
+        stdout_data = proc.stdout.read()
+    finally:
+        try:
+            assert proc.stdout is not None
+            proc.stdout.close()
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        proc.wait()
+        log.error("%s timed out after %.1fs", binary, timeout)
+        raise FFmpegError(f"timeout:{timeout}") from exc
+    # Reader thread should be near the end by now; cap the join so a
+    # stuck thread cannot freeze the analyser indefinitely.
+    stderr_thread.join(timeout=30.0)
+    stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+    elapsed = time.time() - t0
+    if proc.returncode != 0:
+        log.error(
+            "%s exited %d after %.2fs: %s",
+            binary,
+            proc.returncode,
+            elapsed,
+            stderr_text[:400],
+        )
+        raise FFmpegError(f"exit:{proc.returncode}\n{stderr_text}")
+    log.debug(
+        "%s done in %.2fs (%d bytes stdout)", binary, elapsed, len(stdout_data)
+    )
+    return stdout_data, stderr_text
 
 
 def run(args: Sequence[str], *, timeout: float = 300.0) -> subprocess.CompletedProcess:

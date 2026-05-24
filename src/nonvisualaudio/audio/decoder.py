@@ -13,14 +13,23 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
+from nonvisualaudio.analysis.result import LoudnessMetrics
+from nonvisualaudio.audio.ffmpeg_runner import (
+    FFmpegError,
+    find_ffmpeg,
+    run,
+    run_split_streams,
+)
 from nonvisualaudio.errors import AudioDecodeError, MissingFFmpegError
 from nonvisualaudio.localization import t
+
+DecodeProgressCb = Callable[[int, str], None]
 
 log = logging.getLogger("nonvisualaudio.decoder")
 
@@ -291,13 +300,8 @@ def _ffmpeg_decode(path: Path) -> DecodedAudio:
     )
 
 
-def decode(path: str | Path) -> DecodedAudio:
-    """Decode an audio file to mono float32 PCM.
-
-    Raises :class:`AudioDecodeError` for problems the user can act on
-    (missing or unreadable file, unsupported format, empty audio) and
-    :class:`MissingFFmpegError` if the audio engine itself is absent.
-    """
+def _validate_file(path: str | Path) -> Path:
+    """Raise AudioDecodeError when the path is not a usable audio file."""
     p = Path(path)
     if not p.exists():
         raise AudioDecodeError(
@@ -326,13 +330,186 @@ def decode(path: str | Path) -> DecodedAudio:
             ),
             hint=t("error.decoder.unreadable.hint"),
         ) from exc
+    return p
 
+
+def decode(path: str | Path) -> DecodedAudio:
+    """Decode an audio file to mono float32 PCM.
+
+    Raises :class:`AudioDecodeError` for problems the user can act on
+    (missing or unreadable file, unsupported format, empty audio) and
+    :class:`MissingFFmpegError` if the audio engine itself is absent.
+    """
+    p = _validate_file(path)
     result = _try_soundfile(p)
     if result is not None:
         return result
     # Let MissingFFmpegError propagate as-is — it already carries good wording.
     try:
         return _ffmpeg_decode(p)
+    except MissingFFmpegError:
+        raise
+    except AudioDecodeError:
+        raise
+
+
+def _ffmpeg_decode_with_loudness(
+    path: Path,
+    sample_rate: int,
+    channels: int,
+    duration: float,
+    on_progress: DecodeProgressCb | None,
+) -> tuple[DecodedAudio, LoudnessMetrics]:
+    """One ffmpeg pass that produces PCM *and* the ebur128 summary.
+
+    ffmpeg's ``asplit`` filter lets us fan the decoded audio out to two
+    branches: one is muxed to stdout as raw float32 PCM, the other runs
+    through ``ebur128`` whose progress and summary land in stderr. The
+    caller's previous two-pass approach (decode + measure_loudness) read
+    the source twice; for long files that doubled the work.
+
+    The function is intentionally inside the decoder module so that the
+    soundfile fast-path can still skip ffmpeg entirely — the combined
+    pass is only reached when ffmpeg is going to decode the file anyway.
+    """
+    from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128
+
+    decode_channels = 2 if channels == 2 else 1
+    args = [
+        find_ffmpeg(),
+        "-hide_banner",
+        "-nostats",
+        "-nostdin",
+        "-i",
+        str(path),
+        "-filter_complex",
+        "[0:a]asplit=2[pcm][ana];"
+        "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]",
+        "-map", "[pcm]",
+        "-f", "f32le",
+        "-acodec", "pcm_f32le",
+        "-ac", str(decode_channels),
+        "-ar", str(sample_rate),
+        "pipe:1",
+        "-map", "[loud]",
+        "-f", "null",
+        "-",
+    ]
+
+    # Live progress: parse the ``t:`` value out of each ebur128 progress
+    # line and translate it into a 0..100 percentage against the probed
+    # duration. The callback fires on the stderr reader thread, so it
+    # must stay cheap.
+    state = {"last_pct": -1}
+
+    def _on_line(raw_line: bytes) -> None:
+        if on_progress is None or duration <= 0:
+            return
+        text = raw_line.decode("utf-8", errors="replace")
+        # We import the regex lazily so the decoder module does not
+        # need to depend on the loudness module at import time.
+        from nonvisualaudio.analysis.loudness import _RE_FRAME_T
+
+        m = _RE_FRAME_T.search(text)
+        if m is None:
+            return
+        try:
+            t_sec = float(m.group(1))
+        except ValueError:
+            return
+        pct = int(100.0 * min(1.0, max(0.0, t_sec / duration)))
+        if pct == state["last_pct"]:
+            return
+        state["last_pct"] = pct
+        on_progress(pct, "combined")
+
+    try:
+        stdout_data, stderr_text = run_split_streams(
+            args, timeout=1200.0, stderr_line_callback=_on_line
+        )
+    except FFmpegError as exc:
+        raise _ffmpeg_error_to_user_error(exc, path) from exc
+
+    interleaved = np.frombuffer(stdout_data, dtype=np.float32)
+    if interleaved.size == 0:
+        raise AudioDecodeError(
+            title=t("error.decoder.empty_output.title", name=path.name),
+            body=t("error.decoder.empty_output.body"),
+            hint=t("error.decoder.empty_output.hint"),
+        )
+
+    if decode_channels == 2:
+        usable = (interleaved.size // 2) * 2
+        stereo = np.ascontiguousarray(interleaved[:usable].reshape(-1, 2))
+        samples = stereo.mean(axis=1, dtype=np.float32)
+    else:
+        samples = interleaved.copy()
+        stereo = None
+
+    decoded = DecodedAudio(
+        samples=samples,
+        sample_rate=sample_rate,
+        channels=channels or 1,
+        bit_depth=None,
+        duration_seconds=float(samples.size) / float(sample_rate),
+        filename=path.name,
+        stereo_samples=stereo,
+    )
+    loudness = _parse_ebur128(stderr_text, path.name)
+    return decoded, loudness
+
+
+def decode_and_measure(
+    path: str | Path,
+    on_progress: DecodeProgressCb | None = None,
+) -> tuple[DecodedAudio, LoudnessMetrics]:
+    """Decode the file *and* measure EBU R128 loudness in one go.
+
+    For formats that libsndfile can read (WAV, AIFF, FLAC, OGG) we keep
+    the legacy two-call shape — soundfile is fast enough that combining
+    buys nothing and stalling the decode behind an ffmpeg pass would
+    only make things slower. For everything that has to go through
+    ffmpeg anyway (MP3, M4A, AAC, Opus, …) we run a single combined
+    ffmpeg pass, which saves one full read of the source file. A 9-hour
+    audiobook that previously needed two scans now needs one.
+
+    ``on_progress(percent, stage_key)`` is fired live while the loudness
+    scan runs. ``stage_key`` is one of ``"decoding"``, ``"loudness"``,
+    or ``"combined"`` so the caller can pick the right label for the
+    visible progress line.
+    """
+    p = _validate_file(path)
+    # Local import keeps the decoder module light at import time and
+    # avoids a circular import with the loudness module.
+    from nonvisualaudio.analysis.loudness import measure_loudness
+
+    sf_result = _try_soundfile(p)
+    if sf_result is not None:
+        if on_progress is not None:
+            on_progress(0, "loudness")
+        loud_progress = (
+            None
+            if on_progress is None
+            else (lambda pct: on_progress(pct, "loudness"))
+        )
+        loudness = measure_loudness(
+            p,
+            on_progress=loud_progress,
+            duration_seconds=sf_result.duration_seconds,
+        )
+        return sf_result, loudness
+
+    sample_rate, channels, duration = _probe_via_ffmpeg(p)
+    if sample_rate == 0:
+        log.warning(
+            "ffmpeg did not report a sample rate for %s; defaulting to 48000",
+            p.name,
+        )
+        sample_rate = 48000
+    try:
+        return _ffmpeg_decode_with_loudness(
+            p, sample_rate, channels, duration, on_progress
+        )
     except MissingFFmpegError:
         raise
     except AudioDecodeError:

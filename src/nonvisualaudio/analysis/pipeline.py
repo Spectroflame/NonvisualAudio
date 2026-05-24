@@ -5,11 +5,11 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from nonvisualaudio.analysis import memory
 from nonvisualaudio.analysis.dynamics import compute_dynamics
-from nonvisualaudio.analysis.loudness import measure_loudness
 from nonvisualaudio.analysis.memory import (
     ConfirmMemoryCb,
     RamCheckCancelled,
@@ -17,7 +17,7 @@ from nonvisualaudio.analysis.memory import (
 from nonvisualaudio.analysis.result import AnalysisResult, FileInfo
 from nonvisualaudio.analysis.spectrum import compute_spectrum
 from nonvisualaudio.analysis.stereo import compute_stereo
-from nonvisualaudio.audio.decoder import decode
+from nonvisualaudio.audio.decoder import decode_and_measure
 from nonvisualaudio.localization import t
 
 log = logging.getLogger("nonvisualaudio.pipeline")
@@ -85,7 +85,19 @@ def analyze(
     rss_start = memory.peak_rss_bytes()
 
     emit(0, f"{prefix}{t('pipeline.decoding')}")
-    decoded = decode(path)
+
+    # Decode + loudness share the 0..80% slice. The combined ffmpeg pass
+    # — used for MP3, M4A, Opus and the other formats soundfile cannot
+    # read — emits a single ``"combined"`` progress stream; the
+    # soundfile-fast-path emits the ffmpeg ebur128 progress as
+    # ``"loudness"``. Both get mapped into the same outer percentage
+    # range so the user sees a steady tick instead of long flat lines.
+    def _on_decode_progress(inner_pct: int, stage_key: str) -> None:
+        outer = int(inner_pct * 0.80)
+        label = t("pipeline.loudness") if stage_key == "loudness" else t("pipeline.decoding")
+        emit(outer, f"{prefix}{label}")
+
+    decoded, loudness = decode_and_measure(path, on_progress=_on_decode_progress)
     file_info = FileInfo(
         filename=decoded.filename,
         duration_seconds=decoded.duration_seconds,
@@ -94,17 +106,21 @@ def analyze(
         bit_depth=decoded.bit_depth,
     )
 
-    emit(25, f"{prefix}{t('pipeline.loudness')}")
-    loudness = measure_loudness(path)
-
-    emit(75, f"{prefix}{t('pipeline.dynamics')}")
-    dynamics = compute_dynamics(decoded.samples, decoded.sample_rate)
-
-    emit(85, f"{prefix}{t('pipeline.spectrum')}")
-    spectrum = compute_spectrum(decoded.samples, decoded.sample_rate)
-
-    emit(95, f"{prefix}{t('pipeline.stereo')}")
-    stereo = compute_stereo(decoded.stereo_samples, decoded.sample_rate)
+    # Dynamics, spectrum and stereo all read the decoded samples but do
+    # not depend on each other. Running them in a thread pool lets the
+    # numpy/scipy ops (which release the GIL) overlap on a multi-core
+    # machine — for 9-hour files this is the difference between a
+    # noticeable post-decode wait and a near-instant finish.
+    emit(80, f"{prefix}{t('pipeline.measurements')}")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_dyn = pool.submit(compute_dynamics, decoded.samples, decoded.sample_rate)
+        f_spec = pool.submit(compute_spectrum, decoded.samples, decoded.sample_rate)
+        f_stereo = pool.submit(
+            compute_stereo, decoded.stereo_samples, decoded.sample_rate
+        )
+        dynamics = f_dyn.result()
+        spectrum = f_spec.result()
+        stereo = f_stereo.result()
 
     emit(100, f"{prefix}{t('pipeline.done')}")
 

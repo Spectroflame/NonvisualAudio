@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from pathlib import Path
 
 import wx
@@ -65,6 +66,13 @@ class MainWindow(wx.Frame):
         self._reference_paths: list[str] = []
         self._click_ticker = ClickTicker(self)
         self._worker = None  # keep a reference to the running worker
+        # ETA state: ``_progress_started_at`` is the monotonic clock when
+        # the user pressed Analyze; ``_progress_eta_seconds`` holds the
+        # last EMA-smoothed remaining-time estimate (None until the bar
+        # crosses 5 %, since the ratio is wildly unstable below that).
+        # Both reset to None when the analysis stops.
+        self._progress_started_at: float | None = None
+        self._progress_eta_seconds: float | None = None
         # Report-section preference: default to "everything on" so a
         # fresh install behaves like the historical report.
         stored_sections = preferences.load_report_sections()
@@ -905,6 +913,8 @@ class MainWindow(wx.Frame):
         self.progress_label.ChangeValue(t("ui.progress.starting"))
         self.progress_label.Show()
         self.Layout()
+        self._progress_started_at = time.monotonic()
+        self._progress_eta_seconds = None
         self._click_ticker.start()
         genre_keys = self._selected_genre_keys or None
         sections = ReportSections.from_keys(self._section_keys)
@@ -1054,22 +1064,105 @@ class MainWindow(wx.Frame):
         log.info("user %s the ram warning", "accepted" if proceed else "cancelled")
         return proceed
 
+    def _format_eta(self, seconds: float) -> str:
+        """Render the remaining-time estimate for screen-reader output.
+
+        Buckets it into "less than 30 s" / "seconds" / "minutes" /
+        "hours and minutes" with screen-reader-friendly rounding (5-s
+        steps under a minute, 1-min steps under ten, 5-min steps after
+        that). Reading "noch ca. 1 Minute 34 Sekunden" aloud every
+        few seconds is more noise than help — these buckets keep the
+        screen reader's output stable.
+        """
+        seconds = max(0.0, seconds)
+        if seconds < 30:
+            return t("ui.progress.eta.under_30s")
+        if seconds < 60:
+            rounded = int(round(seconds / 10.0) * 10)
+            return t("ui.progress.eta.seconds", seconds=rounded)
+        if seconds < 600:
+            minutes = max(1, int(round(seconds / 60.0)))
+            key = (
+                "ui.progress.eta.minutes.one"
+                if minutes == 1
+                else "ui.progress.eta.minutes"
+            )
+            return t(key, minutes=minutes)
+        if seconds < 3600:
+            minutes = max(5, int(round(seconds / 300.0)) * 5)
+            return t("ui.progress.eta.minutes", minutes=minutes)
+        hours = int(seconds // 3600)
+        minutes = int(round((seconds - hours * 3600) / 300.0)) * 5
+        if minutes >= 60:
+            hours += 1
+            minutes = 0
+        if minutes == 0:
+            key = (
+                "ui.progress.eta.hours_only.one"
+                if hours == 1
+                else "ui.progress.eta.hours_only"
+            )
+            return t(key, hours=hours)
+        key = (
+            "ui.progress.eta.hours.one" if hours == 1 else "ui.progress.eta.hours"
+        )
+        return t(key, hours=hours, minutes=minutes)
+
+    def _compute_eta_label(self, percent: int) -> str | None:
+        """EMA-smoothed remaining-time estimate, or None if not yet useful.
+
+        Below 5 % the ratio is dominated by start-up cost (ffmpeg launch,
+        first reads) and the projection is nonsense; we wait until the
+        bar has actually moved. The exponential moving average tames the
+        natural jitter that comes from different pipeline stages
+        running at different speeds.
+        """
+        if self._progress_started_at is None or percent < 5:
+            return None
+        elapsed = time.monotonic() - self._progress_started_at
+        if elapsed < 0.5:
+            return None
+        raw_eta = max(0.0, elapsed / percent * (100 - percent))
+        # alpha=0.3 is a moderate smoothing — fast enough that the ETA
+        # converges within a few ticks, slow enough that one outlier
+        # tick (e.g. a sudden 75→80 % jump when post-decode parallel
+        # work finishes) does not yank the displayed value around.
+        if self._progress_eta_seconds is None:
+            self._progress_eta_seconds = raw_eta
+        else:
+            self._progress_eta_seconds = (
+                0.7 * self._progress_eta_seconds + 0.3 * raw_eta
+            )
+        return self._format_eta(self._progress_eta_seconds)
+
     def _on_analysis_progress(self, percent: int, stage: str) -> None:
         self.progress.SetValue(max(0, min(100, int(percent))))
-        self.progress_label.ChangeValue(
-            t("ui.progress.line", stage=stage, percent=percent)
-        )
-        a11y.update_help(
-            self.progress_label,
-            t("ui.progress.hint", stage=stage, percent=percent),
-        )
-        self.SetStatusText(t("ui.progress.status", stage=stage, percent=percent))
+        eta = self._compute_eta_label(int(percent))
+        if eta is None:
+            line = t("ui.progress.line", stage=stage, percent=percent)
+            hint = t("ui.progress.hint", stage=stage, percent=percent)
+            status = t("ui.progress.status", stage=stage, percent=percent)
+        else:
+            line = t(
+                "ui.progress.line.with_eta", stage=stage, percent=percent, eta=eta
+            )
+            hint = t(
+                "ui.progress.hint.with_eta", stage=stage, percent=percent, eta=eta
+            )
+            status = t(
+                "ui.progress.status.with_eta", stage=stage, percent=percent, eta=eta
+            )
+        self.progress_label.ChangeValue(line)
+        a11y.update_help(self.progress_label, hint)
+        self.SetStatusText(status)
 
     def _stop_running_ui(self) -> None:
         self._click_ticker.stop()
         self.progress.Hide()
         self.progress.SetValue(0)
         self.progress_label.Hide()
+        self._progress_started_at = None
+        self._progress_eta_seconds = None
         self.Layout()
         self.open_btn.Enable()
         self._update_analyze_state()

@@ -217,10 +217,10 @@ def test_pipeline_skips_callback_for_small_files(
     class _StopHere(Exception):
         pass
 
-    def _fake_decode(path):  # noqa: ANN001
+    def _fake_decode(path, on_progress=None):  # noqa: ANN001
         raise _StopHere()
 
-    monkeypatch.setattr(pipeline, "decode", _fake_decode)
+    monkeypatch.setattr(pipeline, "decode_and_measure", _fake_decode)
     with pytest.raises(_StopHere):
         pipeline.analyze(wav, confirm_memory_cb=cb)
     assert calls["n"] == 0
@@ -253,10 +253,10 @@ def test_pipeline_invokes_callback_only_when_concerning(
     class _StopHere(Exception):
         pass
 
-    def _fake_decode(path):  # noqa: ANN001
+    def _fake_decode(path, on_progress=None):  # noqa: ANN001
         raise _StopHere()
 
-    monkeypatch.setattr(pipeline, "decode", _fake_decode)
+    monkeypatch.setattr(pipeline, "decode_and_measure", _fake_decode)
     with pytest.raises(_StopHere):
         pipeline.analyze(wav, confirm_memory_cb=cb)
     assert len(calls) == 1

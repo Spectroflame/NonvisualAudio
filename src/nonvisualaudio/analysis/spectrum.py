@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from scipy import fft as scipy_fft
 from scipy import signal
 
 from nonvisualaudio.analysis.result import BandEnergies, SpectralPeak, SpectrumMetrics
@@ -164,15 +165,22 @@ def compute_spectrum(samples: np.ndarray, sample_rate: int) -> SpectrumMetrics:
         return SpectrumMetrics(bands=empty, peaks=())
 
     nperseg = 4096 if samples.size >= 4096 else samples.size
-    freqs, psd = signal.welch(
-        samples.astype(np.float64, copy=False),
-        fs=sample_rate,
-        window="hann",
-        nperseg=nperseg,
-        noverlap=nperseg // 2,
-        scaling="density",
-        detrend=False,
-    )
+    # Welch runs many independent FFTs; pocketfft can parallelise them
+    # across CPU cores when we hand it ``workers=-1`` via the context
+    # manager. For a 9-hour file that is hundreds of thousands of FFTs,
+    # so this is a real speed-up on multi-core machines. The output is
+    # bit-identical to the single-worker run — only the wall time
+    # changes.
+    with scipy_fft.set_workers(-1):
+        freqs, psd = signal.welch(
+            samples.astype(np.float64, copy=False),
+            fs=sample_rate,
+            window="hann",
+            nperseg=nperseg,
+            noverlap=nperseg // 2,
+            scaling="density",
+            detrend=False,
+        )
 
     band_values: dict[str, float] = {}
     for name, lo, hi in BAND_EDGES:

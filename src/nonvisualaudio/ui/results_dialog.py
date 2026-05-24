@@ -7,10 +7,18 @@ the report, copy it, then close the dialog and start another analysis.
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 import wx
 
-from nonvisualaudio.localization import t
+from nonvisualaudio.localization import current_lang, t
+from nonvisualaudio.reporting.export import to_html, to_markdown, to_plain_text
 from nonvisualaudio.ui import a11y, theme
+from nonvisualaudio.ui.error_dialog import show_error
+from nonvisualaudio.errors import UserFacingError
+
+log = logging.getLogger("nonvisualaudio.results_dialog")
 
 
 class ResultsDialog(wx.Dialog):
@@ -57,6 +65,14 @@ class ResultsDialog(wx.Dialog):
         )
         self.copy_btn.Bind(wx.EVT_BUTTON, self._on_copy)
         button_row.Add(self.copy_btn)
+        self.export_btn = wx.Button(self, label=t("ui.btn.export_report"))
+        a11y.set_a11y(
+            self.export_btn,
+            t("ui.label.export_results"),
+            t("ui.hint.export_results"),
+        )
+        self.export_btn.Bind(wx.EVT_BUTTON, self._on_export)
+        button_row.Add(self.export_btn, flag=wx.LEFT, border=10)
         button_row.AddStretchSpacer(1)
         self.close_btn = wx.Button(self, wx.ID_CLOSE, label=t("ui.btn.close"))
         a11y.set_a11y(
@@ -100,6 +116,17 @@ class ResultsDialog(wx.Dialog):
         ):
             self._on_copy(None)
             return
+        # Ctrl/Cmd+S as a screen-reader-friendly shortcut for Export...
+        # The text control swallows plain Ctrl+S without a default
+        # binding, so this hook gives users a keyboard path that does
+        # not require Tab-walking to the Export button.
+        if (
+            not event.ShiftDown()
+            and (event.CmdDown() or event.ControlDown())
+            and chr(code).upper() == "S"
+        ):
+            self._on_export(None)
+            return
         event.Skip()
 
     # ------------------------------------------------------------------ #
@@ -116,3 +143,69 @@ class ResultsDialog(wx.Dialog):
             finally:
                 wx.TheClipboard.Close()
             a11y.update_help(self.copy_btn, t("ui.results.copied_hint"))
+
+    # ------------------------------------------------------------------ #
+    # Export
+    # ------------------------------------------------------------------ #
+
+    def _on_export(self, event) -> None:
+        """Save the report as TXT, HTML, or Markdown.
+
+        The format is picked from the chosen file extension rather than
+        a separate format dropdown: the native Save dialog already has
+        a filter row, and users pick once instead of once for the
+        filter and once for the extension.
+        """
+        text = self.results.GetValue()
+        if not text:
+            return
+        with wx.FileDialog(
+            self,
+            message=t("ui.results.export.dialog_title"),
+            defaultFile=t("ui.results.export.default_filename"),
+            wildcard=t("ui.results.export.wildcard"),
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        ) as dialog:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            chosen = Path(dialog.GetPath())
+            # The filter index decides the extension if the user did
+            # not type one — wx returns the chosen filter as an int
+            # (0 = txt, 1 = html, 2 = md) matching the wildcard order.
+            if not chosen.suffix:
+                chosen = chosen.with_suffix(
+                    {0: ".txt", 1: ".html", 2: ".md"}.get(
+                        dialog.GetFilterIndex(), ".txt"
+                    )
+                )
+        rendered = self._render_for_extension(chosen.suffix.lower(), text)
+        try:
+            chosen.write_text(rendered, encoding="utf-8")
+        except OSError as exc:
+            log.exception("export failed for %s", chosen)
+            show_error(
+                self,
+                UserFacingError(
+                    title=t("ui.results.export.failed.title"),
+                    body=t(
+                        "ui.results.export.failed.body",
+                        filename=chosen.name,
+                        details=exc.strerror or exc,
+                    ),
+                    hint=t("ui.results.export.failed.hint"),
+                ),
+            )
+            return
+        log.info("exported report to %s (%d bytes)", chosen, len(rendered))
+        a11y.update_help(
+            self.export_btn,
+            t("ui.results.export.saved_hint", filename=chosen.name),
+        )
+
+    def _render_for_extension(self, suffix: str, text: str) -> str:
+        """Map a file extension to the matching export rendering."""
+        if suffix in (".html", ".htm"):
+            return to_html(text, lang=current_lang())
+        if suffix in (".md", ".markdown"):
+            return to_markdown(text)
+        return to_plain_text(text)

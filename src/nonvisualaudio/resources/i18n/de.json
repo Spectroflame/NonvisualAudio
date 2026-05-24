@@ -7,8 +7,11 @@
   "templates.unknown": "unbekannt",
   "templates.unknown_duration": "unbekannte Dauer",
   "templates.hours": "Stunden",
+  "templates.hour": "Stunde",
   "templates.minutes": "Minuten",
+  "templates.minute": "Minute",
   "templates.seconds": "Sekunden",
+  "templates.second": "Sekunde",
   "templates.hz": "Hz",
   "templates.khz": "kHz",
 

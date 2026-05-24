@@ -56,15 +56,27 @@ def fmt_hz(hz: float) -> str:
     return f"{int(round(hz))} {t('templates.hz')}"
 
 
+def _unit_label(count: int, plural_key: str, singular_key: str) -> str:
+    """Pick the singular form when ``count`` is exactly one.
+
+    German and English both fall back to plural for 0 and any value
+    greater than 1, so we only special-case ``count == 1``. Anything
+    fractional (``0.4`` seconds, ``1.5`` minutes) is always plural —
+    the caller passes the unit count as an int, so we never see those
+    here.
+    """
+    return t(singular_key) if count == 1 else t(plural_key)
+
+
 def fmt_duration(seconds: float) -> str:
     if not math.isfinite(seconds) or seconds < 0:
         return t("templates.unknown_duration")
     total = int(round(seconds))
     minutes, secs = divmod(total, 60)
     hours, minutes = divmod(minutes, 60)
-    hours_label = t("templates.hours")
-    minutes_label = t("templates.minutes")
-    seconds_label = t("templates.seconds")
+    hours_label = _unit_label(hours, "templates.hours", "templates.hour")
+    minutes_label = _unit_label(minutes, "templates.minutes", "templates.minute")
+    seconds_label = _unit_label(secs, "templates.seconds", "templates.second")
     if hours:
         return (
             f"{hours} {hours_label} "

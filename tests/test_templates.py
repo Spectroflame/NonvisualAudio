@@ -41,8 +41,26 @@ def test_fmt_peak_time_drops_decimals_from_one_second_up():
     # At minute-level granularity tenths are noise — fall back to the
     # whole-second formatting fmt_duration already uses for durations.
     assert fmt_peak_time(133.7) == "2 minutes 14 seconds"
-    assert fmt_peak_time(1.0) == "1 seconds"
+    assert fmt_peak_time(1.0) == "1 second"
     assert fmt_peak_time(42.4) == "42 seconds"
+
+
+def test_fmt_duration_uses_singular_for_exactly_one():
+    # "1 seconds" / "1 minutes" / "1 hours" read as a grammatical
+    # mistake aloud; screen readers do not soften the plural -s. Each
+    # unit must drop to the singular form at count == 1.
+    assert fmt_duration(1.0) == "1 second"
+    assert fmt_duration(60.0) == "1 minute 0 seconds"
+    assert fmt_duration(61.0) == "1 minute 1 second"
+    assert fmt_duration(3600.0) == "1 hour 0 minutes 0 seconds"
+    assert fmt_duration(3661.0) == "1 hour 1 minute 1 second"
+
+
+def test_fmt_duration_keeps_plural_for_zero_and_many():
+    # 0 stays plural in both English and German; >= 2 is plural too.
+    assert fmt_duration(0.0) == "0 seconds"
+    assert fmt_duration(2.0) == "2 seconds"
+    assert fmt_duration(120.0) == "2 minutes 0 seconds"
 
 
 def test_heading_is_uppercase_no_markdown():

@@ -7,6 +7,7 @@ for screen reader users who rely on predictable structure.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from typing import Iterable
 
@@ -168,6 +169,25 @@ def _file_info_section(info: FileInfo) -> str:
     return "\n".join(lines)
 
 
+def _lra_verdict_key(lra: float) -> str:
+    """Verbal interpretation of EBU R128 loudness range in LU.
+
+    LRA reads how much *perceived* loudness varies over time, which is
+    what most engineers actually mean by "dynamic range". A value of 2
+    LU is heavily limited even if the crest factor is high — the
+    transients are intact but the macro level barely moves.
+    """
+    if not math.isfinite(lra):
+        return ""
+    if lra < 3.0:
+        return "report.loudness.lra.verdict.very_narrow"
+    if lra < 6.0:
+        return "report.loudness.lra.verdict.narrow"
+    if lra < 12.0:
+        return "report.loudness.lra.verdict.typical"
+    return "report.loudness.lra.verdict.wide"
+
+
 def _loudness_section(loud: LoudnessMetrics, *, project: bool = False) -> str:
     lines = [heading(t("report.heading.loudness"))]
     lines.append(t("report.loudness.integrated", value=fmt_signed(loud.integrated_lufs)))
@@ -184,6 +204,9 @@ def _loudness_section(loud: LoudnessMetrics, *, project: bool = False) -> str:
             )
         )
     lines.append(t("report.loudness.lra", value=fmt_signed(loud.loudness_range_lu)))
+    lra_verdict_key = _lra_verdict_key(loud.loudness_range_lu)
+    if lra_verdict_key:
+        lines.append(t_subject(lra_verdict_key, project=project))
 
     # Interpretive sentence.
     i = loud.integrated_lufs
@@ -206,20 +229,48 @@ def _loudness_section(loud: LoudnessMetrics, *, project: bool = False) -> str:
     return "\n".join(lines)
 
 
-def _dynamics_section(dyn: DynamicsMetrics, *, project: bool = False) -> str:
+def _dynamics_verdict_key(crest: float, lra: float) -> str:
+    """Pick a dynamics verdict from crest factor *and* loudness range.
+
+    Looking at crest alone was misleading: a heavily limited dance
+    master with snare transients sitting on top can clock 15 dB crest
+    while LRA hugs 2 LU. The legacy logic happily called that "wide
+    dynamic range". The combined check below keeps both metrics in
+    agreement, and adds a dedicated mismatch verdict for the case the
+    user actually has on disk: flat macro level, lively transients.
+
+    When LRA is unknown (NaN — happens for very short or silent files)
+    the function falls back to the crest-only thresholds rather than
+    silently mis-categorising the file.
+    """
+    if not math.isfinite(lra):
+        if crest < 6.0:
+            return "report.dynamics.verdict.compressed"
+        if crest < 10.0:
+            return "report.dynamics.verdict.moderate"
+        if crest < 14.0:
+            return "report.dynamics.verdict.natural"
+        return "report.dynamics.verdict.wide"
+
+    if lra < 3.0 and crest >= 12.0:
+        return "report.dynamics.verdict.compressed_lively"
+    if lra < 3.0 or crest < 6.0:
+        return "report.dynamics.verdict.compressed"
+    if lra >= 12.0 and crest >= 14.0:
+        return "report.dynamics.verdict.wide"
+    if lra >= 6.0 and crest >= 10.0:
+        return "report.dynamics.verdict.natural"
+    return "report.dynamics.verdict.moderate"
+
+
+def _dynamics_section(
+    dyn: DynamicsMetrics, loud: LoudnessMetrics, *, project: bool = False
+) -> str:
     lines = [heading(t("report.heading.dynamics"))]
     lines.append(t("report.dynamics.crest", value=fmt_signed(dyn.crest_factor_db)))
     lines.append(t("report.dynamics.dr_score", score=int(round(dyn.dr_score))))
 
-    crest = dyn.crest_factor_db
-    if crest < 6.0:
-        verdict_key = "report.dynamics.verdict.compressed"
-    elif crest < 10.0:
-        verdict_key = "report.dynamics.verdict.moderate"
-    elif crest < 14.0:
-        verdict_key = "report.dynamics.verdict.natural"
-    else:
-        verdict_key = "report.dynamics.verdict.wide"
+    verdict_key = _dynamics_verdict_key(dyn.crest_factor_db, loud.loudness_range_lu)
     lines.append(t_subject(verdict_key, project=project))
     return "\n".join(lines)
 
@@ -432,9 +483,16 @@ def _overall_section(result: AnalysisResult, *, project: bool = False) -> str:
     dyn = result.dynamics
     bands = result.spectrum.bands
 
-    if loud.integrated_lufs > -10.0 and dyn.crest_factor_db < 8.0:
+    lra = loud.loudness_range_lu
+    lra_low = math.isfinite(lra) and lra < 4.0
+    lra_wide = math.isfinite(lra) and lra >= 8.0
+    # The overall verdict guards against the same crest-vs-LRA mismatch
+    # as the dynamics block: a loud master with a low LRA stays in the
+    # "loud and compressed" bucket even when transients are still alive,
+    # and a "dynamic" verdict requires both crest *and* LRA to be open.
+    if loud.integrated_lufs > -10.0 and (dyn.crest_factor_db < 8.0 or lra_low):
         verdict_key = "report.overall.loud_compressed"
-    elif dyn.crest_factor_db >= 12.0:
+    elif dyn.crest_factor_db >= 12.0 and lra_wide:
         verdict_key = "report.overall.dynamic"
     else:
         verdict_key = "report.overall.moderate"
@@ -652,7 +710,7 @@ def build_report(
     if selected.loudness:
         blocks.append(_loudness_section(result.loudness, project=project))
     if selected.dynamics:
-        blocks.append(_dynamics_section(result.dynamics, project=project))
+        blocks.append(_dynamics_section(result.dynamics, result.loudness, project=project))
     if selected.frequency:
         blocks.append(_frequency_section(result.spectrum, project=project))
     if selected.overall:

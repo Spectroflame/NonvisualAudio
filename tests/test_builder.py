@@ -145,6 +145,92 @@ def test_overall_assessment_mentions_the_actual_loudest_band_when_skewed():
     assert "air" in overall
 
 
+def test_dynamics_verdict_flags_compressed_lively_mismatch():
+    # The case the user actually hits: a heavily limited master
+    # (LRA 2 LU) with snare transients pushing the crest factor over
+    # 14 dB. The legacy verdict was "wide dynamic range" — a lie. Now
+    # the report has to acknowledge both the flat macro level and the
+    # intact transients.
+    loud = LoudnessMetrics(
+        integrated_lufs=-10.0,
+        short_term_max_lufs=-7.0,
+        true_peak_dbtp=-1.0,
+        loudness_range_lu=2.0,
+    )
+    dyn = DynamicsMetrics(
+        peak_db=-0.5,
+        rms_db=-15.5,
+        crest_factor_db=15.0,
+        dr_score=12.0,
+    )
+    report = build_report(_make_result(loudness=loud, dynamics=dyn))
+    dyn_block = report.split("DYNAMICS SUMMARY")[1].split("\n\n")[0]
+    assert "wide" not in dyn_block.lower()
+    assert "lively" in dyn_block.lower() or "transient" in dyn_block.lower()
+
+
+def test_dynamics_verdict_requires_both_metrics_for_wide_verdict():
+    # Wide LRA *and* high crest → "wide" is fair game.
+    loud = LoudnessMetrics(
+        integrated_lufs=-18.0,
+        short_term_max_lufs=-12.0,
+        true_peak_dbtp=-2.0,
+        loudness_range_lu=14.0,
+    )
+    dyn = DynamicsMetrics(
+        peak_db=-0.5,
+        rms_db=-15.5,
+        crest_factor_db=15.0,
+        dr_score=14.0,
+    )
+    report = build_report(_make_result(loudness=loud, dynamics=dyn))
+    dyn_block = report.split("DYNAMICS SUMMARY")[1].split("\n\n")[0]
+    assert "wide" in dyn_block.lower()
+
+
+def test_lra_verbal_verdict_appears_in_loudness_block():
+    # LRA 2 LU triggers the "very narrow" verbal verdict so the reader
+    # gets context, not just a number.
+    loud = LoudnessMetrics(
+        integrated_lufs=-10.0,
+        short_term_max_lufs=-7.0,
+        true_peak_dbtp=-1.0,
+        loudness_range_lu=2.0,
+    )
+    report = build_report(_make_result(loudness=loud))
+    loud_block = report.split("LOUDNESS SUMMARY")[1].split("\n\n")[0]
+    assert "very narrow" in loud_block.lower()
+
+
+def test_overall_no_longer_calls_compressed_file_dynamic():
+    # Same trap as the dynamics verdict: with crest 15 + LRA 2, the
+    # overall sentence used to say "dynamic recording" — now it must
+    # back off because LRA disagrees.
+    loud = LoudnessMetrics(
+        integrated_lufs=-9.0,
+        short_term_max_lufs=-6.0,
+        true_peak_dbtp=-0.5,
+        loudness_range_lu=2.0,
+    )
+    dyn = DynamicsMetrics(
+        peak_db=-0.5,
+        rms_db=-15.5,
+        crest_factor_db=15.0,
+        dr_score=12.0,
+    )
+    report = build_report(_make_result(loudness=loud, dynamics=dyn))
+    overall = report.split("OVERALL ASSESSMENT")[1].split("\n\n")[0]
+    assert "dynamic recording" not in overall.lower()
+
+
+def test_crest_factor_line_includes_explanation():
+    report = build_report(_make_result())
+    dyn_block = report.split("DYNAMICS SUMMARY")[1].split("\n\n")[0]
+    # The value is still there, plus a one-liner explaining what it is.
+    assert "13.2" in dyn_block
+    assert "peak" in dyn_block.lower() and "average" in dyn_block.lower()
+
+
 def test_stereo_section_appears_with_heading():
     report = build_report(_make_result())
     assert "STEREO IMAGE" in report

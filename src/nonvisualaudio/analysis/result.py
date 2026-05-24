@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -47,6 +48,34 @@ class SpectrumMetrics:
 
 
 @dataclass(frozen=True)
+class StereoMetrics:
+    # ``is_stereo`` is False for mono files, multi-channel files we did not
+    # split into L/R, or whenever the upstream decoder could not provide a
+    # two-channel buffer. In that case every other field carries a sentinel
+    # NaN and the report builder skips the verbal verdicts.
+    is_stereo: bool
+    mean_correlation: float       # energy-weighted Pearson L/R, -1.0..+1.0
+    min_correlation: float        # worst per-block correlation
+    mono_drop_db: float           # mono-sum vs stereo, dB. 0 ≈ perfect mono compat
+    side_to_mid_db: float         # M/S width, dB. Negative = narrow, 0 dB = very wide
+
+
+def _empty_stereo() -> StereoMetrics:
+    """Return a StereoMetrics that means "no stereo measurement available".
+
+    Used as the default for AnalysisResult so legacy fixtures and callers
+    that never touched the stereo pipeline keep working unchanged.
+    """
+    return StereoMetrics(
+        is_stereo=False,
+        mean_correlation=math.nan,
+        min_correlation=math.nan,
+        mono_drop_db=math.nan,
+        side_to_mid_db=math.nan,
+    )
+
+
+@dataclass(frozen=True)
 class FileInfo:
     filename: str
     duration_seconds: float
@@ -61,3 +90,4 @@ class AnalysisResult:
     loudness: LoudnessMetrics
     dynamics: DynamicsMetrics
     spectrum: SpectrumMetrics
+    stereo: StereoMetrics = field(default_factory=_empty_stereo)

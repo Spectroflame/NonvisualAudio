@@ -45,6 +45,7 @@ from nonvisualaudio.analysis.result import (
     LoudnessMetrics,
 )
 from nonvisualaudio.analysis.spectrum import compute_spectrum
+from nonvisualaudio.analysis.stereo import compute_stereo
 from nonvisualaudio.audio.decoder import DecodedAudio, decode
 from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
 from nonvisualaudio.errors import LoudnessMeasurementError
@@ -113,6 +114,34 @@ def _concatenate_decoded(decoded: list[DecodedAudio]) -> tuple[np.ndarray, int]:
     for d in decoded:
         parts.append(_resample_mono(d.samples, d.sample_rate, target_rate))
     return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32), target_rate
+
+
+def _concatenate_decoded_stereo(
+    decoded: list[DecodedAudio], target_rate: int
+) -> np.ndarray | None:
+    """Concatenate two-channel buffers, resampling each side independently.
+
+    Returns ``None`` when not every track carries a stereo buffer — a
+    mixed mono/stereo project has no meaningful combined stereo image,
+    and the report builder must say so rather than pretend otherwise.
+    """
+    if not decoded or any(d.stereo_samples is None for d in decoded):
+        return None
+    parts: list[np.ndarray] = []
+    for d in decoded:
+        stereo = d.stereo_samples
+        assert stereo is not None  # narrowed by the check above
+        if d.sample_rate == target_rate:
+            parts.append(stereo.astype(np.float32, copy=False))
+            continue
+        left = _resample_mono(stereo[:, 0], d.sample_rate, target_rate)
+        right = _resample_mono(stereo[:, 1], d.sample_rate, target_rate)
+        # Resamplers can return arrays whose lengths differ by 1 sample
+        # for odd polyphase ratios — clip to the shorter length so the
+        # column-stack stays consistent.
+        n = min(left.size, right.size)
+        parts.append(np.column_stack((left[:n], right[:n])).astype(np.float32, copy=False))
+    return np.concatenate(parts, axis=0)
 
 
 # --------------------------------------------------------------------------- #
@@ -259,8 +288,10 @@ def analyze_project(
         loud = measure_loudness(raw)
         _scaled(int(slice_start + per_file_span * 0.7), f"{prefix}: {t('pipeline.dynamics')}")
         dyn = compute_dynamics(decoded.samples, decoded.sample_rate)
-        _scaled(int(slice_start + per_file_span * 0.9), f"{prefix}: {t('pipeline.spectrum')}")
+        _scaled(int(slice_start + per_file_span * 0.85), f"{prefix}: {t('pipeline.spectrum')}")
         spec = compute_spectrum(decoded.samples, decoded.sample_rate)
+        _scaled(int(slice_start + per_file_span * 0.95), f"{prefix}: {t('pipeline.stereo')}")
+        stereo = compute_stereo(decoded.stereo_samples, decoded.sample_rate)
         file_results.append(
             AnalysisResult(
                 file_info=FileInfo(
@@ -273,6 +304,7 @@ def analyze_project(
                 loudness=loud,
                 dynamics=dyn,
                 spectrum=spec,
+                stereo=stereo,
             )
         )
         log.info(
@@ -297,6 +329,10 @@ def analyze_project(
     _scaled(95, t("project.combining_spectrum"))
     combined_spectrum = compute_spectrum(combined_samples, target_rate)
 
+    _scaled(98, t("project.combining_stereo"))
+    combined_stereo_samples = _concatenate_decoded_stereo(decoded_tracks, target_rate)
+    combined_stereo = compute_stereo(combined_stereo_samples, target_rate)
+
     total_duration = sum(d.duration_seconds for d in decoded_tracks)
     channel_counts = {d.channels for d in decoded_tracks}
     project_channels = (
@@ -314,6 +350,7 @@ def analyze_project(
         loudness=combined_loudness,
         dynamics=combined_dynamics,
         spectrum=combined_spectrum,
+        stereo=combined_stereo,
     )
 
     _scaled(100, t("project.done"))

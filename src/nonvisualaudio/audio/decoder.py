@@ -33,6 +33,11 @@ class DecodedAudio:
     bit_depth: int | None
     duration_seconds: float
     filename: str
+    # Two-channel float32 buffer of shape (n_samples, 2) for stereo files,
+    # used by the stereo-image analyser. None for mono / multichannel /
+    # anything we deliberately chose not to split. The downstream stereo
+    # analyser falls back to "no measurement" when this is None.
+    stereo_samples: np.ndarray | None = None
 
 
 def _to_mono(samples: np.ndarray) -> np.ndarray:
@@ -62,6 +67,15 @@ def _try_soundfile(path: Path) -> DecodedAudio | None:
         log.debug("soundfile.read rejected %s: %s", path.name, exc)
         return None
     mono = _to_mono(data)
+    # Keep the two-channel buffer alongside the mono one when the source is
+    # stereo, so the stereo-image analyser can read correlation and mono
+    # compatibility from it. We deliberately ignore >2-channel material —
+    # the L/R-only metrics do not generalise to surround layouts.
+    stereo = (
+        np.ascontiguousarray(data[:, :2], dtype=np.float32)
+        if data.ndim == 2 and data.shape[1] == 2
+        else None
+    )
     bit_depth = _bit_depth_from_subtype(info.subtype)
     return DecodedAudio(
         samples=mono,
@@ -70,6 +84,7 @@ def _try_soundfile(path: Path) -> DecodedAudio | None:
         bit_depth=bit_depth,
         duration_seconds=float(len(mono)) / float(sr) if sr else 0.0,
         filename=path.name,
+        stereo_samples=stereo,
     )
 
 
@@ -220,6 +235,11 @@ def _ffmpeg_decode(path: Path) -> DecodedAudio:
         )
         sample_rate = 48000
 
+    # For stereo sources we decode the two channels and derive the mono
+    # mixdown in-process. That saves one full ffmpeg pass (vs. running a
+    # mono and a stereo decode back-to-back) and keeps RAM bounded to the
+    # stereo buffer plus a transient mono copy.
+    decode_channels = 2 if channels == 2 else 1
     args = [
         find_ffmpeg(),
         "-hide_banner",
@@ -232,7 +252,7 @@ def _ffmpeg_decode(path: Path) -> DecodedAudio:
         "-acodec",
         "pcm_f32le",
         "-ac",
-        "1",
+        str(decode_channels),
         "-ar",
         str(sample_rate),
         "-",
@@ -243,13 +263,23 @@ def _ffmpeg_decode(path: Path) -> DecodedAudio:
         raise _ffmpeg_error_to_user_error(exc, path) from exc
 
     raw = proc.stdout
-    samples = np.frombuffer(raw, dtype=np.float32).copy()
-    if samples.size == 0:
+    interleaved = np.frombuffer(raw, dtype=np.float32)
+    if interleaved.size == 0:
         raise AudioDecodeError(
             title=t("error.decoder.empty_output.title", name=path.name),
             body=t("error.decoder.empty_output.body"),
             hint=t("error.decoder.empty_output.hint"),
         )
+    if decode_channels == 2:
+        # Drop a stray trailing sample if ffmpeg emitted an odd count.
+        usable = (interleaved.size // 2) * 2
+        stereo = np.ascontiguousarray(
+            interleaved[:usable].reshape(-1, 2)
+        )
+        samples = stereo.mean(axis=1, dtype=np.float32)
+    else:
+        samples = interleaved.copy()
+        stereo = None
     return DecodedAudio(
         samples=samples,
         sample_rate=sample_rate,
@@ -257,6 +287,7 @@ def _ffmpeg_decode(path: Path) -> DecodedAudio:
         bit_depth=None,
         duration_seconds=float(samples.size) / float(sample_rate),
         filename=path.name,
+        stereo_samples=stereo,
     )
 
 

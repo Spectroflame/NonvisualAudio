@@ -18,6 +18,7 @@ from nonvisualaudio.analysis.result import (
     LoudnessMetrics,
     SpectralPeak,
     SpectrumMetrics,
+    StereoMetrics,
 )
 from nonvisualaudio.localization import t, t_subject
 from nonvisualaudio.reporting.templates import (
@@ -49,6 +50,7 @@ class ReportSections:
     frequency: bool = True
     overall: bool = True
     comparison: bool = True
+    stereo: bool = True
     recommendations: bool = True
 
     @classmethod
@@ -64,6 +66,7 @@ class ReportSections:
             frequency=False,
             overall=False,
             comparison=False,
+            stereo=False,
             recommendations=False,
         )
 
@@ -82,6 +85,7 @@ class ReportSections:
             frequency="frequency" in wanted,
             overall="overall" in wanted,
             comparison="comparison" in wanted,
+            stereo="stereo" in wanted,
             recommendations="recommendations" in wanted,
         )
 
@@ -96,6 +100,7 @@ class ReportSections:
             "frequency": self.frequency,
             "overall": self.overall,
             "comparison": self.comparison,
+            "stereo": self.stereo,
             "recommendations": self.recommendations,
         }
 
@@ -114,6 +119,7 @@ SECTION_ORDER: tuple[str, ...] = (
     "frequency",
     "overall",
     "comparison",
+    "stereo",
     "recommendations",
 )
 
@@ -440,6 +446,85 @@ def _overall_section(result: AnalysisResult, *, project: bool = False) -> str:
     return "\n".join(lines)
 
 
+def _stereo_correlation_verdict_key(corr: float) -> str:
+    if corr > 0.9:
+        return "report.stereo.verdict.very_narrow"
+    if corr > 0.5:
+        return "report.stereo.verdict.natural"
+    if corr > 0.2:
+        return "report.stereo.verdict.wide"
+    if corr > -0.2:
+        return "report.stereo.verdict.very_wide"
+    return "report.stereo.verdict.out_of_phase"
+
+
+def _stereo_mono_verdict_key(mono_drop_db: float) -> str:
+    # mono_drop_db is 0 for perfectly correlated stereo and grows
+    # increasingly negative as cancellations kick in.
+    if mono_drop_db > -0.5:
+        return "report.stereo.mono.compatible"
+    if mono_drop_db > -3.0:
+        return "report.stereo.mono.moderate"
+    return "report.stereo.mono.problematic"
+
+
+def _stereo_width_verdict_key(side_to_mid_db: float) -> str:
+    if side_to_mid_db < -12.0:
+        return "report.stereo.width.narrow"
+    if side_to_mid_db < -3.0:
+        return "report.stereo.width.typical"
+    return "report.stereo.width.very_wide"
+
+
+def _stereo_section(
+    stereo: StereoMetrics, channels: int, *, project: bool = False
+) -> str:
+    lines = [heading(t("report.heading.stereo"))]
+    if not stereo.is_stereo:
+        # Mono input, mixed mono/stereo project, or an unanalysable
+        # buffer — keep the section visible (so the screen-reader
+        # navigation stays the same) but say there is nothing to read.
+        if channels == 1:
+            lines.append(t_subject("report.stereo.mono_file", project=project))
+        else:
+            lines.append(t_subject("report.stereo.not_available", project=project))
+        return "\n".join(lines)
+
+    lines.append(
+        t(
+            "report.stereo.correlation",
+            value=fmt_signed(stereo.mean_correlation, 2),
+        )
+    )
+    if stereo.min_correlation < stereo.mean_correlation - 0.05:
+        # The worst block diverges noticeably from the mean — surface
+        # the minimum, otherwise the single number can hide a problem
+        # passage.
+        lines.append(
+            t(
+                "report.stereo.correlation_worst",
+                value=fmt_signed(stereo.min_correlation, 2),
+            )
+        )
+    lines.append(
+        t("report.stereo.mono_drop", value=fmt_signed(stereo.mono_drop_db))
+    )
+    lines.append(
+        t("report.stereo.side_to_mid", value=fmt_signed(stereo.side_to_mid_db))
+    )
+
+    lines.append(
+        t_subject(_stereo_correlation_verdict_key(stereo.mean_correlation), project=project)
+    )
+    lines.append(
+        t_subject(_stereo_mono_verdict_key(stereo.mono_drop_db), project=project)
+    )
+    lines.append(
+        t_subject(_stereo_width_verdict_key(stereo.side_to_mid_db), project=project)
+    )
+    return "\n".join(lines)
+
+
 def _peak_fix_recommendation(peak: SpectralPeak) -> str:
     """Turn a detected spectral peak into a concrete EQ starting point.
 
@@ -508,6 +593,23 @@ def _recommendations_section(
     if b.sub_db > -6.0:
         recs.append(t("report.rec.sub_dominant"))
 
+    stereo = result.stereo
+    if stereo.is_stereo:
+        if stereo.mean_correlation < 0.3:
+            recs.append(
+                t(
+                    "report.rec.stereo_correlation_low",
+                    value=fmt_signed(stereo.mean_correlation, 2),
+                )
+            )
+        if stereo.mono_drop_db < -3.0:
+            recs.append(
+                t(
+                    "report.rec.stereo_mono_drop",
+                    value=fmt_signed(stereo.mono_drop_db),
+                )
+            )
+
     if not recs:
         recs.append(t_subject("report.rec.none", project=project))
 
@@ -557,6 +659,14 @@ def build_report(
         blocks.append(_overall_section(result, project=project))
     if selected.comparison and extra_sections:
         blocks.extend(s for s in extra_sections if s)
+    if selected.stereo:
+        blocks.append(
+            _stereo_section(
+                result.stereo,
+                result.file_info.channels,
+                project=project,
+            )
+        )
     if selected.recommendations:
         blocks.append(_recommendations_section(result, project=project))
     return "\n\n".join(blocks) + "\n"

@@ -16,6 +16,7 @@ from nonvisualaudio.analysis.memory import (
 )
 from nonvisualaudio.analysis.result import AnalysisResult, FileInfo
 from nonvisualaudio.analysis.spectrum import compute_spectrum
+from nonvisualaudio.analysis.stereo import compute_stereo
 from nonvisualaudio.audio.decoder import decode
 from nonvisualaudio.localization import t
 
@@ -102,6 +103,9 @@ def analyze(
     emit(85, f"{prefix}{t('pipeline.spectrum')}")
     spectrum = compute_spectrum(decoded.samples, decoded.sample_rate)
 
+    emit(95, f"{prefix}{t('pipeline.stereo')}")
+    stereo = compute_stereo(decoded.stereo_samples, decoded.sample_rate)
+
     emit(100, f"{prefix}{t('pipeline.done')}")
 
     elapsed = time.perf_counter() - t_start
@@ -124,4 +128,5 @@ def analyze(
         loudness=loudness,
         dynamics=dynamics,
         spectrum=spectrum,
+        stereo=stereo,
     )

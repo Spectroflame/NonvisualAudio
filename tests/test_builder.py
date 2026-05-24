@@ -5,6 +5,7 @@ from nonvisualaudio.analysis.result import (
     FileInfo,
     LoudnessMetrics,
     SpectrumMetrics,
+    StereoMetrics,
 )
 from nonvisualaudio.reporting.builder import build_report
 
@@ -142,6 +143,96 @@ def test_overall_assessment_mentions_the_actual_loudest_band_when_skewed():
     assert "generally balanced" not in overall
     assert "sub bass" in overall
     assert "air" in overall
+
+
+def test_stereo_section_appears_with_heading():
+    report = build_report(_make_result())
+    assert "STEREO IMAGE" in report
+
+
+def test_mono_file_marks_stereo_section_as_not_applicable():
+    mono = _make_result(
+        file_info=FileInfo(
+            filename="solo.wav",
+            duration_seconds=120.0,
+            sample_rate=48000,
+            channels=1,
+            bit_depth=24,
+        )
+    )
+    report = build_report(mono)
+    stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
+    assert "mono" in stereo_block.lower()
+    # No verdicts on correlation / mono drop / width when the file is mono.
+    assert "correlation" not in stereo_block.lower()
+
+
+def test_stereo_section_reports_correlation_value_and_natural_verdict():
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=0.7,
+        min_correlation=0.65,
+        mono_drop_db=-0.2,
+        side_to_mid_db=-9.0,
+    )
+    report = build_report(_make_result(stereo=stereo))
+    stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
+    assert "0.70" in stereo_block
+    assert "natural" in stereo_block.lower()
+    assert "excellent" in stereo_block.lower()  # mono compatibility verdict
+
+
+def test_stereo_section_flags_out_of_phase_signal():
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=-0.8,
+        min_correlation=-0.95,
+        mono_drop_db=-25.0,
+        side_to_mid_db=10.0,
+    )
+    report = build_report(_make_result(stereo=stereo))
+    stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
+    assert "out of phase" in stereo_block.lower() or "pushing against" in stereo_block.lower()
+    assert "poor" in stereo_block.lower()
+
+
+def test_stereo_section_surfaces_worst_block_when_it_diverges():
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=0.7,
+        min_correlation=-0.4,  # one bad block hiding behind a good average
+        mono_drop_db=-0.5,
+        side_to_mid_db=-9.0,
+    )
+    report = build_report(_make_result(stereo=stereo))
+    stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
+    assert "worst block" in stereo_block.lower()
+
+
+def test_stereo_low_correlation_triggers_recommendation():
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=0.1,
+        min_correlation=-0.2,
+        mono_drop_db=-1.0,
+        side_to_mid_db=-2.0,
+    )
+    report = build_report(_make_result(stereo=stereo))
+    recs_block = report.split("RECOMMENDATIONS")[1]
+    assert "goniometer" in recs_block.lower() or "mono check" in recs_block.lower()
+
+
+def test_stereo_mono_drop_triggers_recommendation():
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=0.5,
+        min_correlation=0.3,
+        mono_drop_db=-6.0,
+        side_to_mid_db=-2.0,
+    )
+    report = build_report(_make_result(stereo=stereo))
+    recs_block = report.split("RECOMMENDATIONS")[1]
+    assert "mono playback" in recs_block.lower() or "mono-summier" in recs_block.lower()
 
 
 def test_recommendations_fallback_when_nothing_to_fix():

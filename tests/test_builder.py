@@ -193,7 +193,7 @@ def test_stereo_section_flags_out_of_phase_signal():
     report = build_report(_make_result(stereo=stereo))
     stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
     assert "out of phase" in stereo_block.lower() or "pushing against" in stereo_block.lower()
-    assert "poor" in stereo_block.lower()
+    assert "problematic" in stereo_block.lower()
 
 
 def test_stereo_section_surfaces_worst_block_when_it_diverges():

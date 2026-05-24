@@ -433,6 +433,7 @@
   "report.loudness.short_term": "Short term peak loudness: {value} LUFS.",
   "report.loudness.true_peak": "True peak: {value} dBTP.",
   "report.loudness.true_peak_time": "The highest peak occurs at {time}.",
+  "report.loudness.true_peak_time.project": "The highest peak occurs at {time} in {filename}.",
   "report.loudness.lra": "Loudness range: {value} LU — how much perceived loudness varies over time.",
   "report.loudness.lra.verdict.very_narrow": "That is very narrow — typical of heavily limited material.",
   "report.loudness.lra.verdict.very_narrow.project": "Across the project, that is very narrow — typical of heavily limited material.",

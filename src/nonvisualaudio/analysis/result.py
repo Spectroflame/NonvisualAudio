@@ -15,6 +15,11 @@ class LoudnessMetrics:
     # Position of the loudest true-peak frame, in seconds from the start.
     # None when ffmpeg emitted no usable per-frame peak readings.
     true_peak_time_seconds: float | None = None
+    # Project-mode only: the filename of the track that owns the
+    # project-wide loudest true peak. ``true_peak_time_seconds`` then
+    # refers to the position *inside that track*, not the concatenated
+    # project timeline. ``None`` for single-file analyses.
+    true_peak_track_filename: str | None = None
 
 
 @dataclass(frozen=True)

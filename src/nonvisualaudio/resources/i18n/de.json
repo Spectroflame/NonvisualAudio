@@ -433,6 +433,7 @@
   "report.loudness.short_term": "Kurzzeit-Peaklautheit: {value} LUFS.",
   "report.loudness.true_peak": "True Peak: {value} dBTP.",
   "report.loudness.true_peak_time": "Die höchste Spitze tritt bei {time} auf.",
+  "report.loudness.true_peak_time.project": "Die höchste Spitze tritt bei {time} in {filename} auf.",
   "report.loudness.lra": "Lautheitsbereich: {value} LU — wie stark die wahrgenommene Lautheit über die Zeit schwankt.",
   "report.loudness.lra.verdict.very_narrow": "Das ist sehr eng — typisch für stark limitiertes Material.",
   "report.loudness.lra.verdict.very_narrow.project": "Über das ganze Projekt sehr eng — typisch für stark limitiertes Material.",

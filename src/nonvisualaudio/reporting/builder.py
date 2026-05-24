@@ -193,16 +193,27 @@ def _loudness_section(loud: LoudnessMetrics, *, project: bool = False) -> str:
     lines.append(t("report.loudness.integrated", value=fmt_signed(loud.integrated_lufs)))
     lines.append(t("report.loudness.short_term", value=fmt_signed(loud.short_term_max_lufs)))
     lines.append(t("report.loudness.true_peak", value=fmt_signed(loud.true_peak_dbtp)))
-    # Where the loudest peak sits, as an H/M/S position to jump to in a
-    # DAW. Skipped in project mode: there the peak time would point into
-    # the concatenated-track timeline, which maps to no single file.
-    if not project and loud.true_peak_time_seconds is not None:
-        lines.append(
-            t(
-                "report.loudness.true_peak_time",
-                time=fmt_peak_time(loud.true_peak_time_seconds),
+    # Where the loudest peak sits, as a position to jump to in a DAW.
+    # In single-file mode that is an in-file H/M/S; in project mode it
+    # is the name of the loudest track plus the position inside that
+    # track — anything mapped to the concatenated project timeline
+    # would map to no single source file and be useless for the user.
+    if loud.true_peak_time_seconds is not None:
+        if project and loud.true_peak_track_filename:
+            lines.append(
+                t(
+                    "report.loudness.true_peak_time.project",
+                    time=fmt_peak_time(loud.true_peak_time_seconds),
+                    filename=loud.true_peak_track_filename,
+                )
             )
-        )
+        elif not project:
+            lines.append(
+                t(
+                    "report.loudness.true_peak_time",
+                    time=fmt_peak_time(loud.true_peak_time_seconds),
+                )
+            )
     lines.append(t("report.loudness.lra", value=fmt_signed(loud.loudness_range_lu)))
     lra_verdict_key = _lra_verdict_key(loud.loudness_range_lu)
     if lra_verdict_key:

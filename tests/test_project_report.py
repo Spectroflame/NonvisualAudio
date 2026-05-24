@@ -101,6 +101,56 @@ def _make_project(files: tuple[AnalysisResult, ...]) -> ProjectResult:
     return ProjectResult(project_name="My Album", files=files, combined=combined)
 
 
+def test_project_true_peak_names_the_track_with_the_loudest_peak():
+    # Build a project where the combined loudness has the new
+    # project-mode true-peak provenance fields set (analyze_project does
+    # this from the per-track maximum). The report has to surface both
+    # the position and the source track.
+    files = (
+        _make_file_result("intro.wav", -16.0, 10.0),
+        _make_file_result("chapter_01.wav", -14.0, 10.0),
+        _make_file_result("chapter_02.wav", -14.0, 10.0),
+    )
+    project = _make_project(files)
+    combined = project.combined
+    project = ProjectResult(
+        project_name=project.project_name,
+        files=project.files,
+        combined=AnalysisResult(
+            file_info=combined.file_info,
+            loudness=LoudnessMetrics(
+                integrated_lufs=combined.loudness.integrated_lufs,
+                short_term_max_lufs=combined.loudness.short_term_max_lufs,
+                true_peak_dbtp=-0.4,
+                loudness_range_lu=combined.loudness.loudness_range_lu,
+                true_peak_time_seconds=137.0,
+                true_peak_track_filename="chapter_01.wav",
+            ),
+            dynamics=combined.dynamics,
+            spectrum=combined.spectrum,
+        ),
+    )
+    report = build_project_report(project)
+    assert "chapter_01.wav" in report
+    # The H/M/S formatter spells 137 seconds as "2 minutes 17 seconds".
+    assert "2 minutes 17 seconds" in report
+    # The sentence has to be the project variant — "in {filename}".
+    assert "in chapter_01.wav" in report
+
+
+def test_project_true_peak_line_omitted_when_no_track_known():
+    # Mirrors the legacy behaviour: if the pipeline could not pin the
+    # loudest peak to a specific track (e.g. per-frame ffmpeg readings
+    # missing) the timestamp line is skipped rather than guessing.
+    files = (
+        _make_file_result("a.wav", -14.0, 10.0),
+        _make_file_result("b.wav", -14.0, 10.0),
+    )
+    project = _make_project(files)
+    report = build_project_report(project)
+    assert "highest peak occurs" not in report.lower()
+
+
 def test_project_header_lists_every_track():
     project = _make_project(
         (

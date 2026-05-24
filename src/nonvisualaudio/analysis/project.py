@@ -27,7 +27,7 @@ import math
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -330,6 +330,26 @@ def analyze_project(
     combined_loudness = _measure_loudness_combined(
         [Path(p) for p in paths], label
     )
+
+    # True-peak provenance for project mode. The ffmpeg concat pass
+    # reports a project-wide true peak, but its timeline maps to nothing
+    # on disk — the value is fine, the timestamp is not actionable. The
+    # per-track scans already know exactly where each file's loudest
+    # peak sits, and the maximum across all tracks is the project-wide
+    # peak (concat does not synthesise new samples). Pulling both the
+    # dBTP value and the timestamp from the loudest per-track scan
+    # gives the user a "track + position in track" they can jump to.
+    if file_results:
+        loudest = max(
+            file_results, key=lambda fr: fr.loudness.true_peak_dbtp
+        )
+        if loudest.loudness.true_peak_time_seconds is not None:
+            combined_loudness = replace(
+                combined_loudness,
+                true_peak_dbtp=loudest.loudness.true_peak_dbtp,
+                true_peak_time_seconds=loudest.loudness.true_peak_time_seconds,
+                true_peak_track_filename=loudest.file_info.filename,
+            )
 
     _scaled(85, t("project.combining_samples"))
     combined_samples, target_rate = _concatenate_decoded(decoded_tracks)

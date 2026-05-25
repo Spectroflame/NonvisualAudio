@@ -356,10 +356,9 @@
 
   "pipeline.decoding": "Audio wird dekodiert",
   "pipeline.loudness": "Lautheit wird gemessen",
-  "pipeline.dynamics": "Dynamik wird berechnet",
-  "pipeline.spectrum": "Spektrum wird berechnet",
+  "pipeline.dynamics": "Dynamik wird gemessen",
+  "pipeline.spectrum": "Spektrum wird analysiert",
   "pipeline.stereo": "Stereobild wird analysiert",
-  "pipeline.measurements": "Messwerte werden berechnet",
   "pipeline.done": "Analyse fertig",
 
   "error.ffmpeg.missing.title": "FFmpeg fehlt",

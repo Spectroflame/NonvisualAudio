@@ -24,7 +24,7 @@ from nonvisualaudio.audio.ffmpeg_runner import (
     FFmpegError,
     find_ffmpeg,
     run,
-    run_split_streams,
+    run_split_streams_streaming,
 )
 from nonvisualaudio.errors import AudioDecodeError, MissingFFmpegError
 from nonvisualaudio.localization import t
@@ -368,9 +368,12 @@ def _ffmpeg_decode_with_loudness(
     caller's previous two-pass approach (decode + measure_loudness) read
     the source twice; for long files that doubled the work.
 
-    The function is intentionally inside the decoder module so that the
-    soundfile fast-path can still skip ffmpeg entirely — the combined
-    pass is only reached when ffmpeg is going to decode the file anyway.
+    The decoded PCM is streamed straight into a preallocated numpy
+    buffer in chunks so we never materialise the multi-gigabyte stdout
+    as a Python ``bytes`` object. The previous implementation built
+    that bytes object, wrapped it in a view, *and* made a contiguous
+    stereo copy — which roughly tripled peak RAM and pushed long files
+    into swap on the way to OOM.
     """
     from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128
 
@@ -400,7 +403,7 @@ def _ffmpeg_decode_with_loudness(
     # line and translate it into a 0..100 percentage against the probed
     # duration. The callback fires on the stderr reader thread, so it
     # must stay cheap.
-    state = {"last_pct": -1}
+    progress_state = {"last_pct": -1}
 
     def _on_line(raw_line: bytes) -> None:
         if on_progress is None or duration <= 0:
@@ -418,33 +421,93 @@ def _ffmpeg_decode_with_loudness(
         except ValueError:
             return
         pct = int(100.0 * min(1.0, max(0.0, t_sec / duration)))
-        if pct == state["last_pct"]:
+        if pct == progress_state["last_pct"]:
             return
-        state["last_pct"] = pct
+        progress_state["last_pct"] = pct
         on_progress(pct, "combined")
 
+    # Preallocate the PCM buffer based on the probed duration. ffmpeg can
+    # emit slightly more or fewer frames than ``duration × sample_rate``
+    # (encoder/decoder delay, VBR probe inaccuracy), so we reserve a
+    # second of slack plus 1 %. If we still overshoot we grow the buffer
+    # by doubling, which costs one extra allocation in the rare case.
+    expected_frames = int(round(duration * sample_rate)) if duration > 0 else 0
+    slack = max(int(expected_frames * 0.01), sample_rate)
+    initial_capacity = max(expected_frames + slack, sample_rate)
+    frame_bytes = decode_channels * 4
+
+    if decode_channels == 2:
+        buf = np.empty((initial_capacity, 2), dtype=np.float32)
+    else:
+        buf = np.empty(initial_capacity, dtype=np.float32)
+
+    decode_state: dict[str, object] = {
+        "buf": buf,
+        "frames": 0,
+        "leftover": b"",
+    }
+
+    def _on_chunk(chunk: bytes) -> None:
+        leftover = decode_state["leftover"]
+        if leftover:
+            assert isinstance(leftover, bytes)
+            data = leftover + chunk
+        else:
+            data = chunk
+        usable_bytes = (len(data) // frame_bytes) * frame_bytes
+        decode_state["leftover"] = data[usable_bytes:]
+        if usable_bytes == 0:
+            return
+        arr = np.frombuffer(data, dtype=np.float32, count=usable_bytes // 4)
+        if decode_channels == 2:
+            arr = arr.reshape(-1, 2)
+        n = arr.shape[0]
+        current_buf = decode_state["buf"]
+        assert isinstance(current_buf, np.ndarray)
+        pos = int(decode_state["frames"])  # type: ignore[arg-type]
+        needed = pos + n
+        if needed > current_buf.shape[0]:
+            new_capacity = max(needed, current_buf.shape[0] * 2)
+            if decode_channels == 2:
+                new_buf = np.empty((new_capacity, 2), dtype=np.float32)
+            else:
+                new_buf = np.empty(new_capacity, dtype=np.float32)
+            new_buf[:pos] = current_buf[:pos]
+            decode_state["buf"] = new_buf
+            current_buf = new_buf
+        current_buf[pos:pos + n] = arr
+        decode_state["frames"] = pos + n
+
     try:
-        stdout_data, stderr_text = run_split_streams(
-            args, timeout=1200.0, stderr_line_callback=_on_line
+        stderr_text = run_split_streams_streaming(
+            args,
+            timeout=1200.0,
+            stdout_chunk_handler=_on_chunk,
+            stderr_line_callback=_on_line,
         )
     except FFmpegError as exc:
         raise _ffmpeg_error_to_user_error(exc, path) from exc
 
-    interleaved = np.frombuffer(stdout_data, dtype=np.float32)
-    if interleaved.size == 0:
+    n_frames = int(decode_state["frames"])  # type: ignore[arg-type]
+    if n_frames == 0:
         raise AudioDecodeError(
             title=t("error.decoder.empty_output.title", name=path.name),
             body=t("error.decoder.empty_output.body"),
             hint=t("error.decoder.empty_output.hint"),
         )
-
+    final_buf = decode_state["buf"]
+    assert isinstance(final_buf, np.ndarray)
+    # ``final_buf[:n_frames]`` is a contiguous view: numpy allocated the
+    # parent as C-contiguous, and slicing the leading axis preserves that.
+    # We keep the view (the slack tail is at most ~1 % + 1 second) instead
+    # of forcing a copy — copying briefly doubles peak memory, which is
+    # exactly what this rewrite is meant to avoid.
     if decode_channels == 2:
-        usable = (interleaved.size // 2) * 2
-        stereo = np.ascontiguousarray(interleaved[:usable].reshape(-1, 2))
+        stereo = final_buf[:n_frames]
         samples = stereo.mean(axis=1, dtype=np.float32)
     else:
-        samples = interleaved.copy()
         stereo = None
+        samples = final_buf[:n_frames]
 
     decoded = DecodedAudio(
         samples=samples,

@@ -54,23 +54,14 @@ def test_format_seconds_switches_to_minutes_at_60() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_estimate_concerning_when_above_absolute() -> None:
-    est = MemoryEstimate(
-        label="x",
-        estimated_bytes=memory.WARN_ABSOLUTE_BYTES + 1,
-        available_bytes=10_000_000_000,
-        total_bytes=20_000_000_000,
-    )
-    assert est.is_concerning is True
-
-
-def test_estimate_concerning_when_above_fraction_of_available() -> None:
-    # 600 MB estimate vs 1 GB available → over the 50 % threshold.
+def test_estimate_concerning_when_both_signals_tight() -> None:
+    # 600 MB vs 1 GB available (60 %) AND vs 1.2 GB total (50 %) — both
+    # fractions cross their thresholds, so the gate warns.
     est = MemoryEstimate(
         label="x",
         estimated_bytes=600_000_000,
         available_bytes=1_000_000_000,
-        total_bytes=2_000_000_000,
+        total_bytes=1_200_000_000,
     )
     assert est.is_concerning is True
 
@@ -86,9 +77,63 @@ def test_estimate_not_concerning_on_large_system() -> None:
     assert est.is_concerning is False
 
 
-def test_estimate_uses_absolute_when_available_unknown() -> None:
-    # Without an "available" probe we still want the absolute fallback
-    # to flag obviously huge analyses.
+def test_estimate_not_concerning_when_well_within_available() -> None:
+    """A multi-gigabyte estimate stays quiet when there is plenty free."""
+    # 8 GB estimate against 50 GB free is 16 % — well below the threshold,
+    # even though it sits far above the absolute fallback. This is the
+    # case the warning gate used to over-flag.
+    est = MemoryEstimate(
+        label="x",
+        estimated_bytes=8_000_000_000,
+        available_bytes=50_000_000_000,
+        total_bytes=64_000_000_000,
+    )
+    assert est.is_concerning is False
+
+
+def test_estimate_not_concerning_when_total_is_roomy() -> None:
+    """High fraction-of-available alone must not warn on a roomy machine.
+
+    macOS often reports very low ``available`` even when total RAM is
+    plentiful (``vm_stat`` excludes evictable active pages). The gate
+    sanity-checks against total before triggering, so a 64 GB box keeps
+    quiet even when free briefly looks tight.
+    """
+    # 12 GB estimate vs 15 GB available is 80 % — would cross the
+    # available fraction. But total is 64 GB (the estimate is 19 % of it),
+    # so the analysis has plenty of room to spread into.
+    est = MemoryEstimate(
+        label="x",
+        estimated_bytes=12_000_000_000,
+        available_bytes=15_000_000_000,
+        total_bytes=64_000_000_000,
+    )
+    assert est.is_concerning is False
+
+
+def test_estimate_uses_total_when_available_unknown() -> None:
+    """When only total is known we fall back to a stricter fraction of it."""
+    # 10 GB on a 16 GB box (62.5 % of total) crosses the total-fraction
+    # threshold (40 %).
+    tight = MemoryEstimate(
+        label="x",
+        estimated_bytes=10_000_000_000,
+        available_bytes=None,
+        total_bytes=16_000_000_000,
+    )
+    assert tight.is_concerning is True
+    # 4 GB on a 64 GB box (6 %) stays well under the threshold.
+    roomy = MemoryEstimate(
+        label="x",
+        estimated_bytes=4_000_000_000,
+        available_bytes=None,
+        total_bytes=64_000_000_000,
+    )
+    assert roomy.is_concerning is False
+
+
+def test_estimate_uses_absolute_only_when_no_probe() -> None:
+    # Both probes failed: fall back to the fixed huge-file threshold.
     est = MemoryEstimate(
         label="x",
         estimated_bytes=memory.WARN_ABSOLUTE_BYTES + 1,

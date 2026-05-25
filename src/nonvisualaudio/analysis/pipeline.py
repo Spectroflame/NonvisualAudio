@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 
 from nonvisualaudio.analysis import memory
@@ -106,21 +106,23 @@ def analyze(
         bit_depth=decoded.bit_depth,
     )
 
-    # Dynamics, spectrum and stereo all read the decoded samples but do
-    # not depend on each other. Running them in a thread pool lets the
-    # numpy/scipy ops (which release the GIL) overlap on a multi-core
-    # machine — for 9-hour files this is the difference between a
-    # noticeable post-decode wait and a near-instant finish.
-    emit(80, f"{prefix}{t('pipeline.measurements')}")
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        f_dyn = pool.submit(compute_dynamics, decoded.samples, decoded.sample_rate)
-        f_spec = pool.submit(compute_spectrum, decoded.samples, decoded.sample_rate)
-        f_stereo = pool.submit(
-            compute_stereo, decoded.stereo_samples, decoded.sample_rate
-        )
-        dynamics = f_dyn.result()
-        spectrum = f_spec.result()
-        stereo = f_stereo.result()
+    # Sequential analyses. The earlier ThreadPoolExecutor variant tripled
+    # peak RAM (each analyser allocates several float64 copies of the
+    # decoded buffer) and pushed multi-hour stereo files into swap/OOM.
+    #
+    # Stereo runs first while the two-channel buffer is still alive —
+    # nothing else needs it. We then drop that buffer before dynamics
+    # and spectrum, both of which read only the mono mixdown. On a 7-hour
+    # stereo file this releases ~9 GB before the float64 conversions in
+    # dynamics/spectrum allocate their own temporaries.
+    emit(80, f"{prefix}{t('pipeline.stereo')}")
+    stereo = compute_stereo(decoded.stereo_samples, decoded.sample_rate)
+    if decoded.stereo_samples is not None:
+        decoded = replace(decoded, stereo_samples=None)
+    emit(87, f"{prefix}{t('pipeline.dynamics')}")
+    dynamics = compute_dynamics(decoded.samples, decoded.sample_rate)
+    emit(94, f"{prefix}{t('pipeline.spectrum')}")
+    spectrum = compute_spectrum(decoded.samples, decoded.sample_rate)
 
     emit(100, f"{prefix}{t('pipeline.done')}")
 

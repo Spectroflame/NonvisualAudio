@@ -35,27 +35,59 @@ log = logging.getLogger("nonvisualaudio.memory")
 # Tuning constants
 # --------------------------------------------------------------------------- #
 
-# Each decoded mono sample is stored as float32 = 4 bytes.
+# Each decoded sample is stored as float32 = 4 bytes per channel.
 BYTES_PER_SAMPLE = 4
 
-# The decoded buffer is the dominant allocation, but spectrum (Welch /
-# resample_poly) and dynamics each spawn temporary float64 copies. On
-# measured runs the working set peaks at roughly 2.5× the decoded buffer;
-# we round up to 3 so the estimate stays on the safe side.
-SINGLE_FILE_OVERHEAD = 3.0
+# Multipliers applied to the mono float32 buffer size (duration × sr × 4).
+# Calibrated empirically against full-pipeline RSS-delta measurements on
+# 30-minute and 60-minute stereo MP3 inputs: both consistently land at
+# ≈10× mono size, dominated by dynamics' float64 conversion and scipy
+# Welch's FFT working set. The chunked stereo analyser (see
+# ``nonvisualaudio.analysis.stereo``) used to be the worst offender at
+# ~19×; now it stays in a few hundred MB regardless of input length.
+#
+#   - decoded mono buffer                                              (1×)
+#   - decoded stereo buffer next to the mono mixdown (stereo input)    (2×)
+#   - dynamics: float64 copy (2×) plus a transient temp (2×)           (4×)
+#   - scipy welch + numpy allocator overhead                           (~2×)
+#
+# Mono and stereo share most of the analysis cost; stereo just keeps the
+# second channel alive a bit longer (until the stereo analyser releases
+# it via the pipeline-side ``replace(..., stereo_samples=None)`` hand-off).
+SINGLE_FILE_OVERHEAD_MONO = 5
+SINGLE_FILE_OVERHEAD_STEREO = 6
+
+# Used when channel count cannot be probed: pick the conservative branch
+# so unknown inputs do not slip past the warning gate.
+SINGLE_FILE_OVERHEAD = SINGLE_FILE_OVERHEAD_STEREO
 
 # Project mode keeps every per-track buffer AND the concatenated buffer
-# alive at the same time (we need both for the per-file numbers and the
-# combined dynamics/spectrum). The resampler also temporarily materialises
-# a float64 copy of each track. 5× covers both effects with margin.
-PROJECT_OVERHEAD = 5.0
+# alive at the same time, then runs sequential analyses on the combined
+# stereo buffer. The combined buffer alone is roughly the sum of the
+# per-track buffers; the stereo analyser on top now adds only a few
+# hundred MB thanks to chunked processing. ``PROJECT_OVERHEAD`` is
+# applied to the sum of decoded buffers, which already counts stereo.
+PROJECT_OVERHEAD = 8
 
-# Warn when the estimate is at least half of currently free RAM, or
-# when it crosses the absolute threshold below. The absolute threshold
-# is the safety net for the case where we can't probe "available" — it
-# still catches the obvious "this file is enormous" scenario.
+# Warning gate (see ``MemoryEstimate.is_concerning``). We require *both*
+# signals to look tight before bothering the user:
+#
+#   - estimate ≥ ``WARN_FRACTION_OF_AVAILABLE`` of currently-free RAM, AND
+#   - estimate ≥ ``WARN_FRACTION_OF_TOTAL`` of total physical RAM.
+#
+# Available alone is unreliable on macOS, where ``vm_stat`` excludes
+# evictable "active" pages and can underreport by tens of gigabytes on a
+# roomy box. Total alone is too coarse — a 30-minute analysis on a busy
+# 16 GB machine looks fine by total but might still push the working set
+# into swap. Demanding both keeps the warning rare on 64 GB systems and
+# still useful on 8 / 16 GB ones.
+#
+# ``WARN_ABSOLUTE_BYTES`` is the absolute last-resort fallback for the
+# case where neither probe worked. Modern macOS, Windows and Linux all
+# return at least one of them, so this path is essentially unreachable.
 WARN_FRACTION_OF_AVAILABLE = 0.5
-WARN_ABSOLUTE_BYTES = 1_000_000_000  # 1 GB
+WARN_FRACTION_OF_TOTAL = 0.4
+WARN_ABSOLUTE_BYTES = 4_000_000_000  # 4 GB
 
 
 # --------------------------------------------------------------------------- #
@@ -79,15 +111,36 @@ class MemoryEstimate:
 
     @property
     def is_concerning(self) -> bool:
-        """True when the user should be asked before proceeding."""
-        if self.estimated_bytes >= WARN_ABSOLUTE_BYTES:
-            return True
+        """True when the user should be asked before proceeding.
+
+        Strategy: warn only when *both* the available-memory signal and
+        the total-RAM signal agree the analysis is tight. Available
+        alone is unreliable on macOS — ``vm_stat`` treats active pages
+        as unavailable even when the kernel would happily evict them,
+        so a 64 GB Mac with most pages "active" can report 5-10 GB free
+        while still having plenty of headroom. Crossing the available
+        fraction is therefore necessary but not sufficient: we sanity-
+        check against total before warning. The absolute threshold only
+        fires when both system probes failed (a true edge case).
+        """
         if self.available_bytes is not None and self.available_bytes > 0:
+            if (
+                self.estimated_bytes
+                < self.available_bytes * WARN_FRACTION_OF_AVAILABLE
+            ):
+                return False
+            if self.total_bytes is not None and self.total_bytes > 0:
+                return (
+                    self.estimated_bytes
+                    >= self.total_bytes * WARN_FRACTION_OF_TOTAL
+                )
+            return True
+        if self.total_bytes is not None and self.total_bytes > 0:
             return (
                 self.estimated_bytes
-                >= self.available_bytes * WARN_FRACTION_OF_AVAILABLE
+                >= self.total_bytes * WARN_FRACTION_OF_TOTAL
             )
-        return False
+        return self.estimated_bytes >= WARN_ABSOLUTE_BYTES
 
 
 ConfirmMemoryCb = Callable[[MemoryEstimate], bool]
@@ -155,20 +208,29 @@ def format_seconds(seconds: float | None) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _probe_duration_samplerate(path: Path) -> tuple[float, int] | None:
-    """Return ``(duration_seconds, sample_rate)`` without loading samples.
+def _probe_audio_info(path: Path) -> tuple[float, int, int] | None:
+    """Return ``(duration_seconds, sample_rate, channels)`` without loading samples.
 
     Cheap path: ``soundfile.info`` for WAV/FLAC/AIFF. Fallback: a short
     ffmpeg probe that already lives in the decoder. We tolerate every
     failure mode and return None so the estimator can fall back to
     file-size heuristics.
+
+    Channel count drives the stereo branch of the size estimate, so a
+    probe that succeeds at duration/sample-rate but cannot extract a
+    channel count returns ``channels=0``; the estimator then defaults
+    to the conservative stereo multiplier.
     """
     try:
         import soundfile as sf
 
         info = sf.info(str(path))
         if info.frames and info.samplerate:
-            return float(info.frames) / float(info.samplerate), int(info.samplerate)
+            return (
+                float(info.frames) / float(info.samplerate),
+                int(info.samplerate),
+                int(info.channels or 0),
+            )
     except Exception as exc:  # noqa: BLE001 — probe is best-effort
         log.debug("soundfile probe failed for %s: %s", path.name, exc)
     try:
@@ -176,31 +238,59 @@ def _probe_duration_samplerate(path: Path) -> tuple[float, int] | None:
         # the wider pipeline; we don't need the import at module load.
         from nonvisualaudio.audio.decoder import _probe_via_ffmpeg
 
-        sample_rate, _channels, duration = _probe_via_ffmpeg(path)
+        sample_rate, channels, duration = _probe_via_ffmpeg(path)
         if sample_rate and duration:
-            return float(duration), int(sample_rate)
+            return float(duration), int(sample_rate), int(channels or 0)
     except Exception as exc:  # noqa: BLE001 — probe is best-effort
         log.debug("ffmpeg probe failed for %s: %s", path.name, exc)
     return None
 
 
+def _decoded_bytes_for(duration: float, sample_rate: int, channels: int) -> int:
+    """Bytes the persistent decoded buffers occupy after decoding.
+
+    Mono input: one mono float32 buffer. Stereo input: a mono mixdown
+    AND the original stereo buffer (the stereo-image analyser needs
+    the latter). Anything we don't recognise falls back to the stereo
+    layout so the estimate stays conservative.
+    """
+    mono = int(duration * sample_rate * BYTES_PER_SAMPLE)
+    if mono <= 0:
+        return 0
+    # Mono → 1×; stereo (or unknown) → 1 mono mixdown + 2 stereo channels.
+    return mono * (1 if channels == 1 else 3)
+
+
 def estimate_file_bytes(
-    path: str | Path, overhead: float = SINGLE_FILE_OVERHEAD
+    path: str | Path, overhead: float | None = None
 ) -> int:
     """Estimate peak RAM during analysis of one file.
 
-    Returns a conservative byte figure built from the decoded mono
-    buffer size times an empirical ``overhead`` factor that covers the
-    spectrum and dynamics intermediate arrays. Falls back to
-    ``file_size × 4`` when metadata can't be probed — very rough, but
-    better than reporting zero on weird inputs.
+    Default (``overhead=None``) returns the peak working set across
+    decode + sequential measurements, picking the mono or stereo
+    multiplier based on the probed channel count. Pass an explicit
+    ``overhead`` to scale the bare decoded-buffer size by your own
+    factor — the project-mode estimator uses this for per-track sums.
+
+    Falls back to ``file_size × 4`` when metadata can't be probed:
+    very rough, but better than reporting zero on weird inputs.
     """
     p = Path(path)
-    probed = _probe_duration_samplerate(p)
+    probed = _probe_audio_info(p)
     if probed is not None:
-        duration, sample_rate = probed
-        decoded = int(duration * sample_rate * BYTES_PER_SAMPLE)
-        return max(decoded, 0) * max(int(round(overhead)), 1)
+        duration, sample_rate, channels = probed
+        mono = int(duration * sample_rate * BYTES_PER_SAMPLE)
+        if mono <= 0:
+            return 0
+        if overhead is not None:
+            decoded = _decoded_bytes_for(duration, sample_rate, channels)
+            return decoded * max(int(round(overhead)), 1)
+        multiplier = (
+            SINGLE_FILE_OVERHEAD_MONO
+            if channels == 1
+            else SINGLE_FILE_OVERHEAD_STEREO
+        )
+        return mono * multiplier
     try:
         return p.stat().st_size * 4
     except OSError:
@@ -210,9 +300,11 @@ def estimate_file_bytes(
 def estimate_project_bytes(paths: list[str] | list[str | Path]) -> int:
     """Estimate peak RAM for a project-mode analysis over ``paths``.
 
-    Project mode keeps every decoded track AND the concatenated buffer
-    in memory at the same time, plus the resampler holds a transient
-    float64 copy of each track. ``PROJECT_OVERHEAD`` covers all three.
+    Every decoded track stays alive while the concatenated buffer is
+    being built; the combined dynamics, spectrum, and stereo passes
+    then add more transient float64 copies on top. ``PROJECT_OVERHEAD``
+    is applied to the sum of the per-track decoded buffers, which
+    already includes the stereo channels for stereo tracks.
     """
     decoded_bytes = 0
     for raw in paths:

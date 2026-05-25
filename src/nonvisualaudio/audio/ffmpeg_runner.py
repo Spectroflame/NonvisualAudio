@@ -259,6 +259,115 @@ def run_split_streams(
     return stdout_data, stderr_text
 
 
+def run_split_streams_streaming(
+    args: Sequence[str],
+    *,
+    timeout: float = 600.0,
+    stdout_chunk_handler: Callable[[bytes], None],
+    stderr_line_callback: Callable[[bytes], None] | None = None,
+    chunk_size: int = 1 << 20,
+) -> str:
+    """Streaming variant of :func:`run_split_streams`.
+
+    Instead of buffering stdout into one bytes object, the function reads
+    it in ``chunk_size``-sized blocks and hands each block to
+    ``stdout_chunk_handler``. The handler is expected to copy the data
+    somewhere safe (typically into a preallocated numpy buffer) so the
+    chunk can be released before the next one arrives. This keeps peak
+    memory bounded by a single buffer instead of doubling it through a
+    Python ``bytes`` intermediate — the difference between fitting and
+    OOM on multi-hour decodes.
+
+    Returns the full stderr text. Stderr is drained on a worker thread
+    so a chatty filter (``ebur128`` writes one progress line per second
+    of audio) cannot stall the stdout pipe.
+    """
+    binary = Path(args[0]).name
+    log.debug(
+        "exec stream(chunked) %s %s", binary, " ".join(str(a) for a in args[1:])
+    )
+    t0 = time.time()
+    try:
+        proc = subprocess.Popen(
+            list(args),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_subprocess_env(),
+        )
+    except FileNotFoundError as exc:
+        log.error("%s not found on PATH", binary)
+        raise FFmpegError(f"binary_not_found:{args[0]}") from exc
+
+    stderr_chunks: list[bytes] = []
+
+    def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        try:
+            for line in iter(proc.stderr.readline, b""):
+                stderr_chunks.append(line)
+                if stderr_line_callback is not None:
+                    try:
+                        stderr_line_callback(line)
+                    except Exception:  # noqa: BLE001 — never let a UI callback wedge ffmpeg
+                        log.exception("stderr_line_callback raised")
+        finally:
+            try:
+                proc.stderr.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
+    total_bytes = 0
+    try:
+        assert proc.stdout is not None
+        while True:
+            chunk = proc.stdout.read(chunk_size)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            try:
+                stdout_chunk_handler(chunk)
+            except Exception:
+                # A failing handler must terminate ffmpeg so the parent
+                # doesn't keep producing PCM into a dead pipe.
+                proc.kill()
+                proc.wait()
+                raise
+    finally:
+        try:
+            assert proc.stdout is not None
+            proc.stdout.close()
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        proc.wait()
+        log.error("%s timed out after %.1fs", binary, timeout)
+        raise FFmpegError(f"timeout:{timeout}") from exc
+    stderr_thread.join(timeout=30.0)
+    stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+    elapsed = time.time() - t0
+    if proc.returncode != 0:
+        log.error(
+            "%s exited %d after %.2fs: %s",
+            binary,
+            proc.returncode,
+            elapsed,
+            stderr_text[:400],
+        )
+        raise FFmpegError(f"exit:{proc.returncode}\n{stderr_text}")
+    log.debug(
+        "%s done in %.2fs (%d bytes stdout streamed)",
+        binary,
+        elapsed,
+        total_bytes,
+    )
+    return stderr_text
+
+
 def run(args: Sequence[str], *, timeout: float = 300.0) -> subprocess.CompletedProcess:
     """Run a command and return the completed process.
 

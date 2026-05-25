@@ -356,10 +356,9 @@
 
   "pipeline.decoding": "Decoding audio",
   "pipeline.loudness": "Measuring loudness",
-  "pipeline.dynamics": "Computing dynamics",
-  "pipeline.spectrum": "Computing spectrum",
+  "pipeline.dynamics": "Measuring dynamics",
+  "pipeline.spectrum": "Analyzing spectrum",
   "pipeline.stereo": "Analyzing stereo image",
-  "pipeline.measurements": "Computing measurements",
   "pipeline.done": "Analysis done",
 
   "error.ffmpeg.missing.title": "FFmpeg is missing",

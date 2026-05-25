@@ -26,7 +26,6 @@ import logging
 import math
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -293,16 +292,17 @@ def analyze_project(
 
         decoded, loud = decode_and_measure(raw, on_progress=_on_decode_progress)
         decoded_tracks.append(decoded)
-        _scaled(int(slice_start + per_file_span * 0.8), f"{prefix}: {t('pipeline.measurements')}")
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            f_dyn = pool.submit(compute_dynamics, decoded.samples, decoded.sample_rate)
-            f_spec = pool.submit(compute_spectrum, decoded.samples, decoded.sample_rate)
-            f_stereo = pool.submit(
-                compute_stereo, decoded.stereo_samples, decoded.sample_rate
-            )
-            dyn = f_dyn.result()
-            spec = f_spec.result()
-            stereo = f_stereo.result()
+        # Sequential per-track analyses, ordered to match pipeline.analyze.
+        # We cannot free decoded.stereo_samples here (the combined stereo
+        # pass at the end of the project still needs every track's stereo
+        # buffer), but running the three analysers serially still keeps a
+        # single float64 temporary live at a time rather than three.
+        _scaled(int(slice_start + per_file_span * 0.80), f"{prefix}: {t('pipeline.stereo')}")
+        stereo = compute_stereo(decoded.stereo_samples, decoded.sample_rate)
+        _scaled(int(slice_start + per_file_span * 0.87), f"{prefix}: {t('pipeline.dynamics')}")
+        dyn = compute_dynamics(decoded.samples, decoded.sample_rate)
+        _scaled(int(slice_start + per_file_span * 0.94), f"{prefix}: {t('pipeline.spectrum')}")
+        spec = compute_spectrum(decoded.samples, decoded.sample_rate)
         file_results.append(
             AnalysisResult(
                 file_info=FileInfo(

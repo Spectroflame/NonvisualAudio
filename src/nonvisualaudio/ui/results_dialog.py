@@ -8,6 +8,8 @@ the report, copy it, then close the dialog and start another analysis.
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
 from pathlib import Path
 
 import wx
@@ -19,6 +21,34 @@ from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.errors import UserFacingError
 
 log = logging.getLogger("nonvisualaudio.results_dialog")
+
+
+def _strip_macos_export_attrs(path: Path) -> None:
+    """Drop macOS provenance / TCC attrs that block Chrome from rendering.
+
+    Since macOS Sonoma every file written by a non-notarised app gets
+    tagged with ``com.apple.provenance`` (plus ``com.apple.macl``).
+    Chrome's renderer sandbox respects those tags and shows the file as
+    a blank white page; Safari ignores them. Stripping the attributes
+    immediately after write keeps the exported report openable in every
+    browser without affecting any other consumer of the file.
+
+    No-op outside macOS and silent on every failure — losing the
+    workaround must never break the export itself.
+    """
+    if sys.platform != "darwin":
+        return
+    for attr in ("com.apple.provenance", "com.apple.macl"):
+        try:
+            subprocess.run(
+                ["/usr/bin/xattr", "-d", attr, str(path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.debug("xattr cleanup failed for %s: %s", attr, exc)
 
 
 class ResultsDialog(wx.Dialog):
@@ -196,6 +226,7 @@ class ResultsDialog(wx.Dialog):
                 ),
             )
             return
+        _strip_macos_export_attrs(chosen)
         log.info("exported report to %s (%d bytes)", chosen, len(rendered))
         a11y.update_help(
             self.export_btn,

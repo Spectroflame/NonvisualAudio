@@ -457,7 +457,7 @@
   "report.loudness.true_peak.close": "True Peak liegt nah an Vollaussteuerung.",
 
   "report.dynamics.crest": "Crest-Faktor: {value} dB — der Pegelabstand zwischen Peaks und Durchschnitt (höher = lebendigere Transienten).",
-  "report.dynamics.dr_score": "Dynamik-Score: {score} — vereinfachter TT-DR-Wert (höher = mehr Headroom zwischen Spitzen und den lautesten Passagen).",
+  "report.dynamics.dr_score": "Dynamik-Score: {score} — wie deutlich die kurzen Spitzen noch aus den lautesten Stellen herausstechen. Höher heißt mehr Punch; niedrig heißt, ein Limiter hat die Spitzen auf den Durchschnittspegel der lauten Stellen heruntergedrückt. Faustregel: 8 und mehr ist offen, 5 bis 7 ist Pop-Mastering, unter 5 ist stark komprimiert.",
   "report.dynamics.verdict.compressed": "Die Dynamik wirkt stark komprimiert — zwischen Peaks und Durchschnitt bleibt kaum Headroom.",
   "report.dynamics.verdict.compressed_lively": "Die Dynamik wirkt im Pegelverlauf komprimiert, die Transienten-Spitzen sind aber noch lebendig.",
   "report.dynamics.verdict.compressed_lively.project": "Über das ganze Projekt wirkt die Dynamik im Pegelverlauf komprimiert, die Transienten-Spitzen sind aber noch lebendig.",

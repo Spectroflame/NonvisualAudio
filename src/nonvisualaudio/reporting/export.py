@@ -15,8 +15,35 @@ heuristic stays in sync with the source.
 from __future__ import annotations
 
 import html
+import re
 from collections.abc import Iterable
 from datetime import datetime
+
+
+# Transliterate the German umlauts/eszett that the localised report
+# headings actually contain ("LAUTHEIT", "ÜBERBLICK", "STEREO-BILD")
+# before slugifying. Other accented characters fall through to the
+# regex stripping below and turn into hyphens.
+_ANCHOR_TRANSLIT = str.maketrans(
+    {
+        "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
+        "Ä": "ae", "Ö": "oe", "Ü": "ue",
+    }
+)
+_ANCHOR_NONWORD_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify_for_anchor(text: str) -> str:
+    """Turn a heading like ``"LOUDNESS"`` into a URL-fragment slug.
+
+    Lowercase, ASCII-only, hyphen-separated; empty input collapses to
+    ``"section"`` so the caller can still emit a valid ``id`` attribute.
+    German headings ("LAUTHEIT", "ÜBERBLICK") are transliterated rather
+    than stripped, so the German export gets readable anchors too.
+    """
+    base = text.translate(_ANCHOR_TRANSLIT).lower()
+    slug = _ANCHOR_NONWORD_RE.sub("-", base).strip("-")
+    return slug or "section"
 
 
 def _is_heading(line: str) -> bool:
@@ -80,7 +107,13 @@ def to_markdown(report_text: str) -> str:
         if out:
             out.append("")
         if heading is not None:
-            out.append(f"## {heading.title()}")
+            # Level-3 heading to stay in lock-step with the HTML export
+            # (which uses <h3 id="…">). Every common Markdown renderer
+            # (GitHub, GitLab, Obsidian, pandoc) auto-generates a slug
+            # anchor from the heading text, so jump-to-section links
+            # work the same way they do in the HTML output without
+            # needing an explicit ``{#slug}`` suffix in the source.
+            out.append(f"### {heading.title()}")
             out.append("")
         for line in lines:
             if line == "":
@@ -102,13 +135,14 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 body {{ font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
        line-height: 1.5; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }}
 h1 {{ font-size: 1.4rem; margin-bottom: 1.5rem; }}
-h2 {{ font-size: 1.15rem; margin-top: 2rem; margin-bottom: 0.5rem;
-      border-bottom: 1px solid #ccc; padding-bottom: 0.25rem; }}
+h3 {{ font-size: 1.15rem; margin-top: 2rem; margin-bottom: 0.5rem;
+      border-bottom: 1px solid #ccc; padding-bottom: 0.25rem;
+      scroll-margin-top: 1rem; }}
 p  {{ margin: 0.35rem 0; }}
 .report-meta {{ color: #666; font-size: 0.9rem; margin-bottom: 2rem; }}
 @media (prefers-color-scheme: dark) {{
   body {{ background: #1c1c1e; color: #eaeaea; }}
-  h2 {{ border-color: #444; }}
+  h3 {{ border-color: #444; }}
   .report-meta {{ color: #999; }}
 }}
 </style>
@@ -128,16 +162,33 @@ def to_html(
     """Render the plain-text report as a self-contained HTML5 document.
 
     The HTML is intentionally semantic first, styled second: section
-    headings map to ``<h2>``, each non-empty line becomes its own
-    ``<p>``. Screen readers can therefore navigate by heading the same
-    way they navigate the plain text report; the embedded CSS only
-    affects the visual rendering for sighted users (with a dark-mode
-    media query so the page does not glare on macOS/Win11 dark themes).
+    headings map to ``<h3 id="…">``, each non-empty line becomes its
+    own ``<p>``. Screen readers can therefore navigate by heading the
+    same way they navigate the plain text report, and the per-section
+    ``id`` attributes give every heading a stable URL fragment so the
+    file can be opened directly at a specific section (for example
+    ``…/report.html#loudness``). The embedded CSS only affects the
+    visual rendering for sighted users (with a dark-mode media query so
+    the page does not glare on macOS/Win11 dark themes).
+
+    Multi-file reports can repeat the same heading several times (one
+    "File Info" per analysed track). We keep every anchor unique by
+    appending ``-2``, ``-3``, … to later collisions in document order
+    — that way a generated link to the first section keeps working
+    even after another file's section was added below it.
     """
     body_chunks: list[str] = []
+    used_anchors: dict[str, int] = {}
     for heading, lines in _split_sections(report_text):
         if heading is not None:
-            body_chunks.append(f"<h2>{html.escape(heading.title())}</h2>")
+            base_slug = _slugify_for_anchor(heading)
+            count = used_anchors.get(base_slug, 0) + 1
+            used_anchors[base_slug] = count
+            anchor = base_slug if count == 1 else f"{base_slug}-{count}"
+            body_chunks.append(
+                f'<h3 id="{html.escape(anchor, quote=True)}">'
+                f"{html.escape(heading.title())}</h3>"
+            )
         for line in lines:
             if line == "":
                 continue

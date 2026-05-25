@@ -47,13 +47,15 @@ def test_heading_detection_rejects_empty_or_numeric():
 # ---------------------------------------------------------------------------
 
 
-def test_markdown_uses_h2_for_sections():
+def test_markdown_uses_h3_for_sections():
     md = to_markdown(SAMPLE)
-    assert "## File Info" in md
-    assert "## Loudness Summary" in md
-    assert "## Recommendations" in md
+    assert "### File Info" in md
+    assert "### Loudness Summary" in md
+    assert "### Recommendations" in md
     # Headings collapse from ALL CAPS to title case.
-    assert "## FILE INFO" not in md
+    assert "### FILE INFO" not in md
+    # Stay in lock-step with the HTML export — no stray h2 escapes.
+    assert "\n## " not in md
 
 
 def test_markdown_preserves_every_body_line():
@@ -95,11 +97,36 @@ def test_html_is_valid_html5_document():
     assert "</body>" in out
 
 
-def test_html_wraps_sections_in_h2():
+def test_html_wraps_sections_in_h3_with_anchor():
     out = to_html(SAMPLE)
-    assert "<h2>File Info</h2>" in out
-    assert "<h2>Loudness Summary</h2>" in out
-    assert "<h2>Recommendations</h2>" in out
+    assert '<h3 id="file-info">File Info</h3>' in out
+    assert '<h3 id="loudness-summary">Loudness Summary</h3>' in out
+    assert '<h3 id="recommendations">Recommendations</h3>' in out
+
+
+def test_html_keeps_anchors_unique_across_duplicate_headings():
+    # Multi-file reports list "FILE INFO" once per analysed track. We
+    # don't want every anchor to point at the first one, so collisions
+    # get a counted suffix in document order.
+    text = (
+        "FILE INFO\nFirst.\n\n"
+        "LOUDNESS SUMMARY\nA.\n\n"
+        "FILE INFO\nSecond.\n\n"
+        "LOUDNESS SUMMARY\nB.\n"
+    )
+    out = to_html(text)
+    assert '<h3 id="file-info">File Info</h3>' in out
+    assert '<h3 id="file-info-2">File Info</h3>' in out
+    assert '<h3 id="loudness-summary">Loudness Summary</h3>' in out
+    assert '<h3 id="loudness-summary-2">Loudness Summary</h3>' in out
+
+
+def test_html_anchors_handle_german_umlauts():
+    # The German catalogue's heading "ÜBERBLICK" must produce a
+    # readable, ASCII-only anchor — the transliteration in
+    # _slugify_for_anchor turns Ü into "ue".
+    out = to_html("ÜBERBLICK\nBeispiel.\n")
+    assert 'id="ueberblick"' in out
 
 
 def test_html_body_lines_become_paragraphs():

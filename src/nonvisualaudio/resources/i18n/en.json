@@ -457,7 +457,7 @@
   "report.loudness.true_peak.close": "True peak is close to full scale.",
 
   "report.dynamics.crest": "Crest factor: {value} dB — the gap between peak and average level (higher means livelier transients).",
-  "report.dynamics.dr_score": "Dynamic range score: {score} — a simplified TT-DR figure (higher means more headroom against the loud passages).",
+  "report.dynamics.dr_score": "Dynamic range score: {score} — how much the short peaks still stand out from the loudest passages. Higher means more punch; lower means a limiter has pushed the peaks down to the average level of the loud sections. Rule of thumb: 8 and up reads as open, 5 to 7 is typical pop mastering, below 5 is heavily compressed.",
   "report.dynamics.verdict.compressed": "Dynamics read as highly compressed — very little headroom between peaks and average level.",
   "report.dynamics.verdict.compressed_lively": "Dynamics read as compressed in level variation, though the transient peaks are still alive.",
   "report.dynamics.verdict.compressed_lively.project": "Across the project, dynamics read as compressed in level variation, though the transient peaks are still alive.",

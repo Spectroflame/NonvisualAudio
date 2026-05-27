@@ -1136,22 +1136,21 @@ class MainWindow(wx.Frame):
         return self._format_eta(self._progress_eta_seconds)
 
     def _on_analysis_progress(self, percent: int, stage: str) -> None:
+        # The gauge owns the percent — both visually and as a screen-reader
+        # value — so the stage text and the status bar carry only the
+        # phase name and the ETA. Two competing percent readings on
+        # neighbouring widgets confused screen-reader users; one source
+        # of truth keeps the announcements coherent.
         self.progress.SetValue(max(0, min(100, int(percent))))
         eta = self._compute_eta_label(int(percent))
         if eta is None:
-            line = t("ui.progress.line", stage=stage, percent=percent)
-            hint = t("ui.progress.hint", stage=stage, percent=percent)
-            status = t("ui.progress.status", stage=stage, percent=percent)
+            line = t("ui.progress.line", stage=stage)
+            hint = t("ui.progress.hint", stage=stage)
+            status = t("ui.progress.status", stage=stage)
         else:
-            line = t(
-                "ui.progress.line.with_eta", stage=stage, percent=percent, eta=eta
-            )
-            hint = t(
-                "ui.progress.hint.with_eta", stage=stage, percent=percent, eta=eta
-            )
-            status = t(
-                "ui.progress.status.with_eta", stage=stage, percent=percent, eta=eta
-            )
+            line = t("ui.progress.line.with_eta", stage=stage, eta=eta)
+            hint = t("ui.progress.hint.with_eta", stage=stage, eta=eta)
+            status = t("ui.progress.status.with_eta", stage=stage, eta=eta)
         self.progress_label.ChangeValue(line)
         a11y.update_help(self.progress_label, hint)
         self.SetStatusText(status)

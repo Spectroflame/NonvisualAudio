@@ -1,3 +1,35 @@
+NONVISUALAUDIO — VERSION 2.1.0
+
+Neben Stabilitätsverbesserungen unter der Haube bringt dieses Update
+folgende neue Funktionen und Fehlerbehebungen mit:
+
+Neu
+
+- Präzisere Reports: Die Analyseausgabe wurde komplett überarbeitet,
+  um Ergebnisse noch kompakter und ohne Textballast auszugeben
+  (stumme Frequenzbänder werden nun zusammengefasst).
+- Stereo-Bild-Analyse: Neuer Report-Block beurteilt Korrelation,
+  Mono-Kompatibilität und Stereo-Breite.
+- Restzeit-Schätzung: Der Fortschrittsbalken zeigt jetzt zusätzlich
+  zur Prozentangabe eine laufend aktualisierte Restzeit an.
+- Stabilere Engine: Die Analyse bietet jetzt besseren Schutz vor
+  Speicherüberlastung bei sehr langen Dateien (wird in künftigen
+  Versionen weiter ausgebaut).
+- Export-Funktion: Reports können für die spätere Einsicht nun
+  flexibel als Textdatei, per Überschriften navigierbares HTML oder
+  Markdown-Datei exportiert werden.
+
+Fehlerbehebungen
+
+- macOS-Import-Fix: Versteckte Systemdateien werden beim Importieren
+  von Ordnern jetzt ignoriert und bringen die Engine nicht mehr zum
+  Absturz.
+- Fehlerbehebung im Clipboard-Drop: Cmd+V und Strg+V lösen jetzt
+  zuverlässig beim ersten Mal aus. Weiterhin wird nun erkannt, ob
+  der Fokus im Target-Bereich oder im Referenz-Bereich sitzt, und
+  der Inhalt entsprechend dort eingefügt.
+
+
 NONVISUALAUDIO — VERSION 2.0.4
 
 Stabilitäts-Release mit neuem Diagnosebericht, RAM-Vorabprüfung und

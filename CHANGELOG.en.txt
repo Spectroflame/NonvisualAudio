@@ -1,0 +1,28 @@
+NONVISUALAUDIO — VERSION 2.1.0
+
+Alongside under-the-hood stability work, this update brings the
+following new features and bug fixes:
+
+New
+
+- Tighter reports: the analysis output has been overhauled to come
+  back more compact and without filler text (silent frequency bands
+  are now grouped into a single line).
+- Stereo image analysis: a new report block covers correlation,
+  mono compatibility, and stereo width.
+- Estimated time remaining: the progress bar now shows a live
+  countdown alongside the percentage.
+- Steadier engine: the analyzer now guards against memory overload
+  on very long files (further hardening to come in future releases).
+- Export options: reports can now be saved for later review as a
+  plain-text file, a heading-navigable HTML file, or a Markdown
+  file.
+
+Bug fixes
+
+- macOS import fix: hidden system files are now skipped when
+  importing folders and no longer crash the engine.
+- Clipboard-drop fix: Cmd+V and Ctrl+V now trigger reliably on the
+  first try. The app also detects whether the focus is in the
+  target area or the reference area and pastes the content
+  accordingly.

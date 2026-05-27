@@ -40,16 +40,19 @@ from nonvisualaudio.reporting.comparison import (
     build_reference_comparison,
 )
 from nonvisualaudio.reporting.project_report import build_project_report
+from nonvisualaudio.reporting.templates import heading
 
 log = logging.getLogger("nonvisualaudio.worker")
 
 
 def _file_section_header(index: int, total: int, filename: str) -> str:
-    """Plain-text header between per-file report sections.
+    """Legacy plain-text header between per-file report sections.
 
-    Screen readers read "equals equals equals" letter-by-letter, so we
-    avoid punctuation banners — just a clear heading line in the same
-    style as the other section headings.
+    Kept for backward compatibility — the multi-file batch flow now
+    embeds each file's report at its own ``<h2>`` ("Track X: filename")
+    via :func:`build_report` instead of prepending a separate ALL-CAPS
+    line. The function is no longer called from :class:`AnalysisWorker`
+    but other call sites (tests, future use) may still reference it.
     """
     return t("ui.worker.file_section", index=index, total=total, filename=filename)
 
@@ -280,6 +283,14 @@ class AnalysisWorker:
         report_parts: list[tuple[str, str]] = []  # (filename, rendered section)
         failures: list[tuple[str, UserFacingError]] = []
 
+        # Heading hierarchy. A multi-file batch nests each file under a
+        # "Track X: filename" <h2>, so the per-file inner sections push
+        # down to <h3>. A single-file run keeps the filename as the
+        # <h1> of its own report and the sections live at <h2>.
+        is_batch = n_targets > 1
+        per_file_title_level = 2 if is_batch else 1
+        per_file_section_level = 3 if is_batch else 2
+
         for i, target_path in enumerate(self._targets):
             slice_start = targets_start + per_file * i
             slice_end = targets_end if i == n_targets - 1 else slice_start + per_file
@@ -349,20 +360,36 @@ class AnalysisWorker:
             for key in self._genre_keys:
                 profile = genre_profiles.GENRES.get(key)
                 if profile:
-                    extras.append(build_genre_comparison(result, profile))
+                    extras.append(
+                        build_genre_comparison(
+                            result, profile, level=per_file_section_level
+                        )
+                    )
             if reference is not None:
                 extras.append(
                     build_reference_comparison(
                         result,
                         reference,
                         reference_is_project=len(self._reference_paths) > 1,
+                        level=per_file_section_level,
                     )
                 )
             try:
+                if is_batch:
+                    title = t(
+                        "report.title.batch.file",
+                        index=i + 1,
+                        filename=filename,
+                    )
+                else:
+                    title = t("report.title.single", filename=filename)
                 section = build_report(
                     result,
                     extra_sections=extras,
                     sections=self._sections,
+                    title=title,
+                    title_level=per_file_title_level,
+                    section_level=per_file_section_level,
                 )
             except Exception as exc:  # noqa: BLE001 — report builder is deterministic but paranoid
                 log.exception("report builder failed for %s", filename)
@@ -423,12 +450,14 @@ class AnalysisWorker:
             full_report = report_parts[0][1]
         else:
             chunks: list[str] = []
+            # Batch wrapper <h1>: every per-file section already arrives
+            # with its own "Track X" <h2>, so this top heading sets the
+            # overall document title and gives the screen reader a
+            # single anchor to land on when the report opens.
+            chunks.append(heading(t("report.title.batch"), level=1))
             if error_block:
                 chunks.append(error_block)
-            total_ok = len(report_parts)
-            for i, (path, part) in enumerate(report_parts, start=1):
-                if total_ok > 1 or failures:
-                    chunks.append(_file_section_header(i, total_ok, Path(path).name))
+            for _path, part in report_parts:
                 chunks.append(part)
             full_report = "\n\n".join(chunks)
 
@@ -523,12 +552,14 @@ class AnalysisWorker:
             return
 
         extras: list[str] = []
+        # Project-mode combined sections sit at <h2>, so the comparison
+        # blocks that get interleaved with them have to match.
         for key in self._genre_keys:
             profile = genre_profiles.GENRES.get(key)
             if profile:
                 extras.append(
                     build_genre_comparison(
-                        project.combined, profile, project=True
+                        project.combined, profile, project=True, level=2
                     )
                 )
         if reference is not None:
@@ -538,6 +569,7 @@ class AnalysisWorker:
                     reference,
                     project=True,
                     reference_is_project=len(self._reference_paths) > 1,
+                    level=2,
                 )
             )
 

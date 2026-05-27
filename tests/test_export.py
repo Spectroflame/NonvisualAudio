@@ -165,3 +165,68 @@ def test_plain_text_normalises_old_mac_line_endings():
 def test_plain_text_passes_unix_through_unchanged():
     text = "LINE ONE\nline two\n"
     assert to_plain_text(text) == text
+
+
+# ---------------------------------------------------------------------------
+# Heading hierarchy (level 1 / 2 / 3)
+# ---------------------------------------------------------------------------
+
+
+HIERARCHY_SAMPLE = """Analysis: demo.wav
+==================
+
+File Info
+---------
+Filename: demo.wav.
+
+LOUDNESS SUMMARY
+Integrated loudness: minus 21.4 LUFS.
+"""
+
+
+def test_html_emits_h1_for_level_1_underlined_heading():
+    out = to_html(HIERARCHY_SAMPLE)
+    # Level 1 → <h1>. Case is preserved (no .title() for level 1 / 2),
+    # so the filename's lower-case extension stays intact in the HTML.
+    assert '<h1 id="analysis-demo-wav">Analysis: demo.wav</h1>' in out
+
+
+def test_html_emits_h2_for_level_2_dash_underlined_heading():
+    out = to_html(HIERARCHY_SAMPLE)
+    assert '<h2 id="file-info">File Info</h2>' in out
+
+
+def test_html_keeps_h3_for_legacy_all_caps_heading():
+    # Level-3 (the un-decorated ALL CAPS heading) is title-cased on the
+    # way out so HTML readers do not see shouting.
+    out = to_html(HIERARCHY_SAMPLE)
+    assert '<h3 id="loudness-summary">Loudness Summary</h3>' in out
+
+
+def test_markdown_emits_one_to_three_hashes_matching_level():
+    md = to_markdown(HIERARCHY_SAMPLE)
+    assert "# Analysis: demo.wav" in md
+    assert "## File Info" in md
+    assert "### Loudness Summary" in md
+
+
+def test_html_no_outer_h1_when_body_carries_its_own():
+    # The previous template injected a fixed <h1>{title}</h1> from the
+    # template arg into the body. Now the body's own <h1> is the only
+    # one — that keeps screen readers from announcing two competing
+    # page titles. Only the <head><title> survives.
+    out = to_html(HIERARCHY_SAMPLE, title="My Tab Title")
+    assert "<title>My Tab Title</title>" in out
+    # The fixed-template <h1> is gone — only the body's <h1> appears.
+    assert out.count("<h1") == 1
+
+
+def test_html_handles_short_underline_below_heading_text():
+    # A canonical RST underline matches the heading length exactly, but
+    # we accept underlines that are at least as long. Anything shorter
+    # falls through to body text.
+    out = to_html("Heading\n=====\nLine.\n")
+    # Three "=" is below the heading length (7), so this is NOT an
+    # underline → no <h1>. The "Heading" line becomes a <p>.
+    assert "<h1" not in out
+    assert "<p>Heading</p>" in out

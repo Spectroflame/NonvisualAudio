@@ -31,8 +31,16 @@ from nonvisualaudio.reporting.templates import (
 def _project_header(project: ProjectResult) -> str:
     n = len(project.files)
     total = project.combined.file_info.duration_seconds
-    lines = [heading(t("report.heading.project"))]
-    lines.append(t("report.project.name", name=project.project_name))
+    # The project name now lives in the level-1 heading itself rather
+    # than on a separate "Project name: …" body line — the heading is
+    # what screen readers and the HTML <h1> use as the document title,
+    # so duplicating the name underneath was just noise.
+    lines = [
+        heading(
+            t("report.title.project", name=project.project_name),
+            level=1,
+        )
+    ]
     count_key = (
         "report.project.file_count.one"
         if n == 1
@@ -92,8 +100,8 @@ def _loudness_consistency(project: ProjectResult) -> list[str]:
     ]
 
 
-def _consistency_section(project: ProjectResult) -> str:
-    lines = [heading(t("report.heading.consistency"))]
+def _consistency_section(project: ProjectResult, *, level: int = 2) -> str:
+    lines = [heading(t("report.heading.consistency"), level=level)]
     body = _loudness_consistency(project)
     if not body:
         body = [t("report.project.no_consistency_findings")]
@@ -129,7 +137,9 @@ def build_project_report(
     # Combined inner report. The header was already emitted above (or
     # intentionally omitted), so suppress the inner FILE INFO block.
     # ``project=True`` flips verdict wording from "the file" to "the
-    # project" throughout the inner report.
+    # project" throughout the inner report. The combined sections sit
+    # directly under the project's <h1>, so they emit at <h2> — no
+    # extra wrapper, no inner <h1>.
     inner_sections = selected.with_disabled(file_info=False)
     if inner_sections.any_enabled() or (selected.comparison and extra_sections):
         combined_text = build_report(
@@ -137,11 +147,13 @@ def build_project_report(
             extra_sections=extra_sections,
             sections=inner_sections,
             project=True,
+            title=None,
+            section_level=2,
         ).rstrip()
         if combined_text:
             chunks.append(combined_text)
 
     if include_consistency and len(project.files) > 1:
-        chunks.append(_consistency_section(project))
+        chunks.append(_consistency_section(project, level=2))
 
     return "\n\n".join(chunks) + "\n"

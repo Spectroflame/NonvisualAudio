@@ -60,13 +60,13 @@ def test_default_sections_match_legacy_layout():
 def test_only_loudness_keeps_just_that_section():
     sections = ReportSections.from_keys(["loudness"])
     text = build_report(_make_result(), sections=sections)
-    assert "LOUDNESS SUMMARY" in text
+    assert "Loudness Summary" in text
     for skipped in (
-        "FILE INFO",
-        "DYNAMICS SUMMARY",
-        "FREQUENCY BALANCE",
-        "OVERALL ASSESSMENT",
-        "RECOMMENDATIONS",
+        "File Info",
+        "Dynamics Summary",
+        "Frequency Balance",
+        "Overall Assessment",
+        "Possible Action Options",
     ):
         assert skipped not in text, f"{skipped!r} should be hidden"
 
@@ -74,10 +74,10 @@ def test_only_loudness_keeps_just_that_section():
 def test_only_frequency_keeps_just_that_section():
     sections = ReportSections.from_keys(["frequency"])
     text = build_report(_make_result(), sections=sections)
-    assert "FREQUENCY BALANCE" in text
-    assert "LOUDNESS SUMMARY" not in text
-    assert "DYNAMICS SUMMARY" not in text
-    assert "RECOMMENDATIONS" not in text
+    assert "Frequency Balance" in text
+    assert "Loudness Summary" not in text
+    assert "Dynamics Summary" not in text
+    assert "Possible Action Options" not in text
 
 
 def test_comparison_flag_drops_extras_when_off():
@@ -99,7 +99,7 @@ def test_unknown_keys_are_ignored():
     # must not crash the dialog or emit empty headings.
     sections = ReportSections.from_keys(["loudness", "unknown_section"])
     text = build_report(_make_result(), sections=sections)
-    assert "LOUDNESS SUMMARY" in text
+    assert "Loudness Summary" in text
 
 
 def test_to_keys_round_trips_through_from_keys():
@@ -119,11 +119,11 @@ def test_none_sections_renders_nothing_but_a_trailing_newline():
     text = build_report(_make_result(), sections=ReportSections.none())
     # No headings at all.
     for upper in (
-        "FILE INFO",
-        "LOUDNESS SUMMARY",
-        "DYNAMICS SUMMARY",
-        "FREQUENCY BALANCE",
-        "OVERALL ASSESSMENT",
-        "RECOMMENDATIONS",
+        "File Info",
+        "Loudness Summary",
+        "Dynamics Summary",
+        "Frequency Balance",
+        "Overall Assessment",
+        "Possible Action Options",
     ):
         assert upper not in text

@@ -108,8 +108,28 @@ def fmt_peak_time(seconds: float) -> str:
     return fmt_duration(seconds)
 
 
-def heading(title: str) -> str:
-    return title.upper()
+def heading(title: str, level: int = 3) -> str:
+    """Render a section heading at one of three levels.
+
+    Levels 1 and 2 keep the title's own casing (so a filename in an
+    ``<h1>`` reads as ``Analyse: demo.wav`` rather than the shouted
+    ``ANALYSE: DEMO.WAV`` — the underline alone is enough to mark the
+    line as a heading for the export pipeline). Level 3 stays
+    ALL-CAPS, matching the long-standing in-app text-widget convention
+    for per-section blocks; the HTML/Markdown exporters then
+    title-case that ALL-CAPS form back into ``Loudness`` etc. on the
+    way out.
+
+    Levels 1 and 2 add an RST-style underline (``=`` or ``-``) on the
+    following line; the HTML/Markdown exporters use that underline to
+    lift the heading into ``<h1>`` / ``<h2>`` (or ``#`` / ``##``).
+    """
+    if level not in (1, 2, 3):
+        raise ValueError(f"heading level must be 1, 2, or 3, not {level}")
+    if level == 3:
+        return title.upper()
+    underline_char = "=" if level == 1 else "-"
+    return f"{title}\n{underline_char * len(title)}"
 
 
 def paragraph(*sentences: str) -> str:

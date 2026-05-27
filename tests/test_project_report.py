@@ -160,12 +160,12 @@ def test_project_header_lists_every_track():
         )
     )
     report = build_project_report(project)
-    assert "PROJECT" in report
+    assert "Project: My Album" in report
     assert "track_01.wav" in report
     assert "track_02.wav" in report
     assert "track_03.wav" in report
     # The combined sections from the inner builder show up.
-    assert "LOUDNESS SUMMARY" in report
+    assert "Loudness Summary" in report
 
 
 def test_consistency_block_names_loudest_and_quietest_track():
@@ -193,6 +193,26 @@ def test_consistency_block_says_consistent_when_spread_is_tiny():
     assert "consistent level" in report.lower()
 
 
+def test_project_header_uses_level_1_heading_with_project_name():
+    """The project's overall title is the document's <h1> — exactly one
+    line, RST-underlined with ``=``, carrying the project name. The
+    legacy "Project name: …" body line is gone because the name now
+    lives in the heading itself.
+    """
+    files = (
+        _make_file_result("a.wav", -14.0, 10.0),
+        _make_file_result("b.wav", -14.0, 10.0),
+    )
+    project = _make_project(files)
+    report = build_project_report(project)
+    assert "Project: My Album" in report
+    # Underline marker on the next line lifts this to <h1> in the HTML
+    # export. The length matches the heading text exactly.
+    assert "Project: My Album\n" + "=" * len("Project: My Album") in report
+    # The redundant "Project name: …" body line is gone.
+    assert "Project name:" not in report
+
+
 def test_consistency_block_does_not_mention_dynamics_or_frequency():
     # User feedback: dynamics and frequency outliers added noise without
     # signal — the section must stay loudness-only.
@@ -203,7 +223,7 @@ def test_consistency_block_does_not_mention_dynamics_or_frequency():
     )
     project = _make_project(files)
     consistency = build_project_report(project).split(
-        "CROSS-TRACK CONSISTENCY"
+        "Cross-Track Consistency"
     )[1]
     for term in (
         "crest factor",
@@ -227,11 +247,11 @@ def test_section_filter_drops_combined_blocks_but_keeps_header():
     )
     sections = ReportSections.from_keys(["file_info", "loudness"])
     report = build_project_report(project, sections=sections)
-    assert "PROJECT" in report
-    assert "LOUDNESS SUMMARY" in report
-    assert "DYNAMICS SUMMARY" not in report
-    assert "FREQUENCY BALANCE" not in report
-    assert "RECOMMENDATIONS" not in report
+    assert "Project: My Album" in report
+    assert "Loudness Summary" in report
+    assert "Dynamics Summary" not in report
+    assert "Frequency Balance" not in report
+    assert "Possible Action Options" not in report
 
 
 def test_consistency_block_can_be_disabled():
@@ -242,7 +262,7 @@ def test_consistency_block_can_be_disabled():
         )
     )
     report = build_project_report(project, include_consistency=False)
-    assert "CROSS-TRACK CONSISTENCY" not in report
+    assert "Cross-Track Consistency" not in report
 
 
 def test_consistency_block_skipped_for_single_file_projects():
@@ -250,7 +270,7 @@ def test_consistency_block_skipped_for_single_file_projects():
         (_make_file_result("only.wav", -14.0, 10.0),)
     )
     report = build_project_report(project)
-    assert "CROSS-TRACK CONSISTENCY" not in report
+    assert "Cross-Track Consistency" not in report
 
 
 def test_project_mode_wording_addresses_the_project_not_the_file():

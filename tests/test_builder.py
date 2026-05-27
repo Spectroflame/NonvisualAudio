@@ -50,14 +50,19 @@ def _make_result(**overrides) -> AnalysisResult:
 def test_report_has_all_required_sections():
     report = build_report(_make_result())
     for section in (
-        "FILE INFO",
-        "LOUDNESS SUMMARY",
-        "DYNAMICS SUMMARY",
-        "FREQUENCY BALANCE",
-        "OVERALL ASSESSMENT",
-        "RECOMMENDATIONS",
+        "File Info",
+        "Loudness Summary",
+        "Dynamics Summary",
+        "Frequency Balance",
+        "Overall Assessment",
     ):
         assert section in report, f"missing section: {section}"
+    # The recommendations section is now conditional: the default fixture
+    # has no peaks, normal loudness, and a balanced spectrum, so nothing
+    # actionable comes up. The Possible Action Options heading is then
+    # suppressed and only the "all good" sentence remains in the flow.
+    assert "Possible Action Options" not in report
+    assert "No specific corrective actions" in report
 
 
 def test_report_contains_no_markdown_symbols():
@@ -106,7 +111,7 @@ def test_frequency_section_names_the_loudest_band_as_the_anchor():
     # Sub -14, bass -11, low_mid -9, mid -8, presence -10, air -18.
     # Loudest: mid (-8). Quietest: air (-18). Spread: 10 dB.
     report = build_report(_make_result())
-    freq = report.split("FREQUENCY BALANCE")[1].split("\n\n")[0]
+    freq = report.split("Frequency Balance")[1].split("\n\n")[0]
     # The anchor sentence must name the actual loudest band.
     assert "The loudest band in this file is the midrange" in freq
     # Other bands are expressed as "N dB quieter" without any "average" jargon.
@@ -139,7 +144,7 @@ def test_overall_assessment_mentions_the_actual_loudest_band_when_skewed():
         )
     )
     report = build_report(skewed)
-    overall = report.split("OVERALL ASSESSMENT")[1].split("RECOMMENDATIONS")[0]
+    overall = report.split("Overall Assessment")[1].split("Possible Action Options")[0]
     assert "generally balanced" not in overall
     assert "sub bass" in overall
     assert "air" in overall
@@ -164,7 +169,7 @@ def test_dynamics_verdict_flags_compressed_lively_mismatch():
         dr_score=12.0,
     )
     report = build_report(_make_result(loudness=loud, dynamics=dyn))
-    dyn_block = report.split("DYNAMICS SUMMARY")[1].split("\n\n")[0]
+    dyn_block = report.split("Dynamics Summary")[1].split("\n\n")[0]
     assert "wide" not in dyn_block.lower()
     assert "lively" in dyn_block.lower() or "transient" in dyn_block.lower()
 
@@ -184,7 +189,7 @@ def test_dynamics_verdict_requires_both_metrics_for_wide_verdict():
         dr_score=14.0,
     )
     report = build_report(_make_result(loudness=loud, dynamics=dyn))
-    dyn_block = report.split("DYNAMICS SUMMARY")[1].split("\n\n")[0]
+    dyn_block = report.split("Dynamics Summary")[1].split("\n\n")[0]
     assert "wide" in dyn_block.lower()
 
 
@@ -198,7 +203,7 @@ def test_lra_verbal_verdict_appears_in_loudness_block():
         loudness_range_lu=2.0,
     )
     report = build_report(_make_result(loudness=loud))
-    loud_block = report.split("LOUDNESS SUMMARY")[1].split("\n\n")[0]
+    loud_block = report.split("Loudness Summary")[1].split("\n\n")[0]
     assert "very narrow" in loud_block.lower()
 
 
@@ -219,13 +224,13 @@ def test_overall_no_longer_calls_compressed_file_dynamic():
         dr_score=12.0,
     )
     report = build_report(_make_result(loudness=loud, dynamics=dyn))
-    overall = report.split("OVERALL ASSESSMENT")[1].split("\n\n")[0]
+    overall = report.split("Overall Assessment")[1].split("\n\n")[0]
     assert "dynamic recording" not in overall.lower()
 
 
 def test_crest_factor_line_includes_explanation():
     report = build_report(_make_result())
-    dyn_block = report.split("DYNAMICS SUMMARY")[1].split("\n\n")[0]
+    dyn_block = report.split("Dynamics Summary")[1].split("\n\n")[0]
     # The value is still there, plus a one-liner explaining what it is.
     assert "13.2" in dyn_block
     assert "peak" in dyn_block.lower() and "average" in dyn_block.lower()
@@ -233,7 +238,7 @@ def test_crest_factor_line_includes_explanation():
 
 def test_stereo_section_appears_with_heading():
     report = build_report(_make_result())
-    assert "STEREO IMAGE" in report
+    assert "Stereo Image" in report
 
 
 def test_mono_file_marks_stereo_section_as_not_applicable():
@@ -247,7 +252,7 @@ def test_mono_file_marks_stereo_section_as_not_applicable():
         )
     )
     report = build_report(mono)
-    stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
+    stereo_block = report.split("Stereo Image")[1].split("\n\n")[0]
     assert "mono" in stereo_block.lower()
     # No verdicts on correlation / mono drop / width when the file is mono.
     assert "correlation" not in stereo_block.lower()
@@ -262,7 +267,7 @@ def test_stereo_section_reports_correlation_value_and_natural_verdict():
         side_to_mid_db=-9.0,
     )
     report = build_report(_make_result(stereo=stereo))
-    stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
+    stereo_block = report.split("Stereo Image")[1].split("\n\n")[0]
     assert "0.70" in stereo_block
     assert "natural" in stereo_block.lower()
     assert "excellent" in stereo_block.lower()  # mono compatibility verdict
@@ -277,7 +282,7 @@ def test_stereo_section_flags_out_of_phase_signal():
         side_to_mid_db=10.0,
     )
     report = build_report(_make_result(stereo=stereo))
-    stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
+    stereo_block = report.split("Stereo Image")[1].split("\n\n")[0]
     assert "out of phase" in stereo_block.lower() or "pushing against" in stereo_block.lower()
     assert "problematic" in stereo_block.lower()
 
@@ -291,7 +296,7 @@ def test_stereo_section_surfaces_worst_block_when_it_diverges():
         side_to_mid_db=-9.0,
     )
     report = build_report(_make_result(stereo=stereo))
-    stereo_block = report.split("STEREO IMAGE")[1].split("\n\n")[0]
+    stereo_block = report.split("Stereo Image")[1].split("\n\n")[0]
     assert "worst block" in stereo_block.lower()
 
 
@@ -304,7 +309,7 @@ def test_stereo_low_correlation_triggers_recommendation():
         side_to_mid_db=-2.0,
     )
     report = build_report(_make_result(stereo=stereo))
-    recs_block = report.split("RECOMMENDATIONS")[1]
+    recs_block = report.split("Possible Action Options")[1]
     assert "goniometer" in recs_block.lower() or "mono check" in recs_block.lower()
 
 
@@ -317,7 +322,7 @@ def test_stereo_mono_drop_triggers_recommendation():
         side_to_mid_db=-2.0,
     )
     report = build_report(_make_result(stereo=stereo))
-    recs_block = report.split("RECOMMENDATIONS")[1]
+    recs_block = report.split("Possible Action Options")[1]
     assert "mono playback" in recs_block.lower() or "mono-summier" in recs_block.lower()
 
 
@@ -342,5 +347,9 @@ def test_recommendations_fallback_when_nothing_to_fix():
         ),
     )
     report = build_report(balanced)
-    assert "RECOMMENDATIONS" in report
+    # When the analysis turns up nothing to act on, the section header is
+    # suppressed entirely — only the "all good" sentence remains in the
+    # flow. Reading a "Possible Action Options" heading followed by
+    # "nothing to do" was the noise the user explicitly asked us to drop.
+    assert "Possible Action Options" not in report
     assert "No specific corrective actions" in report

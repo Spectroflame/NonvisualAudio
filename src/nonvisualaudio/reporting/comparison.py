@@ -51,8 +51,14 @@ def build_genre_comparison(
     genre: GenreProfile,
     *,
     project: bool = False,
+    level: int = 3,
 ) -> str:
-    lines = [heading(t("report.heading.comparison_genre", name=genre.display_name))]
+    lines = [
+        heading(
+            t("report.heading.comparison_genre", name=genre.display_name),
+            level=level,
+        )
+    ]
     label = t("report.comp.typical_prefix", name=genre.display_name.lower())
     lines.append(_lufs_diff_sentence(
         target.loudness.integrated_lufs, genre.target_lufs, label,
@@ -101,6 +107,7 @@ def build_reference_comparison(
     *,
     project: bool = False,
     reference_is_project: bool = False,
+    level: int = 3,
 ) -> str:
     """Compare target against reference.
 
@@ -110,8 +117,13 @@ def build_reference_comparison(
     reference itself was assembled from multiple files (a "reference
     project"); the opening line then reads "Reference project: ..."
     instead of "Reference filename: ...".
+
+    ``level`` controls the heading level so this section nests under
+    whatever wrapper the caller chose (h2 in single-file mode, h3 in
+    the worker's multi-file batch where each file already sits under
+    a "Track X" h2).
     """
-    lines = [heading(t("report.heading.comparison_reference"))]
+    lines = [heading(t("report.heading.comparison_reference"), level=level)]
     intro_key = (
         "report.ref.filename.project"
         if reference_is_project

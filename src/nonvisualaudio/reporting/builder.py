@@ -152,8 +152,8 @@ def _region_label(key_suffix: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _file_info_section(info: FileInfo) -> str:
-    lines = [heading(t("report.heading.file_info"))]
+def _file_info_section(info: FileInfo, *, level: int = 3) -> str:
+    lines = [heading(t("report.heading.file_info"), level=level)]
     lines.append(t("report.file_info.filename", filename=info.filename))
     lines.append(t("report.file_info.duration", duration=fmt_duration(info.duration_seconds)))
     lines.append(t("report.file_info.sample_rate", rate=info.sample_rate))
@@ -188,8 +188,10 @@ def _lra_verdict_key(lra: float) -> str:
     return "report.loudness.lra.verdict.wide"
 
 
-def _loudness_section(loud: LoudnessMetrics, *, project: bool = False) -> str:
-    lines = [heading(t("report.heading.loudness"))]
+def _loudness_section(
+    loud: LoudnessMetrics, *, project: bool = False, level: int = 3
+) -> str:
+    lines = [heading(t("report.heading.loudness"), level=level)]
     lines.append(t("report.loudness.integrated", value=fmt_signed(loud.integrated_lufs)))
     lines.append(t("report.loudness.short_term", value=fmt_signed(loud.short_term_max_lufs)))
     lines.append(t("report.loudness.true_peak", value=fmt_signed(loud.true_peak_dbtp)))
@@ -275,9 +277,13 @@ def _dynamics_verdict_key(crest: float, lra: float) -> str:
 
 
 def _dynamics_section(
-    dyn: DynamicsMetrics, loud: LoudnessMetrics, *, project: bool = False
+    dyn: DynamicsMetrics,
+    loud: LoudnessMetrics,
+    *,
+    project: bool = False,
+    level: int = 3,
 ) -> str:
-    lines = [heading(t("report.heading.dynamics"))]
+    lines = [heading(t("report.heading.dynamics"), level=level)]
     lines.append(t("report.dynamics.crest", value=fmt_signed(dyn.crest_factor_db)))
     lines.append(t("report.dynamics.dr_score", score=int(round(dyn.dr_score))))
 
@@ -382,8 +388,10 @@ def _ranked_bands(bands: BandEnergies) -> list[tuple[str, float, float, float, s
     return entries
 
 
-def _frequency_section(spec: SpectrumMetrics, *, project: bool = False) -> str:
-    lines = [heading(t("report.heading.frequency"))]
+def _frequency_section(
+    spec: SpectrumMetrics, *, project: bool = False, level: int = 3
+) -> str:
+    lines = [heading(t("report.heading.frequency"), level=level)]
     b = spec.bands
     ranked = _ranked_bands(b)
     loudest_name, loudest_db, loudest_lo, loudest_hi, _ = ranked[0]
@@ -487,8 +495,10 @@ def _tonal_balance_phrase(bands: BandEnergies) -> str:
     )
 
 
-def _overall_section(result: AnalysisResult, *, project: bool = False) -> str:
-    lines = [heading(t("report.heading.overall"))]
+def _overall_section(
+    result: AnalysisResult, *, project: bool = False, level: int = 3
+) -> str:
+    lines = [heading(t("report.heading.overall"), level=level)]
     parts: list[str] = []
     loud = result.loudness
     dyn = result.dynamics
@@ -546,9 +556,13 @@ def _stereo_width_verdict_key(side_to_mid_db: float) -> str:
 
 
 def _stereo_section(
-    stereo: StereoMetrics, channels: int, *, project: bool = False
+    stereo: StereoMetrics,
+    channels: int,
+    *,
+    project: bool = False,
+    level: int = 3,
 ) -> str:
-    lines = [heading(t("report.heading.stereo"))]
+    lines = [heading(t("report.heading.stereo"), level=level)]
     if not stereo.is_stereo:
         # Mono input, mixed mono/stereo project, or an unanalysable
         # buffer — keep the section visible (so the screen-reader
@@ -636,9 +650,8 @@ def _peak_fix_recommendation(peak: SpectralPeak) -> str:
 
 
 def _recommendations_section(
-    result: AnalysisResult, *, project: bool = False
+    result: AnalysisResult, *, project: bool = False, level: int = 3
 ) -> str:
-    lines = [heading(t("report.heading.recommendations"))]
     recs: list[str] = []
 
     loud = result.loudness
@@ -679,9 +692,16 @@ def _recommendations_section(
                 )
             )
 
+    # When nothing in the analysis needs corrective attention we drop
+    # the section heading entirely and just leave the "all good"
+    # sentence in the flow. Reading a "Possible Action Options" header
+    # followed by "nothing to do" felt like noise — the user asked for
+    # the bare sentence instead, which is what every export format now
+    # gets.
     if not recs:
-        recs.append(t_subject("report.rec.none", project=project))
+        return t_subject("report.rec.none", project=project)
 
+    lines = [heading(t("report.heading.recommendations"), level=level)]
     lines.extend(recs)
     return "\n".join(lines)
 
@@ -696,6 +716,10 @@ def build_report(
     extra_sections: list[str] | None = None,
     sections: ReportSections | None = None,
     project: bool = False,
+    *,
+    title: str | None = None,
+    title_level: int = 1,
+    section_level: int = 2,
 ) -> str:
     """Return the full report as a single plain-text string.
 
@@ -712,20 +736,44 @@ def build_report(
     file" to "the project" — the project-mode pipeline passes ``True``
     so the report addresses the whole bundle instead of pretending it
     is a single bounced file.
+
+    Heading levels:
+
+      - ``title``: when given, a top heading at ``title_level`` (default
+        1, i.e. ``<h1>``) is prepended to the report. Single-file runs
+        pass the filename here; the worker's multi-file batch passes a
+        per-file "Track X" wrapper at ``title_level=2``; project-mode
+        passes ``None`` because the project header is already emitted
+        outside this function.
+      - ``section_level`` (default 2): heading level used for every
+        per-section block (File Info, Loudness, …). Project-mode and
+        single-file mode keep this at 2; the worker's multi-file batch
+        pushes it down to 3 so each file's sections nest under the
+        per-file ``<h2>`` wrapper.
     """
     selected = sections if sections is not None else ReportSections.all()
 
     blocks: list[str] = []
+    if title is not None:
+        blocks.append(heading(title, level=title_level))
     if selected.file_info:
-        blocks.append(_file_info_section(result.file_info))
+        blocks.append(_file_info_section(result.file_info, level=section_level))
     if selected.loudness:
-        blocks.append(_loudness_section(result.loudness, project=project))
+        blocks.append(
+            _loudness_section(result.loudness, project=project, level=section_level)
+        )
     if selected.dynamics:
-        blocks.append(_dynamics_section(result.dynamics, result.loudness, project=project))
+        blocks.append(
+            _dynamics_section(
+                result.dynamics, result.loudness, project=project, level=section_level
+            )
+        )
     if selected.frequency:
-        blocks.append(_frequency_section(result.spectrum, project=project))
+        blocks.append(
+            _frequency_section(result.spectrum, project=project, level=section_level)
+        )
     if selected.overall:
-        blocks.append(_overall_section(result, project=project))
+        blocks.append(_overall_section(result, project=project, level=section_level))
     if selected.comparison and extra_sections:
         blocks.extend(s for s in extra_sections if s)
     if selected.stereo:
@@ -734,8 +782,11 @@ def build_report(
                 result.stereo,
                 result.file_info.channels,
                 project=project,
+                level=section_level,
             )
         )
     if selected.recommendations:
-        blocks.append(_recommendations_section(result, project=project))
+        blocks.append(
+            _recommendations_section(result, project=project, level=section_level)
+        )
     return "\n\n".join(blocks) + "\n"

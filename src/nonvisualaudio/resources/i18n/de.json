@@ -118,6 +118,8 @@
   "ui.menu.help": "&Hilfe",
   "ui.menu.quit": "&Beenden\tCtrl+Q",
   "ui.menu.quit.hint": "NonvisualAudio schließen.",
+  "ui.menu.paste": "Audio-Dateien aus Zwischenablage &einfügen\tCtrl+V",
+  "ui.menu.paste.hint": "Fügt Audio-Dateien aus der Zwischenablage hinzu. Liegt der Fokus im Referenzbereich, werden sie als Referenz gesetzt; sonst wandern sie in die Datei-Liste.",
   "ui.menu.genre_editor": "&Genre-Profile bearbeiten...\tCtrl+G",
   "ui.menu.genre_editor.hint": "Genre-Referenzprofile hinzufügen, bearbeiten, löschen oder zurücksetzen.",
   "ui.menu.about": "&Über NonvisualAudio\tF1",

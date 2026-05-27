@@ -118,6 +118,8 @@
   "ui.menu.help": "&Help",
   "ui.menu.quit": "&Quit\tCtrl+Q",
   "ui.menu.quit.hint": "Close NonvisualAudio.",
+  "ui.menu.paste": "&Paste Audio Files from Clipboard\tCtrl+V",
+  "ui.menu.paste.hint": "Add audio files from the clipboard. With focus inside the reference area they become the reference; otherwise they go into the targets list.",
   "ui.menu.genre_editor": "Edit &Genre Profiles...\tCtrl+G",
   "ui.menu.genre_editor.hint": "Add, edit, delete, or reset genre reference profiles.",
   "ui.menu.about": "&About NonvisualAudio\tF1",

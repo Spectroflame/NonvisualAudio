@@ -338,12 +338,6 @@ class MainWindow(wx.Frame):
         drop_target_list = _AudioDropTarget(self._add_paths)
         self.targets_view.SetDropTarget(drop_target_list)
 
-        # Global keyboard shortcut Cmd/Ctrl+V to paste copied file
-        # selections. Routed via EVT_CHAR_HOOK on the frame so it fires
-        # no matter which control has focus — including read-only
-        # TextCtrls that would otherwise swallow paste.
-        self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
-
         # Intercept close to cancel a running analysis cleanly.
         self.Bind(wx.EVT_CLOSE, self._on_close)
 
@@ -385,9 +379,20 @@ class MainWindow(wx.Frame):
             )
             menubar.Append(file_menu, t("ui.menu.file"))
 
-        # Edit menu: just the genre editor. Language moved out so the
-        # user finds it directly on the top-level menu bar.
+        # Edit menu: paste-from-clipboard plus the genre editor. The
+        # paste item carries the Cmd/Ctrl+V accelerator that previously
+        # rode on an EVT_CHAR_HOOK at frame level. Menu accelerators on
+        # macOS route through the menu bar before any focused widget
+        # can claim them, which fixed the "press Cmd+V twice" bug — the
+        # char hook missed the first press whenever a native control
+        # (TextCtrl, ListBox) had focus and consumed the key locally.
         edit_menu = wx.Menu()
+        paste_item = edit_menu.Append(
+            wx.ID_ANY,
+            t("ui.menu.paste"),
+            t("ui.menu.paste.hint"),
+        )
+        edit_menu.AppendSeparator()
         genre_editor_item = edit_menu.Append(
             wx.ID_ANY,
             t("ui.menu.genre_editor"),
@@ -475,6 +480,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_diagnostics, diagnostics_item)
         # F1 routes through the same handler — accelerator wired below.
         self._about_menu_id = about_item.GetId()
+        self.Bind(wx.EVT_MENU, self._on_paste_menu, paste_item)
         self.Bind(wx.EVT_MENU, self._on_edit_genres, genre_editor_item)
         self.Bind(wx.EVT_MENU, lambda _e: self._on_language_chosen(None), auto_item)
         self.Bind(wx.EVT_MENU, lambda _e: self._on_language_chosen("en"), en_item)
@@ -602,20 +608,42 @@ class MainWindow(wx.Frame):
             wx.TheClipboard.Close()
         return paths
 
-    def _on_char_hook(self, event: wx.KeyEvent) -> None:
-        # Cmd/Ctrl+V anywhere in the frame pastes from the clipboard.
-        if (
-            (event.CmdDown() or event.ControlDown())
-            and not event.ShiftDown()
-            and not event.AltDown()
-            and event.GetKeyCode() == ord("V")
-        ):
-            paths = self._read_clipboard_paths()
-            if paths:
-                log.info("paste detected: %d raw clipboard path(s)", len(paths))
-                self._add_paths(paths)
+    def _paste_destination_is_reference(self) -> bool:
+        """Return True when the user is working in the reference area.
+
+        Focus on the reference TextCtrl, the "Choose reference" button,
+        or the "Clear reference" button all count as "in the reference
+        area" for paste-routing purposes. Everything else (target list,
+        target buttons, the panel itself, anything unfocused) routes to
+        targets — the intuition is "paste lands where I am working".
+        """
+        focused = wx.Window.FindFocus()
+        if focused is None:
+            return False
+        return focused in (
+            self.reference_label,
+            self.reference_btn,
+            self.clear_reference_btn,
+        )
+
+    def _on_paste_menu(self, event: wx.CommandEvent) -> None:
+        """Handle the Edit → Paste-Audio-Files menu item (Cmd/Ctrl+V).
+
+        Switched from EVT_CHAR_HOOK to a menu accelerator because the
+        char-hook variant missed the first press on macOS whenever a
+        native control had focus and consumed Cmd+V locally — the user
+        then had to press it again. Menu accelerators bypass widget
+        event-routing entirely on macOS, so one press always fires.
+        """
+        paths = self._read_clipboard_paths()
+        if not paths:
+            log.info("paste menu: clipboard had no usable paths")
             return
-        event.Skip()
+        log.info("paste menu: %d raw clipboard path(s)", len(paths))
+        if self._paste_destination_is_reference():
+            self._set_reference_paths(paths)
+        else:
+            self._add_paths(paths)
 
     def _maybe_offer_clipboard_import(self) -> None:
         """Offer to import any audio files found on the clipboard.

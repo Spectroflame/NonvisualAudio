@@ -5,6 +5,16 @@ from nonvisualaudio.reporting.comparison import (
     build_reference_comparison,
 )
 from nonvisualaudio.reporting.genre_profiles import GENRES
+from nonvisualaudio.reporting.templates import Section
+
+
+def _flat(section: Section) -> str:
+    """Heading + body joined into one searchable string."""
+    parts: list[str] = []
+    if section.heading is not None:
+        parts.append(section.heading)
+    parts.extend(section.body)
+    return "\n".join(parts)
 
 
 def test_genre_comparison_flags_loud_file_vs_classical():
@@ -16,7 +26,7 @@ def test_genre_comparison_flags_loud_file_vs_classical():
             loudness_range_lu=4.0,
         )
     )
-    text = build_genre_comparison(loud, GENRES["classical_orchestral"])
+    text = _flat(build_genre_comparison(loud, GENRES["classical_orchestral"]))
     assert "COMPARISON TO" in text
     assert "CLASSICAL" in text
     assert "louder" in text.lower()
@@ -32,7 +42,7 @@ def test_reference_comparison_detects_level_difference():
             loudness_range_lu=8.0,
         )
     )
-    text = build_reference_comparison(target, quieter)
+    text = _flat(build_reference_comparison(target, quieter))
     assert "COMPARISON TO REFERENCE FILE" in text
     assert "louder" in text.lower()
 
@@ -46,9 +56,7 @@ def test_reference_comparison_uses_project_intro_when_reference_is_project():
     # reference_is_project flag so the intro line reads "Reference
     # project: …" instead of "Reference filename: …".
     ref = _make_result()
-    text = build_reference_comparison(
-        target, ref, reference_is_project=True
-    )
+    text = _flat(build_reference_comparison(target, ref, reference_is_project=True))
     assert "Reference project:" in text
     assert "Reference filename:" not in text
 
@@ -65,9 +73,7 @@ def test_reference_comparison_addresses_project_when_target_is_project():
             loudness_range_lu=8.0,
         )
     )
-    text = build_reference_comparison(
-        target, quieter, project=True
-    )
+    text = _flat(build_reference_comparison(target, quieter, project=True))
     # The "X is louder than the reference" sentence speaks of the
     # project (target) instead of "the target".
     assert "the project" in text.lower()

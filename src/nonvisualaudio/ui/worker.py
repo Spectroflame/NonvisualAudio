@@ -40,34 +40,23 @@ from nonvisualaudio.reporting.comparison import (
     build_reference_comparison,
 )
 from nonvisualaudio.reporting.project_report import build_project_report
-from nonvisualaudio.reporting.templates import heading
+from nonvisualaudio.reporting.templates import ReportDoc, Section, heading_text
 
 log = logging.getLogger("nonvisualaudio.worker")
 
 
-def _file_section_header(index: int, total: int, filename: str) -> str:
-    """Legacy plain-text header between per-file report sections.
+def _error_section(failures: list[tuple[str, UserFacingError]]) -> Section | None:
+    """Build an error summary section from per-file failures, or ``None``.
 
-    Kept for backward compatibility — the multi-file batch flow now
-    embeds each file's report at its own ``<h2>`` ("Track X: filename")
-    via :func:`build_report` instead of prepending a separate ALL-CAPS
-    line. The function is no longer called from :class:`AnalysisWorker`
-    but other call sites (tests, future use) may still reference it.
+    Returns ``None`` when there is nothing to report; the caller can
+    use that as a "skip this block" signal without thinking about the
+    inner structure of a :class:`Section`.
     """
-    return t("ui.worker.file_section", index=index, total=total, filename=filename)
-
-
-def _error_section(failures: list[tuple[str, UserFacingError]]) -> str:
-    """Build an error summary section from per-file failures."""
     if not failures:
-        return ""
+        return None
     count = len(failures)
     key = "ui.worker.error_count.one" if count == 1 else "ui.worker.error_count.other"
-    lines = [
-        t("ui.worker.errors_heading"),
-        t(key, count=count),
-        "",
-    ]
+    lines: list[str] = [t(key, count=count), ""]
     for filename, err in failures:
         lines.append(t("ui.worker.error_file_line", filename=filename))
         lines.append(err.title + ".")
@@ -75,10 +64,13 @@ def _error_section(failures: list[tuple[str, UserFacingError]]) -> str:
         if err.hint:
             lines.append(t("ui.worker.error_whatdo", hint=err.hint))
         lines.append("")
-    # Trim trailing blank line.
     while lines and lines[-1] == "":
         lines.pop()
-    return "\n".join(lines)
+    return Section(
+        level=2,
+        heading=heading_text(t("ui.worker.errors_heading"), level=2),
+        body=tuple(lines),
+    )
 
 
 class AnalysisWorker:
@@ -128,7 +120,7 @@ class AnalysisWorker:
     def _emit_progress(self, percent: int, label: str) -> None:
         wx.CallAfter(self._on_progress, percent, label)
 
-    def _emit_done(self, report: str, had_failures: bool) -> None:
+    def _emit_done(self, report: ReportDoc, had_failures: bool) -> None:
         wx.CallAfter(self._on_done, report, had_failures)
 
     def _emit_error(self, err: UserFacingError) -> None:
@@ -280,7 +272,7 @@ class AnalysisWorker:
         targets_end = 90
         per_file = max(1, (targets_end - targets_start) // n_targets)
 
-        report_parts: list[tuple[str, str]] = []  # (filename, rendered section)
+        report_parts: list[tuple[str, ReportDoc]] = []  # (filename, doc)
         failures: list[tuple[str, UserFacingError]] = []
 
         # Heading hierarchy. A multi-file batch nests each file under a
@@ -356,7 +348,7 @@ class AnalysisWorker:
                 result.loudness.integrated_lufs,
                 result.dynamics.crest_factor_db,
             )
-            extras: list[str] = []
+            extras: list[Section] = []
             for key in self._genre_keys:
                 profile = genre_profiles.GENRES.get(key)
                 if profile:
@@ -383,7 +375,7 @@ class AnalysisWorker:
                     )
                 else:
                     title = t("report.title.single", filename=filename)
-                section = build_report(
+                doc = build_report(
                     result,
                     extra_sections=extras,
                     sections=self._sections,
@@ -406,7 +398,7 @@ class AnalysisWorker:
                     )
                 )
                 continue
-            report_parts.append((target_path, section))
+            report_parts.append((target_path, doc))
 
         # Nothing survived: show a single clear error rather than an empty
         # report with a giant error section.
@@ -449,21 +441,27 @@ class AnalysisWorker:
         if len(report_parts) == 1 and not failures:
             full_report = report_parts[0][1]
         else:
-            chunks: list[str] = []
-            # Batch wrapper <h1>: every per-file section already arrives
-            # with its own "Track X" <h2>, so this top heading sets the
+            sections: list[Section] = []
+            # Batch wrapper <h1>: every per-file doc already carries
+            # its own "Track X" <h2>, so this top heading sets the
             # overall document title and gives the screen reader a
             # single anchor to land on when the report opens.
-            chunks.append(heading(t("report.title.batch"), level=1))
-            if error_block:
-                chunks.append(error_block)
+            sections.append(
+                Section(
+                    level=1,
+                    heading=heading_text(t("report.title.batch"), level=1),
+                    body=(),
+                )
+            )
+            if error_block is not None:
+                sections.append(error_block)
             for _path, part in report_parts:
-                chunks.append(part)
-            full_report = "\n\n".join(chunks)
+                sections.extend(part.sections)
+            full_report = ReportDoc(sections=tuple(sections))
 
         log.info(
-            "report ready, length=%d chars, %d file(s) ok, %d failed, total=%.2fs",
-            len(full_report),
+            "report ready, %d section(s), %d file(s) ok, %d failed, total=%.2fs",
+            len(full_report.sections),
             len(report_parts),
             len(failures),
             time.time() - t0,
@@ -551,7 +549,7 @@ class AnalysisWorker:
             )
             return
 
-        extras: list[str] = []
+        extras: list[Section] = []
         # Project-mode combined sections sit at <h2>, so the comparison
         # blocks that get interleaved with them have to match.
         for key in self._genre_keys:
@@ -591,9 +589,9 @@ class AnalysisWorker:
             return
 
         log.info(
-            "project report ready: %d files, length=%d chars, total=%.2fs",
+            "project report ready: %d files, %d section(s), total=%.2fs",
             len(project.files),
-            len(full_report),
+            len(full_report.sections),
             time.time() - t0,
         )
         self._emit_progress(100, t("ui.worker.done"))

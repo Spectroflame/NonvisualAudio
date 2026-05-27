@@ -7,7 +7,17 @@ from nonvisualaudio.analysis.result import (
     SpectrumMetrics,
     StereoMetrics,
 )
-from nonvisualaudio.reporting.builder import build_report
+from nonvisualaudio.reporting.builder import build_report as _build_report_doc
+
+
+def build_report(*args, **kwargs) -> str:
+    """Test helper: return the rendered text instead of the doc.
+
+    These tests assert against substrings in the plain-text rendering,
+    so the helper hides the structured pipeline from each test body.
+    Failures of the structured layout are covered by ``test_export.py``.
+    """
+    return _build_report_doc(*args, **kwargs).to_text()
 
 
 def _make_result(**overrides) -> AnalysisResult:
@@ -127,6 +137,88 @@ def test_frequency_section_names_the_loudest_band_as_the_anchor():
         "prominent",
     ):
         assert banned not in freq, f"{banned!r} still in the frequency section"
+
+
+def test_silent_bands_collapse_into_a_single_line():
+    # A 1 kHz sine tone parks all other bands far below the noise floor.
+    # The "X dB quieter" sentences would just be noise, so the silent
+    # bands are summarised in one screen-reader-friendly line at the end
+    # of the band listing.
+    sine = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=BandEnergies(
+                sub_db=-100.0,
+                bass_db=-95.0,
+                low_mid_db=-12.0,
+                mid_db=-0.2,
+                presence_db=-100.0,
+                air_db=-100.0,
+            ),
+            peaks=(),
+        )
+    )
+    report = build_report(sine)
+    freq = report.split("Frequency Balance")[1].split("\n\n")[0]
+    # Sub bass, bass, presence, air are all silent.
+    assert "Effectively silent (below -90 dB)" in freq
+    assert "sub bass" in freq
+    assert "bass" in freq
+    assert "presence" in freq
+    assert "air" in freq
+    # The "120 dB quieter" wall must not be there.
+    assert "100 dB quieter" not in freq
+    assert "120 dB quieter" not in freq
+    # Audible non-loudest band (low_mid at -12 vs mid at -0.2) is still
+    # listed normally as the quietest audible band.
+    assert "dB quieter" in freq
+
+
+def test_sine_tone_emits_single_band_dominant_sentence():
+    # When only the loudest band is audible, the "spread between
+    # loudest and quietest" sentence makes no sense — replace it with
+    # an explicit "the whole signal sits in X" line.
+    sine = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=BandEnergies(
+                sub_db=-110.0,
+                bass_db=-110.0,
+                low_mid_db=-110.0,
+                mid_db=-0.1,
+                presence_db=-110.0,
+                air_db=-110.0,
+            ),
+            peaks=(),
+        )
+    )
+    report = build_report(sine)
+    freq = report.split("Frequency Balance")[1].split("\n\n")[0]
+    assert "The whole signal sits in midrange" in freq
+    # No spread sentence in this degenerate case.
+    assert "Total spread between" not in freq
+
+
+def test_silent_band_threshold_excludes_just_above_floor():
+    # A band at -89 dB is still audible (above the threshold), so it
+    # must keep its "X dB quieter" sentence rather than disappearing
+    # into the silent group.
+    near_floor = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=BandEnergies(
+                sub_db=-14.0,
+                bass_db=-11.0,
+                low_mid_db=-9.0,
+                mid_db=-8.0,
+                presence_db=-10.0,
+                air_db=-89.0,  # just above the silence threshold
+            ),
+            peaks=(),
+        )
+    )
+    report = build_report(near_floor)
+    freq = report.split("Frequency Balance")[1].split("\n\n")[0]
+    # The -89 dB band gets a normal quieter sentence, not the silent line.
+    assert "Effectively silent" not in freq
+    assert "air" in freq
 
 
 def test_overall_assessment_mentions_the_actual_loudest_band_when_skewed():

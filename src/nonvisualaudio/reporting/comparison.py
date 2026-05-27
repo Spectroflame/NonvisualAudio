@@ -5,7 +5,12 @@ from __future__ import annotations
 from nonvisualaudio.analysis.result import AnalysisResult
 from nonvisualaudio.localization import t, t_subject
 from nonvisualaudio.reporting.genre_profiles import GenreProfile
-from nonvisualaudio.reporting.templates import fmt_decimal, fmt_signed, heading
+from nonvisualaudio.reporting.templates import (
+    Section,
+    fmt_decimal,
+    fmt_signed,
+    heading_text,
+)
 
 
 def _lufs_diff_sentence(
@@ -52,13 +57,8 @@ def build_genre_comparison(
     *,
     project: bool = False,
     level: int = 3,
-) -> str:
-    lines = [
-        heading(
-            t("report.heading.comparison_genre", name=genre.display_name),
-            level=level,
-        )
-    ]
+) -> Section:
+    lines: list[str] = []
     label = t("report.comp.typical_prefix", name=genre.display_name.lower())
     lines.append(_lufs_diff_sentence(
         target.loudness.integrated_lufs, genre.target_lufs, label,
@@ -83,7 +83,14 @@ def build_genre_comparison(
         )
 
     lines.append(t("report.comp.genre_notes", notes=genre.notes))
-    return "\n".join(lines)
+    return Section(
+        level=level,
+        heading=heading_text(
+            t("report.heading.comparison_genre", name=genre.display_name),
+            level=level,
+        ),
+        body=tuple(lines),
+    )
 
 
 def _band_diff_sentence(name: str, a: float, b: float) -> str | None:
@@ -108,7 +115,7 @@ def build_reference_comparison(
     project: bool = False,
     reference_is_project: bool = False,
     level: int = 3,
-) -> str:
+) -> Section:
     """Compare target against reference.
 
     ``project=True`` swaps "the target" wording so the comparison reads
@@ -123,7 +130,7 @@ def build_reference_comparison(
     the worker's multi-file batch where each file already sits under
     a "Track X" h2).
     """
-    lines = [heading(t("report.heading.comparison_reference"), level=level)]
+    lines: list[str] = []
     intro_key = (
         "report.ref.filename.project"
         if reference_is_project
@@ -202,4 +209,8 @@ def build_reference_comparison(
     if not band_lines:
         band_lines.append(t("report.ref.freq_same"))
     lines.extend(band_lines)
-    return "\n".join(lines)
+    return Section(
+        level=level,
+        heading=heading_text(t("report.heading.comparison_reference"), level=level),
+        body=tuple(lines),
+    )

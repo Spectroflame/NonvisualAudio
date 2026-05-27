@@ -1,9 +1,11 @@
 from nonvisualaudio.reporting.templates import (
+    ReportDoc,
+    Section,
     fmt_duration,
     fmt_hz,
     fmt_peak_time,
     fmt_signed,
-    heading,
+    heading_text,
     paragraph,
 )
 
@@ -63,12 +65,59 @@ def test_fmt_duration_keeps_plural_for_zero_and_many():
     assert fmt_duration(120.0) == "2 minutes 0 seconds"
 
 
-def test_heading_is_uppercase_no_markdown():
-    h = heading("Loudness Summary")
+def test_heading_text_level_3_uppercases():
+    h = heading_text("Loudness Summary", level=3)
     assert h == "LOUDNESS SUMMARY"
     assert "#" not in h and "*" not in h
+
+
+def test_heading_text_levels_1_and_2_preserve_case():
+    # Filenames, project names etc. ride at level 1/2 and should not
+    # get shouted at by an unconditional .upper().
+    assert heading_text("Analysis: demo.wav", level=1) == "Analysis: demo.wav"
+    assert heading_text("File Info", level=2) == "File Info"
+
+
+def test_heading_text_never_emits_underlines():
+    # Regression guard for the screen-reader-friendliness rule: no
+    # heading rendering may produce a line of "=" or "-" characters.
+    for level in (1, 2, 3):
+        assert "=" not in heading_text("Sample Heading", level=level)
+        assert "-" not in heading_text("Sample Heading", level=level)
 
 
 def test_paragraph_adds_terminal_period():
     p = paragraph("hello world", "second sentence")
     assert p == "hello world. second sentence."
+
+
+def test_report_doc_to_text_carries_no_separator_lines():
+    doc = ReportDoc(
+        sections=(
+            Section(level=1, heading="Analysis: demo.wav", body=()),
+            Section(level=2, heading="File Info", body=("Filename: demo.wav.",)),
+            Section(level=3, heading="LOUDNESS", body=("OK.",)),
+        )
+    )
+    text = doc.to_text()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        assert set(stripped) != {"="}, f"underline leaked: {line!r}"
+        assert set(stripped) != {"-"}, f"underline leaked: {line!r}"
+    # Every heading still appears as a body line.
+    assert "Analysis: demo.wav" in text
+    assert "File Info" in text
+    assert "LOUDNESS" in text
+
+
+def test_report_doc_to_text_blank_between_sections():
+    doc = ReportDoc(
+        sections=(
+            Section(level=3, heading="A", body=("alpha.",)),
+            Section(level=3, heading="B", body=("beta.",)),
+        )
+    )
+    # One blank line between sections — never two.
+    assert "alpha.\n\nB\nbeta." in doc.to_text()

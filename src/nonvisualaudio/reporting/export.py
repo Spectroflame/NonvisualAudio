@@ -1,29 +1,24 @@
-"""Convert the plain-text analysis report into HTML or Markdown.
+"""Render a :class:`~nonvisualaudio.reporting.templates.ReportDoc` to TXT/HTML/Markdown.
 
-The text report is the source of truth — every export format is a
-mechanical transformation of it. That keeps the formats in lockstep:
-fix a wording in the builder and the HTML/Markdown exports follow on
-the next run with no extra work.
+The structured :class:`ReportDoc` is the single source of truth: the
+plain-text TXT export is one rendering of it, and the HTML and Markdown
+exports are two more. None of them carry ASCII underline markers
+(``===`` / ``---``) — those would be read aloud character by character
+by a screen reader, which is exactly what this app exists to avoid.
 
-Heading detection runs in two passes:
-
-  - A line followed by an RST-style underline of ``=`` (level 1) or ``-``
-    (level 2) is lifted into ``<h1>`` / ``<h2>``. The builder emits
-    those underlines via :func:`reporting.templates.heading` when it is
-    given an explicit ``level=1`` or ``level=2``.
-  - A line whose alphabetic characters are all uppercase is treated as
-    a level-3 heading — the historic ALL-CAPS convention every existing
-    section emits.
-
-Anything else is body text.
+The heading hierarchy lives on each :class:`Section`'s ``level`` field
+(1, 2, or 3), so the HTML export emits the matching ``<h1>``/``<h2>``/
+``<h3>``, the Markdown export emits ``#``/``##``/``###``, and the
+plain-text export simply lays the heading line above its body.
 """
 
 from __future__ import annotations
 
 import html
 import re
-from collections.abc import Iterable
 from datetime import datetime
+
+from nonvisualaudio.reporting.templates import ReportDoc, Section
 
 
 # Transliterate the German umlauts/eszett that the localised report
@@ -52,134 +47,40 @@ def _slugify_for_anchor(text: str) -> str:
     return slug or "section"
 
 
-def _is_heading(line: str) -> bool:
-    """Return True when ``line`` looks like a (level-3) section heading.
+def _display_heading(heading: str) -> str:
+    """ALL-CAPS-only headings get title-cased; everything else passes through.
 
-    The builder emits level-3 headings as the result of ``str.upper()``,
-    so a line is a heading if every alphabetic character it contains is
-    uppercase. Empty lines, numeric-only lines, and ordinary sentences
-    (which always carry a lowercase letter somewhere) fall through to
-    body text. Level 1 and 2 headings are detected separately via the
-    RST underline pattern, see :func:`_underline_level`.
+    Level-3 sections come in as ALL-CAPS (the long-standing in-app
+    convention); HTML/Markdown viewers should not see shouting, so we
+    title-case those back to "Loudness" etc. Mixed-case headings
+    (filenames, project names) are left alone — capitalisation already
+    reads naturally.
     """
-    has_alpha = False
-    for ch in line:
-        if ch.isalpha():
-            has_alpha = True
-            if not ch.isupper():
-                return False
-    return has_alpha
+    return heading.title() if heading.isupper() else heading
 
 
-_UNDERLINE_LEVELS: dict[str, int] = {"=": 1, "-": 2}
+def to_markdown(doc: ReportDoc) -> str:
+    """Render the report as GitHub-flavoured Markdown.
 
-
-def _underline_level(line: str) -> int | None:
-    """If ``line`` is an RST-style heading underline, return its level.
-
-    A heading underline is a run of three or more identical ``=`` or
-    ``-`` characters with no other content. Mixed runs or shorter runs
-    are not treated as underlines — that keeps plain-text bullets like
-    ``- one`` from triggering false matches.
-    """
-    if len(line) < 3:
-        return None
-    first = line[0]
-    if first not in _UNDERLINE_LEVELS:
-        return None
-    if any(ch != first for ch in line):
-        return None
-    return _UNDERLINE_LEVELS[first]
-
-
-def _split_sections(
-    text: str,
-) -> Iterable[tuple[int | None, str | None, list[str]]]:
-    """Yield ``(level, heading, lines)`` for each section in the report.
-
-    ``level`` is 1, 2 or 3 for headed sections and ``None`` for any
-    pre-heading preamble. Levels 1 and 2 are detected via an RST
-    underline of ``=`` / ``-`` on the line immediately below the
-    heading text. Level 3 is the historic ALL-CAPS-only convention.
-    """
-    raw_lines = text.splitlines()
-    current_level: int | None = None
-    current_heading: str | None = None
-    current_lines: list[str] = []
-
-    def _flush() -> tuple[int | None, str | None, list[str]] | None:
-        nonlocal current_lines
-        while current_lines and current_lines[-1] == "":
-            current_lines.pop()
-        if current_heading is not None or current_lines:
-            return current_level, current_heading, current_lines
-        return None
-
-    i = 0
-    while i < len(raw_lines):
-        line = raw_lines[i].rstrip()
-        # Underline lookahead: a non-empty line followed by an underline
-        # of ``=`` (level 1) or ``-`` (level 2) is a level-1 / level-2
-        # heading. The underline length must be at least as long as the
-        # text — that is the canonical RST contract.
-        if i + 1 < len(raw_lines) and line.strip():
-            next_line = raw_lines[i + 1].rstrip()
-            ul_level = _underline_level(next_line)
-            if ul_level is not None and len(next_line) >= len(line):
-                pending = _flush()
-                if pending is not None:
-                    yield pending
-                current_level = ul_level
-                current_heading = line
-                current_lines = []
-                i += 2
-                continue
-        if _is_heading(line):
-            pending = _flush()
-            if pending is not None:
-                yield pending
-            current_level = 3
-            current_heading = line
-            current_lines = []
-            i += 1
-            continue
-        current_lines.append(line)
-        i += 1
-
-    pending = _flush()
-    if pending is not None:
-        yield pending
-
-
-def to_markdown(report_text: str) -> str:
-    """Render the plain-text report as GitHub-flavoured Markdown.
-
-    Headings collapse from ALL-CAPS to title case so the Markdown reads
-    naturally — most renderers do not auto-lower headings, and reading
-    "FILE INFO" rendered as a level-2 header tends to look shouty.
-    Heading levels (``#``, ``##``, ``###``) follow the level detected by
-    :func:`_split_sections`, so the Markdown structure matches the HTML
-    export's ``<h1>`` / ``<h2>`` / ``<h3>`` hierarchy. Body lines are
-    emitted verbatim with two trailing spaces so single line breaks
-    survive Markdown's paragraph collapsing.
+    Heading levels follow each :class:`Section`'s ``level`` field, so
+    the Markdown structure matches the HTML export's ``<h1>``/``<h2>``/
+    ``<h3>`` hierarchy. Body lines are emitted verbatim with two
+    trailing spaces so single line breaks survive Markdown's paragraph
+    collapsing.
     """
     out: list[str] = []
-    for level, heading_text, lines in _split_sections(report_text):
+    for sec in doc.sections:
         if out:
             out.append("")
-        if heading_text is not None:
+        if sec.heading is not None:
             # Every common Markdown renderer (GitHub, GitLab, Obsidian,
             # pandoc) auto-generates a slug anchor from the heading
             # text, so jump-to-section links work without needing an
-            # explicit ``{#slug}`` suffix in the source. ``.title()``
-            # only fires for ALL-CAPS source headings (i.e. level-3
-            # blocks); level 1 and 2 keep their original mixed casing
-            # so filenames stay readable.
-            marker = "#" * (level or 3)
-            display = heading_text.title() if heading_text.isupper() else heading_text
-            out.append(f"{marker} {display}")
+            # explicit ``{#slug}`` suffix in the source.
+            marker = "#" * sec.level
+            out.append(f"{marker} {_display_heading(sec.heading)}")
             out.append("")
-        for line in lines:
+        for line in sec.body:
             if line == "":
                 out.append("")
             else:
@@ -187,6 +88,8 @@ def to_markdown(report_text: str) -> str:
                 # which preserves the per-line structure the screen
                 # reader navigates.
                 out.append(line + "  ")
+    if not out:
+        return ""
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -222,20 +125,17 @@ p  {{ margin: 0.35rem 0; }}
 
 
 def to_html(
-    report_text: str, *, title: str = "Analysis Report", lang: str = "en"
+    doc: ReportDoc, *, title: str = "Analysis Report", lang: str = "en"
 ) -> str:
-    """Render the plain-text report as a self-contained HTML5 document.
+    """Render the report as a self-contained HTML5 document.
 
-    The HTML is semantic first, styled second: each heading maps to the
-    ``<h1>``, ``<h2>`` or ``<h3>`` element matching the level detected
-    by :func:`_split_sections`, and every non-empty body line becomes
-    its own ``<p>``. Screen readers can therefore navigate the document
-    hierarchy with their heading-jump shortcuts (NVDA's H key, the
-    VoiceOver heading rotor) — the new project-report layout puts the
-    project title on ``<h1>``, every file or track wrapper on ``<h2>``
-    and every per-file section on ``<h3>``. Each heading also receives
-    a stable ``id`` slug so the file can be opened at a specific
-    section (for example ``…/report.html#loudness``).
+    The HTML is semantic first, styled second: each section's heading
+    maps to ``<h1>``/``<h2>``/``<h3>`` according to ``Section.level``,
+    and every non-empty body line becomes its own ``<p>``. Screen
+    readers can therefore navigate the document hierarchy with their
+    heading-jump shortcuts (NVDA's H key, the VoiceOver heading rotor).
+    Each heading also receives a stable ``id`` slug so the file can be
+    opened at a specific section (for example ``…/report.html#loudness``).
 
     The browser tab title still comes from the ``title`` parameter; the
     visible page title is whichever ``<h1>`` the report body provides.
@@ -250,24 +150,19 @@ def to_html(
     """
     body_chunks: list[str] = []
     used_anchors: dict[str, int] = {}
-    for level, heading_text, lines in _split_sections(report_text):
-        if heading_text is not None:
-            base_slug = _slugify_for_anchor(heading_text)
+    for sec in doc.sections:
+        if sec.heading is not None:
+            display = _display_heading(sec.heading)
+            base_slug = _slugify_for_anchor(sec.heading)
             count = used_anchors.get(base_slug, 0) + 1
             used_anchors[base_slug] = count
             anchor = base_slug if count == 1 else f"{base_slug}-{count}"
-            tag = f"h{level}" if level in (1, 2, 3) else "h3"
-            # Title-case only ALL-CAPS source headings (level 3); level
-            # 1 and 2 carry their original casing so filenames and
-            # project names stay readable.
-            display = (
-                heading_text.title() if heading_text.isupper() else heading_text
-            )
+            tag = f"h{sec.level}"
             body_chunks.append(
                 f'<{tag} id="{html.escape(anchor, quote=True)}">'
                 f"{html.escape(display)}</{tag}>"
             )
-        for line in lines:
+        for line in sec.body:
             if line == "":
                 continue
             body_chunks.append(f"<p>{html.escape(line)}</p>")
@@ -280,14 +175,24 @@ def to_html(
     )
 
 
-def to_plain_text(report_text: str) -> str:
-    """Pass-through for TXT export — the report already is plain text.
+def to_plain_text(doc: ReportDoc) -> str:
+    """Render the report as a screen-reader-friendly plain-text string.
 
-    The function exists so the export dispatcher can treat all three
-    formats uniformly and so a future tweak (line-ending normalisation,
-    BOM handling) has one obvious home.
+    This is just :meth:`ReportDoc.to_text` with line-ending
+    normalisation on top, so opening the exported ``.txt`` in Notepad
+    on Windows shows clean line breaks regardless of the platform that
+    produced it.
     """
-    # Normalise line endings to the platform-default newline so opening
-    # the file in Notepad on Windows shows clean line breaks.
-    normalised = report_text.replace("\r\n", "\n").replace("\r", "\n")
-    return normalised
+    text = doc.to_text()
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def section_from_lines(level: int, heading: str | None, lines: list[str]) -> Section:
+    """Tiny convenience wrapper for callers that already have a heading + body lines.
+
+    Kept here so the export module is the one obvious place for code
+    that turns "I already have a heading and some lines" into a
+    :class:`Section`. Used by the worker when it wraps batches and
+    error blocks into the report.
+    """
+    return Section(level=level, heading=heading, body=tuple(lines))

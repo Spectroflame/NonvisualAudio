@@ -82,7 +82,10 @@ def build_report() -> str:
         parts.append("(no log files found)")
     else:
         for path in files:
-            parts.append(f"----- {path.name} -----")
+            # One blank line as the visual separator; the filename on a
+            # line of its own gives the screen reader a real chunk
+            # boundary without the noisy "-----" frame.
+            parts.append(f"Logfile: {path.name}")
             try:
                 parts.append(path.read_text(encoding="utf-8", errors="replace"))
             except OSError as exc:

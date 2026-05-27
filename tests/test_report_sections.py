@@ -11,8 +11,13 @@ from nonvisualaudio.analysis.result import (
 from nonvisualaudio.reporting.builder import (
     SECTION_ORDER,
     ReportSections,
-    build_report,
+    build_report as _build_report_doc,
 )
+
+
+def build_report(*args, **kwargs) -> str:
+    """Test helper: return the rendered text instead of the doc."""
+    return _build_report_doc(*args, **kwargs).to_text()
 
 
 def _make_result() -> AnalysisResult:
@@ -81,15 +86,19 @@ def test_only_frequency_keeps_just_that_section():
 
 
 def test_comparison_flag_drops_extras_when_off():
+    from nonvisualaudio.reporting.templates import Section
+
     sections = ReportSections.from_keys(["loudness"])
-    extras = ["GENRE COMPARISON\nLine.\n"]
+    extras = [Section(level=2, heading="GENRE COMPARISON", body=("Line.",))]
     text = build_report(_make_result(), extra_sections=extras, sections=sections)
     assert "GENRE COMPARISON" not in text
 
 
 def test_comparison_flag_keeps_extras_when_on():
+    from nonvisualaudio.reporting.templates import Section
+
     sections = ReportSections.from_keys(["loudness", "comparison"])
-    extras = ["GENRE COMPARISON\nLine.\n"]
+    extras = [Section(level=2, heading="GENRE COMPARISON", body=("Line.",))]
     text = build_report(_make_result(), extra_sections=extras, sections=sections)
     assert "GENRE COMPARISON" in text
 

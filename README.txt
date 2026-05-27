@@ -1,12 +1,10 @@
 NonvisualAudio — Accessible Audio Analyzer
-===========================================
 
 Version 2.0
 For macOS on Apple Silicon (M1 - M4) or Intel
 
 
 WHAT IT DOES
-------------
 
 NonvisualAudio measures your audio files the same way a sighted engineer
 would read them off a spectrogram, loudness meter and dynamics analyzer,
@@ -20,7 +18,6 @@ intelligence talking to a server. The app is fully offline.
 
 
 INSTALLING
-----------
 
 1. Open the disk image.
 2. Drag NonvisualAudio.app onto the Applications shortcut.
@@ -40,7 +37,6 @@ can also clear the flag manually in Terminal with:
 
 
 HOW TO USE
-----------
 
 The main window has a handful of controls, arranged top to bottom:
 
@@ -91,7 +87,6 @@ A typical flow
 
 
 WHAT THE NUMBERS MEAN
----------------------
 
 LOUDNESS SUMMARY
 
@@ -176,7 +171,6 @@ COMPARISON SECTIONS
 
 
 WHERE THE GENRE TARGETS COME FROM
----------------------------------
 
 The target loudness and loudness range values for each genre come
 from established standards and mastering practice
@@ -195,7 +189,6 @@ few loudness units apart.
 
 
 PRIVACY
--------
 
 NonvisualAudio does not connect to the Internet at any point. The
 source code contains no network libraries. No telemetry. No crash
@@ -207,7 +200,6 @@ else is written to disk.
 
 
 WHAT IT DOES NOT DO
--------------------
 
   It does not normalize, compress, limit or otherwise modify your
   files. It only reads them.
@@ -224,7 +216,6 @@ WHAT IT DOES NOT DO
 
 
 SYSTEM REQUIREMENTS
--------------------
 
   macOS 11 (Big Sur) or newer
   Apple Silicon (M1 - M4) or 64-bit Intel Mac
@@ -236,7 +227,6 @@ Releases page.
 
 
 FEEDBACK AND HELP
------------------
 
 Please report anything that is unclear, broken, reads oddly with your
 screen reader, or is missing. Suggestions for new genre profiles, new

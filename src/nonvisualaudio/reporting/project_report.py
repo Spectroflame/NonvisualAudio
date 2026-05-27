@@ -16,10 +16,12 @@ from nonvisualaudio.reporting.builder import (
     build_report,
 )
 from nonvisualaudio.reporting.templates import (
+    ReportDoc,
+    Section,
     fmt_decimal,
     fmt_duration,
     fmt_signed,
-    heading,
+    heading_text,
 )
 
 
@@ -28,19 +30,14 @@ from nonvisualaudio.reporting.templates import (
 # --------------------------------------------------------------------------- #
 
 
-def _project_header(project: ProjectResult) -> str:
+def _project_header(project: ProjectResult) -> Section:
     n = len(project.files)
     total = project.combined.file_info.duration_seconds
-    # The project name now lives in the level-1 heading itself rather
-    # than on a separate "Project name: …" body line — the heading is
-    # what screen readers and the HTML <h1> use as the document title,
-    # so duplicating the name underneath was just noise.
-    lines = [
-        heading(
-            t("report.title.project", name=project.project_name),
-            level=1,
-        )
-    ]
+    # The project name lives in the level-1 heading itself rather than
+    # on a separate "Project name: …" body line — the heading is what
+    # screen readers and the HTML <h1> use as the document title, so
+    # duplicating the name underneath was just noise.
+    lines: list[str] = []
     count_key = (
         "report.project.file_count.one"
         if n == 1
@@ -63,7 +60,13 @@ def _project_header(project: ProjectResult) -> str:
                 duration=fmt_duration(fr.file_info.duration_seconds),
             )
         )
-    return "\n".join(lines)
+    return Section(
+        level=1,
+        heading=heading_text(
+            t("report.title.project", name=project.project_name), level=1
+        ),
+        body=tuple(lines),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -100,13 +103,15 @@ def _loudness_consistency(project: ProjectResult) -> list[str]:
     ]
 
 
-def _consistency_section(project: ProjectResult, *, level: int = 2) -> str:
-    lines = [heading(t("report.heading.consistency"), level=level)]
+def _consistency_section(project: ProjectResult, *, level: int = 2) -> Section:
     body = _loudness_consistency(project)
     if not body:
         body = [t("report.project.no_consistency_findings")]
-    lines.extend(body)
-    return "\n".join(lines)
+    return Section(
+        level=level,
+        heading=heading_text(t("report.heading.consistency"), level=level),
+        body=tuple(body),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -116,11 +121,11 @@ def _consistency_section(project: ProjectResult, *, level: int = 2) -> str:
 
 def build_project_report(
     project: ProjectResult,
-    extra_sections: list[str] | None = None,
+    extra_sections: list[Section] | None = None,
     sections: ReportSections | None = None,
     include_consistency: bool = True,
-) -> str:
-    """Render the full project-mode report.
+) -> ReportDoc:
+    """Render the full project-mode report as a structured :class:`ReportDoc`.
 
     ``sections`` mirrors the single-file knob — the user can keep just
     loudness, just spectrum, etc. The project header is governed by the
@@ -130,9 +135,9 @@ def build_project_report(
     """
     selected = sections if sections is not None else ReportSections.all()
 
-    chunks: list[str] = []
+    out: list[Section] = []
     if selected.file_info:
-        chunks.append(_project_header(project))
+        out.append(_project_header(project))
 
     # Combined inner report. The header was already emitted above (or
     # intentionally omitted), so suppress the inner FILE INFO block.
@@ -142,18 +147,17 @@ def build_project_report(
     # extra wrapper, no inner <h1>.
     inner_sections = selected.with_disabled(file_info=False)
     if inner_sections.any_enabled() or (selected.comparison and extra_sections):
-        combined_text = build_report(
+        combined = build_report(
             project.combined,
             extra_sections=extra_sections,
             sections=inner_sections,
             project=True,
             title=None,
             section_level=2,
-        ).rstrip()
-        if combined_text:
-            chunks.append(combined_text)
+        )
+        out.extend(combined.sections)
 
     if include_consistency and len(project.files) > 1:
-        chunks.append(_consistency_section(project, level=2))
+        out.append(_consistency_section(project, level=2))
 
-    return "\n\n".join(chunks) + "\n"
+    return ReportDoc(sections=tuple(out))

@@ -21,6 +21,7 @@ from nonvisualaudio.errors import UserFacingError
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
 from nonvisualaudio.reporting.builder import SECTION_ORDER, ReportSections
+from nonvisualaudio.reporting.templates import ReportDoc
 from nonvisualaudio.ui import a11y
 from nonvisualaudio.ui import macos_a11y
 from nonvisualaudio.ui import theme
@@ -1194,10 +1195,10 @@ class MainWindow(wx.Frame):
         self.open_btn.Enable()
         self._update_analyze_state()
 
-    def _on_analysis_done(self, report: str, had_failures: bool) -> None:
+    def _on_analysis_done(self, report: ReportDoc, had_failures: bool) -> None:
         log.info(
-            "analysis done, %d chars delivered to UI, failures=%s",
-            len(report),
+            "analysis done, %d section(s) delivered to UI, failures=%s",
+            len(report.sections),
             had_failures,
         )
         self._stop_running_ui()
@@ -1218,8 +1219,8 @@ class MainWindow(wx.Frame):
         else:
             self.open_btn.SetFocus()
 
-    def _show_results(self, report: str) -> None:
-        dlg = ResultsDialog(self, report_text=report)
+    def _show_results(self, report: ReportDoc) -> None:
+        dlg = ResultsDialog(self, report=report)
         try:
             dlg.ShowModal()
         finally:

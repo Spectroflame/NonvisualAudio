@@ -2,7 +2,15 @@
 
 Rules for output:
 - No Markdown characters (no asterisks, hashes, backticks, underscores).
-- Section headings in ALL CAPS, on their own line, preceded by a blank line.
+- No ASCII separator lines (``===``, ``---``, ``***`` and friends): a
+  screen reader reads them character by character, which is pure noise.
+  Heading hierarchy is carried by the structured :class:`Section` /
+  :class:`ReportDoc` types below instead, so the plain-text output never
+  needs a visual underline.
+- Level-3 section headings in ALL CAPS, on their own line; the
+  HTML/Markdown exporter title-cases them back. Levels 1 and 2 keep
+  their natural Mixed-Case (filename, project name, …) because the
+  exporters carry their level via the structured pipeline.
 - Numbers written as "minus 21.4" instead of "-21.4" so screen readers speak
   them naturally. Positive numbers are unchanged.
 - Decimal separator follows the active language: "." on English,
@@ -13,6 +21,8 @@ Rules for output:
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from typing import Iterable
 
 from nonvisualaudio.localization import decimal_sep, t
 
@@ -108,28 +118,22 @@ def fmt_peak_time(seconds: float) -> str:
     return fmt_duration(seconds)
 
 
-def heading(title: str, level: int = 3) -> str:
-    """Render a section heading at one of three levels.
+def heading_text(title: str, level: int = 3) -> str:
+    """Return the heading line as a plain string at the given level.
 
-    Levels 1 and 2 keep the title's own casing (so a filename in an
-    ``<h1>`` reads as ``Analyse: demo.wav`` rather than the shouted
-    ``ANALYSE: DEMO.WAV`` — the underline alone is enough to mark the
-    line as a heading for the export pipeline). Level 3 stays
-    ALL-CAPS, matching the long-standing in-app text-widget convention
-    for per-section blocks; the HTML/Markdown exporters then
-    title-case that ALL-CAPS form back into ``Loudness`` etc. on the
-    way out.
-
-    Levels 1 and 2 add an RST-style underline (``=`` or ``-``) on the
-    following line; the HTML/Markdown exporters use that underline to
-    lift the heading into ``<h1>`` / ``<h2>`` (or ``#`` / ``##``).
+    Levels 1 and 2 keep the original Mixed-Case (filename, project name)
+    because the HTML/Markdown exporters know the level via the
+    structured :class:`Section` pipeline and don't need a visual
+    underline in the plain-text form. Level 3 stays ALL-CAPS, matching
+    the long-standing in-app convention for per-section blocks; the
+    HTML/Markdown exporters then title-case it back into ``Loudness``
+    etc. on the way out.
     """
     if level not in (1, 2, 3):
         raise ValueError(f"heading level must be 1, 2, or 3, not {level}")
     if level == 3:
         return title.upper()
-    underline_char = "=" if level == 1 else "-"
-    return f"{title}\n{underline_char * len(title)}"
+    return title
 
 
 def paragraph(*sentences: str) -> str:
@@ -145,3 +149,83 @@ def paragraph(*sentences: str) -> str:
             s = s + "."
         cleaned.append(s)
     return " ".join(cleaned)
+
+
+@dataclass(frozen=True)
+class Section:
+    """One heading-bearing block in a report.
+
+    ``level`` is 1, 2, or 3 and maps directly onto ``<h1>``/``<h2>``/
+    ``<h3>`` in the HTML export and ``#``/``##``/``###`` in Markdown.
+    ``heading`` is the plain heading line as :func:`heading_text` would
+    render it (Mixed-Case for level 1/2, ALL-CAPS for level 3); the
+    HTML/Markdown exporters title-case ALL-CAPS headings back to
+    "Loudness" etc. on the way out. ``heading`` may be ``None`` for a
+    rare preamble block that carries body lines without a heading of
+    its own.
+
+    ``body`` is the per-line body text in the order it should appear.
+    Empty strings are allowed and render as paragraph breaks.
+    """
+
+    level: int
+    heading: str | None
+    body: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.level not in (1, 2, 3):
+            raise ValueError(f"Section level must be 1, 2, or 3, not {self.level}")
+
+
+@dataclass(frozen=True)
+class ReportDoc:
+    """A structured report ready to be rendered to text/HTML/Markdown.
+
+    The structured form is the single source of truth: the plain-text
+    output is one rendering of the doc, the HTML and Markdown exports
+    are two more. None of them carry ASCII underline markers — the
+    heading hierarchy lives in the section data, not in the text.
+    """
+
+    sections: tuple[Section, ...] = ()
+
+    def to_text(self) -> str:
+        """Render to a screen-reader-friendly plain-text string.
+
+        Each section becomes a heading line (if any) followed by its
+        body lines; sections are separated by a single blank line. No
+        underlines, no separator characters — the screen reader's
+        line-by-line navigation is enough structure.
+        """
+        if not self.sections:
+            return ""
+        blocks: list[str] = []
+        for sec in self.sections:
+            lines: list[str] = []
+            if sec.heading is not None:
+                lines.append(sec.heading)
+            lines.extend(sec.body)
+            # Trim trailing blank lines so the between-section spacing
+            # stays exactly one blank line regardless of how the section
+            # was assembled.
+            while lines and lines[-1] == "":
+                lines.pop()
+            if lines:
+                blocks.append("\n".join(lines))
+        return "\n\n".join(blocks) + "\n"
+
+
+def make_section(
+    title: str,
+    body: Iterable[str],
+    *,
+    level: int = 3,
+) -> Section:
+    """Convenience constructor: build a :class:`Section` from a title and body lines.
+
+    Empty body lines are kept so callers can emit paragraph breaks
+    inside a section; only trailing blanks would matter for layout, and
+    :meth:`ReportDoc.to_text` strips those at render time.
+    """
+    body_tuple = tuple(body)
+    return Section(level=level, heading=heading_text(title, level=level), body=body_tuple)

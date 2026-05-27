@@ -1,5 +1,4 @@
 NONVISUALAUDIO — VERSION 2.0.4
-==============================
 
 Stabilitäts-Release mit neuem Diagnosebericht, RAM-Vorabprüfung und
 einer Korrektur des True-Peak-Zeitstempels für sehr frühe Spitzen.
@@ -51,7 +50,6 @@ True-Peak-Zeitstempel zeigte 0 Sekunden
 
 
 NONVISUALAUDIO — VERSION 2.0.3
-==============================
 
 Stabilitäts-Release: macOS-Analyse repariert, neue Zeitangabe für die
 True-Peak-Spitze, zuverlässigere automatische Spracherkennung.
@@ -94,7 +92,6 @@ Build-Stabilität
 
 
 NONVISUALAUDIO — VERSION 2.0.2
-==============================
 
 Hotfix für den macOS-Universal2-Build.
 
@@ -113,7 +110,6 @@ App startete nicht (kein Fenster, keine Fehlermeldung)
 
 
 NONVISUALAUDIO — VERSION 2.0.1
-==============================
 
 Hotfix für die Windows-Barrierefreiheit.
 
@@ -131,7 +127,6 @@ VoiceOver, Orca und sehende Nutzer
 
 
 NONVISUALAUDIO — VERSION 2.0
-==============================
 
 Neu in 2.0 — Kurzfassung. Details: F1 → „README anzeigen".
 

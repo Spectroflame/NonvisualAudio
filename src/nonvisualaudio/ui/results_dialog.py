@@ -16,6 +16,7 @@ import wx
 
 from nonvisualaudio.localization import current_lang, t
 from nonvisualaudio.reporting.export import to_html, to_markdown, to_plain_text
+from nonvisualaudio.reporting.templates import ReportDoc
 from nonvisualaudio.ui import a11y, theme
 from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.errors import UserFacingError
@@ -54,7 +55,11 @@ def _strip_macos_export_attrs(path: Path) -> None:
 class ResultsDialog(wx.Dialog):
     """Shows a finished analysis report in its own window."""
 
-    def __init__(self, parent: wx.Window | None, report_text: str = "") -> None:
+    def __init__(
+        self,
+        parent: wx.Window | None,
+        report: ReportDoc | None = None,
+    ) -> None:
         super().__init__(
             parent,
             title=t("ui.results.title"),
@@ -63,6 +68,12 @@ class ResultsDialog(wx.Dialog):
         self.SetName(t("ui.label.results"))
         self.SetHelpText(t("ui.results.help"))
 
+        # Keep the structured doc so the HTML/Markdown export can render
+        # straight from the heading hierarchy instead of round-tripping
+        # through a plain-text parser.
+        self._doc = report if report is not None else ReportDoc()
+        text_value = to_plain_text(self._doc)
+
         root = wx.BoxSizer(wx.VERTICAL)
 
         # Read-only multi-line text control: screen readers on all three
@@ -70,7 +81,7 @@ class ResultsDialog(wx.Dialog):
         # we want for a plain-text report.
         self.results = wx.TextCtrl(
             self,
-            value=report_text,
+            value=text_value,
             style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_DONTWRAP | wx.HSCROLL,
         )
         a11y.set_a11y(self.results, t("ui.label.results"), t("ui.hint.results"))
@@ -208,7 +219,7 @@ class ResultsDialog(wx.Dialog):
                         dialog.GetFilterIndex(), ".txt"
                     )
                 )
-        rendered = self._render_for_extension(chosen.suffix.lower(), text)
+        rendered = self._render_for_extension(chosen.suffix.lower())
         try:
             chosen.write_text(rendered, encoding="utf-8")
         except OSError as exc:
@@ -233,10 +244,10 @@ class ResultsDialog(wx.Dialog):
             t("ui.results.export.saved_hint", filename=chosen.name),
         )
 
-    def _render_for_extension(self, suffix: str, text: str) -> str:
+    def _render_for_extension(self, suffix: str) -> str:
         """Map a file extension to the matching export rendering."""
         if suffix in (".html", ".htm"):
-            return to_html(text, lang=current_lang())
+            return to_html(self._doc, lang=current_lang())
         if suffix in (".md", ".markdown"):
-            return to_markdown(text)
-        return to_plain_text(text)
+            return to_markdown(self._doc)
+        return to_plain_text(self._doc)

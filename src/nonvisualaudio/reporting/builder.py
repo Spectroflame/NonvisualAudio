@@ -23,12 +23,14 @@ from nonvisualaudio.analysis.result import (
 )
 from nonvisualaudio.localization import t, t_subject
 from nonvisualaudio.reporting.templates import (
+    ReportDoc,
+    Section,
     fmt_decimal,
     fmt_duration,
     fmt_peak_time,
     fmt_hz,
     fmt_signed,
-    heading,
+    heading_text,
     paragraph,
 )
 
@@ -124,6 +126,14 @@ SECTION_ORDER: tuple[str, ...] = (
     "recommendations",
 )
 
+
+# Bands with relative energy below this threshold are reported as
+# "effectively silent" rather than with a "X dB quieter than the loudest
+# band" sentence. A pure sine tone parks all other bands far below this
+# level; a 16-bit master's noise floor sits around here too, so the
+# threshold lines up with what a human ear genuinely hears.
+SILENT_BAND_THRESHOLD_DB = -90.0
+
 # --------------------------------------------------------------------------- #
 # Band tables
 # --------------------------------------------------------------------------- #
@@ -152,21 +162,25 @@ def _region_label(key_suffix: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _file_info_section(info: FileInfo, *, level: int = 3) -> str:
-    lines = [heading(t("report.heading.file_info"), level=level)]
-    lines.append(t("report.file_info.filename", filename=info.filename))
-    lines.append(t("report.file_info.duration", duration=fmt_duration(info.duration_seconds)))
-    lines.append(t("report.file_info.sample_rate", rate=info.sample_rate))
+def _file_info_section(info: FileInfo, *, level: int = 3) -> Section:
+    body: list[str] = []
+    body.append(t("report.file_info.filename", filename=info.filename))
+    body.append(t("report.file_info.duration", duration=fmt_duration(info.duration_seconds)))
+    body.append(t("report.file_info.sample_rate", rate=info.sample_rate))
     if info.bit_depth is not None:
-        lines.append(t("report.file_info.bit_depth", bit=info.bit_depth))
+        body.append(t("report.file_info.bit_depth", bit=info.bit_depth))
     if info.channels == 1:
         channels_label = t("report.file_info.channels.mono")
     elif info.channels == 2:
         channels_label = t("report.file_info.channels.stereo")
     else:
         channels_label = t("report.file_info.channels.other", n=info.channels)
-    lines.append(t("report.file_info.channels", label=channels_label))
-    return "\n".join(lines)
+    body.append(t("report.file_info.channels", label=channels_label))
+    return Section(
+        level=level,
+        heading=heading_text(t("report.heading.file_info"), level=level),
+        body=tuple(body),
+    )
 
 
 def _lra_verdict_key(lra: float) -> str:
@@ -190,8 +204,8 @@ def _lra_verdict_key(lra: float) -> str:
 
 def _loudness_section(
     loud: LoudnessMetrics, *, project: bool = False, level: int = 3
-) -> str:
-    lines = [heading(t("report.heading.loudness"), level=level)]
+) -> Section:
+    lines: list[str] = []
     lines.append(t("report.loudness.integrated", value=fmt_signed(loud.integrated_lufs)))
     lines.append(t("report.loudness.short_term", value=fmt_signed(loud.short_term_max_lufs)))
     lines.append(t("report.loudness.true_peak", value=fmt_signed(loud.true_peak_dbtp)))
@@ -239,7 +253,11 @@ def _loudness_section(
     elif tp > -1.0:
         lines.append(t("report.loudness.true_peak.close"))
 
-    return "\n".join(lines)
+    return Section(
+        level=level,
+        heading=heading_text(t("report.heading.loudness"), level=level),
+        body=tuple(lines),
+    )
 
 
 def _dynamics_verdict_key(crest: float, lra: float) -> str:
@@ -282,14 +300,18 @@ def _dynamics_section(
     *,
     project: bool = False,
     level: int = 3,
-) -> str:
-    lines = [heading(t("report.heading.dynamics"), level=level)]
+) -> Section:
+    lines: list[str] = []
     lines.append(t("report.dynamics.crest", value=fmt_signed(dyn.crest_factor_db)))
     lines.append(t("report.dynamics.dr_score", score=int(round(dyn.dr_score))))
 
     verdict_key = _dynamics_verdict_key(dyn.crest_factor_db, loud.loudness_range_lu)
     lines.append(t_subject(verdict_key, project=project))
-    return "\n".join(lines)
+    return Section(
+        level=level,
+        heading=heading_text(t("report.heading.dynamics"), level=level),
+        body=tuple(lines),
+    )
 
 
 def _band_range_str(low: float, high: float) -> str:
@@ -390,13 +412,27 @@ def _ranked_bands(bands: BandEnergies) -> list[tuple[str, float, float, float, s
 
 def _frequency_section(
     spec: SpectrumMetrics, *, project: bool = False, level: int = 3
-) -> str:
-    lines = [heading(t("report.heading.frequency"), level=level)]
+) -> Section:
+    lines: list[str] = []
     b = spec.bands
     ranked = _ranked_bands(b)
     loudest_name, loudest_db, loudest_lo, loudest_hi, _ = ranked[0]
-    quietest_name, quietest_db, *_ = ranked[-1]
-    spread = loudest_db - quietest_db
+
+    # Split the non-loudest bands into "audible" and "silent" groups so a
+    # pure-tone-style signal doesn't produce a wall of "120 dB quieter"
+    # sentences — those numbers carry no information once a band drops
+    # below human hearing. The dominant band is never grouped as silent
+    # even if its absolute level happens to fall under the threshold;
+    # that's a fully-silent file, where the existing "below 3 dB spread"
+    # path already speaks sensibly.
+    others = ranked[1:]
+    audible_others = [
+        entry for entry in others if entry[1] >= SILENT_BAND_THRESHOLD_DB
+    ]
+    silent_others = [
+        entry for entry in others if entry[1] < SILENT_BAND_THRESHOLD_DB
+    ]
+    quietest_audible_name = audible_others[-1][0] if audible_others else None
 
     # Anchor: name the loudest band once, up front. Every following line
     # is "X dB quieter" against this anchor, which is something the user
@@ -410,34 +446,65 @@ def _frequency_section(
             range=_band_range_str(loudest_lo, loudest_hi),
         )
     )
-    # List the other bands in order of loudness (next-loudest first),
-    # so each row shows a small step down from the one above. Walking in
-    # spectrum order instead makes the deltas jump around (e.g. 14 dB,
-    # then 1 dB, then 9 dB), which is harder to follow when read aloud.
-    for name, value, lo, hi, _ in ranked[1:]:
+    # List the audible non-loudest bands in order of loudness
+    # (next-loudest first), so each row shows a small step down from
+    # the one above. Walking in spectrum order instead makes the deltas
+    # jump around, which is harder to follow when read aloud.
+    for name, value, lo, hi, _ in audible_others:
         delta = loudest_db - value
         lines.append(
             _describe_band_vs_loudest(
                 name,
                 _band_range_str(lo, hi),
                 delta,
-                is_quietest=(name == quietest_name),
+                is_quietest=(name == quietest_audible_name),
                 project=project,
             )
         )
 
-    # One closing line makes the overall range explicit.
-    if spread < 3.0:
-        lines.append(t("report.freq.spread_flat", spread=fmt_decimal(spread)))
-    else:
+    # Collapse all silent bands into a single sentence at the end of the
+    # band listing. Joining with ", " keeps a screen reader's natural
+    # pause structure intact across both German and English.
+    if silent_others:
+        silent_names = ", ".join(name for name, *_ in silent_others)
+        key = (
+            "report.freq.silent_bands.one"
+            if len(silent_others) == 1
+            else "report.freq.silent_bands.other"
+        )
         lines.append(
             t(
-                "report.freq.spread_total",
-                loudest=loudest_name,
-                quietest=quietest_name,
-                spread=fmt_decimal(spread),
+                key,
+                threshold=int(SILENT_BAND_THRESHOLD_DB),
+                names=silent_names,
             )
         )
+
+    # Closing line. Three cases:
+    #   - No audible bands besides the loudest → a sine-tone-style
+    #     signal: name the dominant band explicitly instead of quoting
+    #     a meaningless spread number against a silent floor.
+    #   - All bands within 3 dB → "flat, even balance".
+    #   - Otherwise → quote the spread between loudest and quietest
+    #     *audible* band; the silent ones already got their own line.
+    if not audible_others:
+        lines.append(
+            t("report.freq.single_band_dominant", name=loudest_name)
+        )
+    else:
+        quietest_audible_db = audible_others[-1][1]
+        spread = loudest_db - quietest_audible_db
+        if spread < 3.0:
+            lines.append(t("report.freq.spread_flat", spread=fmt_decimal(spread)))
+        else:
+            lines.append(
+                t(
+                    "report.freq.spread_total",
+                    loudest=loudest_name,
+                    quietest=quietest_audible_name,
+                    spread=fmt_decimal(spread),
+                )
+            )
 
     # Always enumerate the detected spectral peaks with their exact
     # frequency and prominence, so the user gets actionable numbers
@@ -466,7 +533,11 @@ def _frequency_section(
             )
     else:
         lines.append(t("report.freq.no_peaks"))
-    return "\n".join(lines)
+    return Section(
+        level=level,
+        heading=heading_text(t("report.heading.frequency"), level=level),
+        body=tuple(lines),
+    )
 
 
 def _tonal_balance_phrase(bands: BandEnergies) -> str:
@@ -497,8 +568,7 @@ def _tonal_balance_phrase(bands: BandEnergies) -> str:
 
 def _overall_section(
     result: AnalysisResult, *, project: bool = False, level: int = 3
-) -> str:
-    lines = [heading(t("report.heading.overall"), level=level)]
+) -> Section:
     parts: list[str] = []
     loud = result.loudness
     dyn = result.dynamics
@@ -521,8 +591,11 @@ def _overall_section(
 
     parts.append(_tonal_balance_phrase(bands))
 
-    lines.append(paragraph(", ".join(parts)))
-    return "\n".join(lines)
+    return Section(
+        level=level,
+        heading=heading_text(t("report.heading.overall"), level=level),
+        body=(paragraph(", ".join(parts)),),
+    )
 
 
 def _stereo_correlation_verdict_key(corr: float) -> str:
@@ -561,8 +634,9 @@ def _stereo_section(
     *,
     project: bool = False,
     level: int = 3,
-) -> str:
-    lines = [heading(t("report.heading.stereo"), level=level)]
+) -> Section:
+    heading_line = heading_text(t("report.heading.stereo"), level=level)
+    lines: list[str] = []
     if not stereo.is_stereo:
         # Mono input, mixed mono/stereo project, or an unanalysable
         # buffer — keep the section visible (so the screen-reader
@@ -571,7 +645,7 @@ def _stereo_section(
             lines.append(t_subject("report.stereo.mono_file", project=project))
         else:
             lines.append(t_subject("report.stereo.not_available", project=project))
-        return "\n".join(lines)
+        return Section(level=level, heading=heading_line, body=tuple(lines))
 
     lines.append(
         t(
@@ -605,7 +679,7 @@ def _stereo_section(
     lines.append(
         t_subject(_stereo_width_verdict_key(stereo.side_to_mid_db), project=project)
     )
-    return "\n".join(lines)
+    return Section(level=level, heading=heading_line, body=tuple(lines))
 
 
 def _peak_fix_recommendation(peak: SpectralPeak) -> str:
@@ -651,7 +725,7 @@ def _peak_fix_recommendation(peak: SpectralPeak) -> str:
 
 def _recommendations_section(
     result: AnalysisResult, *, project: bool = False, level: int = 3
-) -> str:
+) -> Section:
     recs: list[str] = []
 
     loud = result.loudness
@@ -697,13 +771,20 @@ def _recommendations_section(
     # sentence in the flow. Reading a "Possible Action Options" header
     # followed by "nothing to do" felt like noise — the user asked for
     # the bare sentence instead, which is what every export format now
-    # gets.
+    # gets. A headingless :class:`Section` carries the sentence through
+    # the structured pipeline without contributing an extra <h2>/<h3>.
     if not recs:
-        return t_subject("report.rec.none", project=project)
+        return Section(
+            level=level,
+            heading=None,
+            body=(t_subject("report.rec.none", project=project),),
+        )
 
-    lines = [heading(t("report.heading.recommendations"), level=level)]
-    lines.extend(recs)
-    return "\n".join(lines)
+    return Section(
+        level=level,
+        heading=heading_text(t("report.heading.recommendations"), level=level),
+        body=tuple(recs),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -713,18 +794,19 @@ def _recommendations_section(
 
 def build_report(
     result: AnalysisResult,
-    extra_sections: list[str] | None = None,
+    extra_sections: Iterable[Section] | None = None,
     sections: ReportSections | None = None,
     project: bool = False,
     *,
     title: str | None = None,
     title_level: int = 1,
     section_level: int = 2,
-) -> str:
-    """Return the full report as a single plain-text string.
+) -> ReportDoc:
+    """Return the full report as a structured :class:`ReportDoc`.
 
-    ``extra_sections`` are appended after Overall Assessment and before
-    Recommendations, used for Genre or Reference comparison output.
+    ``extra_sections`` are :class:`Section` objects appended after
+    Overall Assessment and before Recommendations, used for Genre or
+    Reference comparison output.
 
     ``sections`` controls which top-level blocks are rendered. Default is
     every section, which preserves the historical behaviour. When the
@@ -739,8 +821,8 @@ def build_report(
 
     Heading levels:
 
-      - ``title``: when given, a top heading at ``title_level`` (default
-        1, i.e. ``<h1>``) is prepended to the report. Single-file runs
+      - ``title``: when given, a heading at ``title_level`` (default 1,
+        i.e. ``<h1>``) is prepended to the report. Single-file runs
         pass the filename here; the worker's multi-file batch passes a
         per-file "Track X" wrapper at ``title_level=2``; project-mode
         passes ``None`` because the project header is already emitted
@@ -753,31 +835,37 @@ def build_report(
     """
     selected = sections if sections is not None else ReportSections.all()
 
-    blocks: list[str] = []
+    out: list[Section] = []
     if title is not None:
-        blocks.append(heading(title, level=title_level))
+        out.append(
+            Section(
+                level=title_level,
+                heading=heading_text(title, level=title_level),
+                body=(),
+            )
+        )
     if selected.file_info:
-        blocks.append(_file_info_section(result.file_info, level=section_level))
+        out.append(_file_info_section(result.file_info, level=section_level))
     if selected.loudness:
-        blocks.append(
+        out.append(
             _loudness_section(result.loudness, project=project, level=section_level)
         )
     if selected.dynamics:
-        blocks.append(
+        out.append(
             _dynamics_section(
                 result.dynamics, result.loudness, project=project, level=section_level
             )
         )
     if selected.frequency:
-        blocks.append(
+        out.append(
             _frequency_section(result.spectrum, project=project, level=section_level)
         )
     if selected.overall:
-        blocks.append(_overall_section(result, project=project, level=section_level))
+        out.append(_overall_section(result, project=project, level=section_level))
     if selected.comparison and extra_sections:
-        blocks.extend(s for s in extra_sections if s)
+        out.extend(s for s in extra_sections if s is not None)
     if selected.stereo:
-        blocks.append(
+        out.append(
             _stereo_section(
                 result.stereo,
                 result.file_info.channels,
@@ -786,7 +874,7 @@ def build_report(
             )
         )
     if selected.recommendations:
-        blocks.append(
+        out.append(
             _recommendations_section(result, project=project, level=section_level)
         )
-    return "\n\n".join(blocks) + "\n"
+    return ReportDoc(sections=tuple(out))

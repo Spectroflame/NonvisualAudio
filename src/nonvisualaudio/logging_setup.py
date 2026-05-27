@@ -167,8 +167,11 @@ def log_session_banner() -> None:
     from nonvisualaudio import __version__
     from nonvisualaudio.localization import current_lang
 
+    # No "===" decoration around the banner: the log file also ends up
+    # inside the user-facing diagnostic report, where a screen reader
+    # would otherwise read the equals signs character by character.
     logging.getLogger("nonvisualaudio").info(
-        "=== NonvisualAudio %s started — %s %s, Python %s (%s), lang=%s ===",
+        "NonvisualAudio %s started — %s %s, Python %s (%s), lang=%s",
         __version__,
         platform.system(),
         platform.release(),

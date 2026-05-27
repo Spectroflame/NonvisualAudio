@@ -17,7 +17,19 @@ from nonvisualaudio.analysis.result import (
 )
 from nonvisualaudio.audio.decoder import DecodedAudio
 from nonvisualaudio.reporting.builder import ReportSections
-from nonvisualaudio.reporting.project_report import build_project_report
+from nonvisualaudio.reporting.project_report import (
+    build_project_report as _build_project_report_doc,
+)
+
+
+def build_project_report(*args, **kwargs) -> str:
+    """Test helper: render the structured doc to plain text.
+
+    The tests in this file all assert against substrings; the helper
+    keeps them readable without having to spell ``.to_text()`` after
+    every call.
+    """
+    return _build_project_report_doc(*args, **kwargs).to_text()
 
 
 def _make_file_result(
@@ -194,23 +206,32 @@ def test_consistency_block_says_consistent_when_spread_is_tiny():
 
 
 def test_project_header_uses_level_1_heading_with_project_name():
-    """The project's overall title is the document's <h1> — exactly one
-    line, RST-underlined with ``=``, carrying the project name. The
-    legacy "Project name: …" body line is gone because the name now
-    lives in the heading itself.
+    """The project's overall title is the document's <h1>: the first
+    Section carries the project name at ``level=1``. The legacy
+    "Project name: …" body line is gone because the name now lives in
+    the heading itself, and the structured pipeline replaced the old
+    RST-style underline (which a screen reader read as noise).
     """
     files = (
         _make_file_result("a.wav", -14.0, 10.0),
         _make_file_result("b.wav", -14.0, 10.0),
     )
     project = _make_project(files)
-    report = build_project_report(project)
-    assert "Project: My Album" in report
-    # Underline marker on the next line lifts this to <h1> in the HTML
-    # export. The length matches the heading text exactly.
-    assert "Project: My Album\n" + "=" * len("Project: My Album") in report
+    doc = _build_project_report_doc(project)
+    first = doc.sections[0]
+    assert first.level == 1
+    assert first.heading is not None and "My Album" in first.heading
+    # The plain-text rendering must not carry any ASCII underline.
+    rendered = doc.to_text()
+    assert "Project: My Album" in rendered
+    for line in rendered.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        assert set(stripped) != {"="}
+        assert set(stripped) != {"-"}
     # The redundant "Project name: …" body line is gone.
-    assert "Project name:" not in report
+    assert "Project name:" not in rendered
 
 
 def test_consistency_block_does_not_mention_dynamics_or_frequency():
@@ -302,7 +323,7 @@ def test_single_file_mode_still_uses_file_wording():
 
     load("en")
     file_result = _make_file_result("solo.wav", -14.0, 10.0)
-    text = build_report(file_result)
+    text = build_report(file_result).to_text()
     # Some "the file" phrasing must survive — the moderate verdict says
     # "The file sits at..." and the recommendations fallback says "The
     # file appears balanced...".

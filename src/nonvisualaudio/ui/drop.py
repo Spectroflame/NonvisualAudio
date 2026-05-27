@@ -40,6 +40,26 @@ def _has_supported_ext(path: Path) -> bool:
     return path.suffix.lower() in SUPPORTED_EXTS
 
 
+def _is_filesystem_metadata(name: str) -> bool:
+    """True for filenames the OS writes alongside real files for metadata.
+
+    Catches the AppleDouble ``._foo.wav`` companion files Finder leaves
+    next to every actual file when copying onto a non-HFS+ disk (SMB
+    share, FAT/exFAT/NTFS USB stick). Those files carry the .wav
+    extension but contain extended-attribute / resource-fork payloads,
+    not PCM — handing them to the decoder produces a hard crash rather
+    than a clean error, because the bytes look like garbage to the
+    ffmpeg / soundfile readers.
+
+    Also strips ``.DS_Store`` and any other dotfile-style metadata so
+    a dragged folder doesn't pollute the analysis list with hidden
+    bookkeeping files. The convention "leading dot = hidden / not
+    user-content" holds across macOS, Linux, and the way Finder writes
+    onto Windows-formatted volumes.
+    """
+    return name.startswith(".")
+
+
 def expand_audio_paths(paths: Iterable[str]) -> list[str]:
     """Return a deduplicated list of audio-file paths.
 
@@ -49,6 +69,11 @@ def expand_audio_paths(paths: Iterable[str]) -> list[str]:
       produce the same list.
     - Unknown extensions and non-existent paths are dropped silently —
       the UI is the right place to flag "nothing importable found".
+    - Filesystem-metadata files (``._foo.wav`` AppleDouble companions,
+      ``.DS_Store``, anything starting with a dot) are filtered out at
+      every entry point — file dialog, drag-and-drop, and clipboard
+      paste all route through this function, so the decoder never sees
+      a resource-fork blob it would crash on.
     - Duplicates are removed while preserving first-seen order.
     """
     seen: set[str] = set()
@@ -73,15 +98,26 @@ def expand_audio_paths(paths: Iterable[str]) -> list[str]:
         except OSError:
             continue
         if path.is_file():
-            if _has_supported_ext(path):
+            if _has_supported_ext(path) and not _is_filesystem_metadata(path.name):
                 _add(path)
             continue
         if path.is_dir():
             # Sorted walk: os.walk alone does not order file names on
             # all platforms, and we want identical output across runs.
+            # Prune hidden directories (``.Spotlight-V100``, ``.Trashes``
+            # and friends) so we don't recurse into them.
             for dirpath, dirnames, filenames in os.walk(path):
-                dirnames.sort()
+                dirnames[:] = sorted(
+                    d for d in dirnames if not _is_filesystem_metadata(d)
+                )
                 for name in sorted(filenames):
+                    if _is_filesystem_metadata(name):
+                        log.debug(
+                            "expand_audio_paths: skipping metadata file %s/%s",
+                            dirpath,
+                            name,
+                        )
+                        continue
                     child = Path(dirpath) / name
                     if _has_supported_ext(child):
                         _add(child)

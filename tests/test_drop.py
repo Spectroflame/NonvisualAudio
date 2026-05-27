@@ -95,6 +95,71 @@ def test_expand_ignores_empty_strings():
 
 
 # --------------------------------------------------------------------------- #
+# Filesystem-metadata filter
+#
+# macOS Finder writes an AppleDouble "._foo.wav" next to every actual file
+# when copying onto a non-HFS+ filesystem (SMB share, FAT/exFAT/NTFS stick).
+# Those files carry the .wav extension but hold extended-attribute payloads,
+# so passing them to the decoder used to crash the app. Every import path
+# (file dialog, drag-and-drop, clipboard paste) funnels through
+# ``expand_audio_paths``, so a single filter here covers all three.
+# --------------------------------------------------------------------------- #
+
+
+def test_expand_drops_apple_double_companion_files(tmp_path: Path):
+    real = _touch(tmp_path / "song.wav")
+    junk = _touch(tmp_path / "._song.wav")
+    result = expand_audio_paths([str(real), str(junk)])
+    assert result == [str(real)]
+    assert str(junk) not in result
+
+
+def test_expand_drops_ds_store_inside_dropped_folder(tmp_path: Path):
+    real = _touch(tmp_path / "song.wav")
+    _touch(tmp_path / ".DS_Store")
+    result = expand_audio_paths([str(tmp_path)])
+    assert result == [str(real)]
+
+
+def test_expand_drops_apple_double_files_from_walked_folder(tmp_path: Path):
+    # A dragged-in folder that was previously copied over SMB. Every real
+    # ".wav" has an "._" twin sitting next to it.
+    real_a = _touch(tmp_path / "a.wav")
+    real_b = _touch(tmp_path / "b.mp3")
+    _touch(tmp_path / "._a.wav")
+    _touch(tmp_path / "._b.mp3")
+    _touch(tmp_path / ".DS_Store")
+
+    result = expand_audio_paths([str(tmp_path)])
+    assert set(result) == {str(real_a), str(real_b)}
+    for name in result:
+        assert "/._" not in name and not name.endswith("/.DS_Store"), (
+            f"metadata file leaked into result: {name}"
+        )
+
+
+def test_expand_prunes_hidden_directories(tmp_path: Path):
+    # Spotlight / Trashes / Apple* directories appear at the root of
+    # FAT-formatted volumes the user might drag in. We must not recurse
+    # into them — that path eventually hits PermissionError on a real
+    # macOS install and slows the walk down to a crawl regardless.
+    real = _touch(tmp_path / "song.wav")
+    _touch(tmp_path / ".Spotlight-V100" / "buried.wav")
+    _touch(tmp_path / ".Trashes" / "deleted.mp3")
+    result = expand_audio_paths([str(tmp_path)])
+    assert result == [str(real)]
+
+
+def test_expand_drops_apple_double_when_named_explicitly(tmp_path: Path):
+    # Even when the user (or a stale clipboard) passes the "._foo.wav"
+    # file path directly, the filter still kicks in. This is the file-
+    # dialog edge case: macOS Finder hides these files by default, but
+    # a power user with "show hidden" turned on could still select one.
+    junk = _touch(tmp_path / "._broken.wav")
+    assert expand_audio_paths([str(junk)]) == []
+
+
+# --------------------------------------------------------------------------- #
 # parse_paste_text
 # --------------------------------------------------------------------------- #
 

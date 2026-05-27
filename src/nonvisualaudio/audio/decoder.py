@@ -522,6 +522,357 @@ def _ffmpeg_decode_with_loudness(
     return decoded, loudness
 
 
+# --------------------------------------------------------------------------- #
+# Streaming variant — Phase 2 of the end-to-end RAM rewrite.
+#
+# The streaming entry point :func:`decode_and_measure_streaming` mirrors the
+# format coverage of :func:`decode_and_measure` (soundfile fast path for
+# WAV/AIFF/FLAC/OGG, combined ffmpeg pass for everything else) but never
+# materialises the full PCM buffer in Python. Each chunk of decoded audio
+# is handed to the caller's :class:`StreamingSinks` and immediately
+# released. The non-streaming :func:`decode_and_measure` and :func:`decode`
+# functions above stay byte-for-byte unchanged so callers that still need
+# a complete :class:`DecodedAudio` keep working.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class StreamingSinks:
+    """Callbacks the streaming decoder pumps PCM chunks into.
+
+    ``feed_mono`` is invoked for every block of decoded audio. Mono inputs
+    pass through unchanged; stereo (and >2-channel) inputs are mixed down
+    inline so the sink always sees a 1-D float32 ndarray. Chunk size is
+    decided by the underlying reader — ~1 MB for the ffmpeg pipe, ~1
+    second for soundfile — and the sink must accept whatever cadence
+    arrives.
+
+    ``feed_stereo_optional`` is called only when the source is genuinely
+    two-channel and the field is not ``None``. Pass ``None`` to opt out
+    of the stereo branch entirely; the decoder then skips the L/R
+    forwarding work but still produces the mono mixdown for ``feed_mono``.
+
+    The dataclass exists so callers can hand bound methods of the Phase 1
+    streamer classes straight in::
+
+        sinks = StreamingSinks(
+            feed_mono=dynamics_streamer.feed,
+            feed_stereo_optional=stereo_streamer.feed,
+        )
+    """
+
+    feed_mono: Callable[[np.ndarray], None]
+    feed_stereo_optional: Callable[[np.ndarray], None] | None = None
+
+
+@dataclass(frozen=True)
+class StreamingDecodeInfo:
+    """Metadata returned from a streaming decode.
+
+    Holds everything :class:`DecodedAudio` carries *except* the PCM
+    buffers — those have already been consumed by the sinks by the time
+    the call returns. The shape matches :class:`FileInfo` on purpose so
+    callers can build a ``FileInfo`` directly from these fields.
+    """
+
+    sample_rate: int
+    channels: int
+    bit_depth: int | None
+    duration_seconds: float
+    filename: str
+
+
+# Hard floor on the soundfile streaming block size. 1 second at the
+# source's sample rate is the normal cadence; at 8 kHz speech that drops
+# to 8000 samples, where Python-side loop overhead starts to show. The
+# floor keeps each block in the tens-of-thousands-of-samples range so
+# numpy vector work dominates the per-block cost.
+_SF_STREAM_BLOCKSIZE_FALLBACK = 65536
+
+
+def _try_streaming_soundfile(
+    p: Path,
+    sinks: StreamingSinks,
+    on_progress: DecodeProgressCb | None,
+) -> tuple[StreamingDecodeInfo, LoudnessMetrics] | None:
+    """Streaming counterpart of :func:`_try_soundfile`.
+
+    Returns ``(info, loudness)`` on success, or ``None`` when soundfile
+    cannot even probe the file (the caller then falls back to the ffmpeg
+    path). Once probing succeeds we commit to soundfile: a mid-stream
+    read failure raises :class:`AudioDecodeError` rather than rewinding
+    silently, because the sinks have already received partial data and
+    cannot be made to forget it.
+    """
+    try:
+        import soundfile as sf
+    except ImportError as exc:
+        log.warning(
+            "soundfile not importable; streaming decoder falls back to ffmpeg: %s",
+            exc,
+        )
+        return None
+    try:
+        info = sf.info(str(p))
+    except Exception as exc:  # noqa: BLE001 — fall back to ffmpeg on any sf rejection
+        log.debug(
+            "soundfile.info rejected %s in streaming path: %s", p.name, exc
+        )
+        return None
+
+    sample_rate = int(info.samplerate or 0)
+    if sample_rate <= 0:
+        log.debug(
+            "soundfile reported zero sample rate for %s — skipping sf path",
+            p.name,
+        )
+        return None
+    channels = int(info.channels or 0)
+    total_frames = int(info.frames or 0)
+    duration = (
+        float(total_frames) / float(sample_rate) if total_frames > 0 else 0.0
+    )
+    bit_depth = _bit_depth_from_subtype(info.subtype)
+
+    # Block size: ~1 second of audio, with the floor described above.
+    blocksize = max(int(sample_rate), _SF_STREAM_BLOCKSIZE_FALLBACK)
+
+    feed_stereo = sinks.feed_stereo_optional
+    do_stereo = feed_stereo is not None and channels == 2
+
+    frames_done = 0
+    last_pct = -1
+    try:
+        for block in sf.blocks(
+            str(p),
+            blocksize=blocksize,
+            dtype="float32",
+            always_2d=True,
+        ):
+            if block.size == 0:
+                continue
+            if do_stereo:
+                # When channels == 2 the block is already (n, 2). The
+                # branching here is for forward-compat with hypothetical
+                # 2.1/quad sources that soundfile might one day return
+                # with a stereo subset request.
+                stereo_block = (
+                    np.ascontiguousarray(block[:, :2], dtype=np.float32)
+                    if block.shape[1] > 2
+                    else block
+                )
+                assert feed_stereo is not None  # narrowed by do_stereo
+                feed_stereo(stereo_block)
+                mono_block = stereo_block.mean(axis=1, dtype=np.float32)
+            elif block.shape[1] == 1:
+                # Mono source: drop the trivial second axis so the sink
+                # receives a flat (n,) array, matching the ffmpeg path.
+                mono_block = block[:, 0]
+            else:
+                # Multi-channel input we deliberately do not split. The
+                # mono mixdown averages across every channel — matches
+                # the batch ``_to_mono`` for the >2-channel case.
+                mono_block = block.mean(axis=1, dtype=np.float32)
+            sinks.feed_mono(mono_block)
+
+            frames_done += block.shape[0]
+            if on_progress is not None and total_frames > 0:
+                pct = int(100 * frames_done / total_frames)
+                if pct != last_pct:
+                    last_pct = pct
+                    on_progress(pct, "decoding")
+    except Exception as exc:  # noqa: BLE001 — surface as user-facing decode error
+        # We already fed partial data to the sinks; falling back to
+        # ffmpeg here would double-feed the same audio. Surface as a
+        # generic decode error so the worker can show the user.
+        raise AudioDecodeError(
+            title=t("error.decoder.generic.title", name=p.name),
+            body=t("error.decoder.generic.body"),
+            hint=t("error.decoder.generic.hint.tail", tail=str(exc)),
+        ) from exc
+
+    # Loudness via ffmpeg ebur128 — same call the batch soundfile path
+    # makes. This is a second read of the file, but it happens entirely
+    # inside ffmpeg, never touches Python memory.
+    from nonvisualaudio.analysis.loudness import measure_loudness
+
+    loud_progress = (
+        None
+        if on_progress is None
+        else (lambda pct: on_progress(pct, "loudness"))
+    )
+    loudness = measure_loudness(
+        p, on_progress=loud_progress, duration_seconds=duration
+    )
+
+    return (
+        StreamingDecodeInfo(
+            sample_rate=sample_rate,
+            channels=channels,
+            bit_depth=bit_depth,
+            duration_seconds=duration,
+            filename=p.name,
+        ),
+        loudness,
+    )
+
+
+def _ffmpeg_decode_with_loudness_streaming(
+    path: Path,
+    sample_rate: int,
+    channels: int,
+    duration: float,
+    sinks: StreamingSinks,
+    on_progress: DecodeProgressCb | None,
+) -> tuple[StreamingDecodeInfo, LoudnessMetrics]:
+    """Streaming combined-pass twin of :func:`_ffmpeg_decode_with_loudness`.
+
+    Same ffmpeg invocation as the batch sibling (one read, asplit fans
+    out to stdout PCM and stderr ebur128), but the stdout chunk handler
+    routes each frame batch into ``sinks`` and immediately releases it
+    instead of growing a preallocated buffer. Peak RAM is bounded by the
+    size of one stdout chunk plus whatever state the sinks keep — at
+    typical 1 MB ffmpeg chunks and Phase 1 streamer states that means
+    a few MB regardless of how many hours of audio go through.
+    """
+    from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128
+
+    decode_channels = 2 if channels == 2 else 1
+    feed_stereo = sinks.feed_stereo_optional
+    do_stereo = decode_channels == 2 and feed_stereo is not None
+    args = [
+        find_ffmpeg(),
+        "-hide_banner",
+        "-nostats",
+        "-nostdin",
+        "-i",
+        str(path),
+        "-filter_complex",
+        "[0:a]asplit=2[pcm][ana];"
+        "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]",
+        "-map", "[pcm]",
+        "-f", "f32le",
+        "-acodec", "pcm_f32le",
+        "-ac", str(decode_channels),
+        "-ar", str(sample_rate),
+        "pipe:1",
+        "-map", "[loud]",
+        "-f", "null",
+        "-",
+    ]
+
+    # Live progress from the ebur128 ``t:`` markers — same logic the
+    # batch streaming variant uses. The callback fires on the stderr
+    # reader thread, so it must stay cheap.
+    progress_state = {"last_pct": -1}
+
+    def _on_line(raw_line: bytes) -> None:
+        if on_progress is None or duration <= 0:
+            return
+        text = raw_line.decode("utf-8", errors="replace")
+        from nonvisualaudio.analysis.loudness import _RE_FRAME_T
+
+        m = _RE_FRAME_T.search(text)
+        if m is None:
+            return
+        try:
+            t_sec = float(m.group(1))
+        except ValueError:
+            return
+        pct = int(100.0 * min(1.0, max(0.0, t_sec / duration)))
+        if pct == progress_state["last_pct"]:
+            return
+        progress_state["last_pct"] = pct
+        on_progress(pct, "combined")
+
+    frame_bytes = decode_channels * 4
+    # The leftover sits in a single-key dict so the nested closure can
+    # mutate it without a nonlocal binding fight with the outer scope.
+    leftover: dict[str, bytes] = {"buf": b""}
+
+    def _on_chunk(chunk: bytes) -> None:
+        prev = leftover["buf"]
+        data = prev + chunk if prev else chunk
+        usable_bytes = (len(data) // frame_bytes) * frame_bytes
+        leftover["buf"] = data[usable_bytes:]
+        if usable_bytes == 0:
+            return
+        arr = np.frombuffer(data, dtype=np.float32, count=usable_bytes // 4)
+        if decode_channels == 2:
+            stereo_arr = arr.reshape(-1, 2)
+            if do_stereo:
+                assert feed_stereo is not None  # narrowed by do_stereo
+                feed_stereo(stereo_arr)
+            mono_arr = stereo_arr.mean(axis=1, dtype=np.float32)
+            sinks.feed_mono(mono_arr)
+        else:
+            sinks.feed_mono(arr)
+
+    try:
+        stderr_text = run_split_streams_streaming(
+            args,
+            timeout=1200.0,
+            stdout_chunk_handler=_on_chunk,
+            stderr_line_callback=_on_line,
+        )
+    except FFmpegError as exc:
+        raise _ffmpeg_error_to_user_error(exc, path) from exc
+
+    loudness = _parse_ebur128(stderr_text, path.name)
+    return (
+        StreamingDecodeInfo(
+            sample_rate=sample_rate,
+            channels=channels or 1,
+            bit_depth=None,
+            duration_seconds=duration,
+            filename=path.name,
+        ),
+        loudness,
+    )
+
+
+def decode_and_measure_streaming(
+    path: str | Path,
+    sinks: StreamingSinks,
+    on_progress: DecodeProgressCb | None = None,
+) -> tuple[StreamingDecodeInfo, LoudnessMetrics]:
+    """Streaming twin of :func:`decode_and_measure`.
+
+    Decodes ``path`` end-to-end without ever materialising the full PCM
+    buffer in Python. Each chunk of decoded audio is handed to
+    ``sinks.feed_mono`` (always) and ``sinks.feed_stereo_optional``
+    (only when the source is genuinely stereo and the field is not
+    ``None``). The returned :class:`StreamingDecodeInfo` carries only
+    the file's metadata — the samples are already inside the sinks.
+
+    Format coverage matches :func:`decode_and_measure`: soundfile
+    handles WAV / AIFF / FLAC / OGG natively, everything else routes
+    through the combined ffmpeg pass. The legacy :func:`decode_and_measure`
+    is left untouched as the non-streaming fallback for callers that
+    still need a complete :class:`DecodedAudio`.
+    """
+    p = _validate_file(path)
+    sf_result = _try_streaming_soundfile(p, sinks, on_progress)
+    if sf_result is not None:
+        return sf_result
+
+    sample_rate, channels, duration = _probe_via_ffmpeg(p)
+    if sample_rate == 0:
+        log.warning(
+            "ffmpeg did not report a sample rate for %s; defaulting to 48000",
+            p.name,
+        )
+        sample_rate = 48000
+    try:
+        return _ffmpeg_decode_with_loudness_streaming(
+            p, sample_rate, channels, duration, sinks, on_progress
+        )
+    except MissingFFmpegError:
+        raise
+    except AudioDecodeError:
+        raise
+
+
 def decode_and_measure(
     path: str | Path,
     on_progress: DecodeProgressCb | None = None,

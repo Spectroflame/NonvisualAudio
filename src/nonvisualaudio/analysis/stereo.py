@@ -232,3 +232,220 @@ def compute_stereo(
         mono_drop_db=mono_drop_db,
         side_to_mid_db=side_to_mid_db,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Streaming variant — Phase 1 of the end-to-end RAM rewrite.
+# --------------------------------------------------------------------------- #
+
+
+class StereoStreamer:
+    """Streaming twin of :func:`compute_stereo`.
+
+    Same outputs, same numerical guarantees, but never holds more than
+    one fed chunk's worth of float64 stereo samples at a time. Callers
+    push interleaved ``(n, 2)`` float32 chunks via :meth:`feed`; the
+    internal accumulators store only the four scalar reductions and the
+    per-block arrays for the energy-weighted mean correlation, plus a
+    trailing ``< _BLOCK_SECONDS`` carry.
+
+    Mid/side energies are accumulated directly from each chunk, exactly
+    as in the batch path — the algebraic identity ``Σ(L±R)² = …`` that
+    cancels catastrophically on centred audiobook material is avoided
+    here for the same reason.
+    """
+
+    def __init__(self, sample_rate: int) -> None:
+        self.sample_rate = sample_rate
+        self._block_len = max(1, int(_BLOCK_SECONDS * sample_rate))
+        # Whole-block accumulators — non-negative reductions, safe across
+        # arbitrary chunking on multi-hour inputs.
+        self._sum_l2 = 0.0
+        self._sum_r2 = 0.0
+        self._sum_mid_sq = 0.0
+        self._sum_side_sq = 0.0
+        self._total_samples = 0
+        self._corr_chunks: list[np.ndarray] = []
+        self._block_rms_chunks: list[np.ndarray] = []
+        # Trailing stereo samples (carry-over) plus a separate buffer of
+        # everything fed so far. The latter is used by the sub-block
+        # fallback in :meth:`finalize`, which mirrors the batch path's
+        # ``n_full < 1`` branch — it only fires when the *whole* input
+        # is shorter than one block, so the buffer stays tiny.
+        self._carry: np.ndarray = np.zeros((0, 2), dtype=np.float32)
+        self._sub_block_buf_chunks: list[np.ndarray] = []
+        # Did any feed actually produce a whole-block run? Once it has,
+        # the sub-block buffer is no longer needed and we drop it.
+        self._got_full_block = False
+
+    def feed(self, chunk: np.ndarray) -> None:
+        """Consume one stereo PCM chunk.
+
+        ``chunk`` must be a 2-D array shaped ``(n, 2)``. Passing a 1-D
+        mono chunk would mis-measure the L/R correlation entirely, so we
+        raise rather than silently fall back.
+        """
+        if chunk.size == 0:
+            return
+        if chunk.ndim != 2 or chunk.shape[1] < 2:
+            raise ValueError("StereoStreamer.feed expects an (n, 2) array")
+        # Trim down to exactly the L/R pair so a stray 5.1 buffer slipped
+        # in from a future decoder change can't surprise us.
+        if chunk.shape[1] > 2:
+            chunk = chunk[:, :2]
+
+        # Stitch the carry from the previous feed onto the new samples.
+        # ``buf`` is the stereo float32 working buffer for *this* feed
+        # only; per-block work then promotes whole-block chunks to
+        # float64. Carry stays bounded by ``_block_len - 1`` samples.
+        if self._carry.shape[0]:
+            buf = np.concatenate([self._carry, chunk], axis=0)
+        else:
+            buf = chunk
+        n_full = buf.shape[0] // self._block_len
+
+        if n_full < 1:
+            # Whole feed was shorter than a block once carry was applied.
+            # Hold the data so the sub-block fallback path in finalize
+            # has the full buffer to work with — but only as long as no
+            # full block has ever been processed.
+            if not self._got_full_block:
+                # Copy because ``buf`` may be a view into the caller's
+                # chunk that will be released after feed returns.
+                self._sub_block_buf_chunks.append(np.ascontiguousarray(buf))
+            self._carry = (
+                buf.copy() if buf.base is not None else buf
+            )
+            return
+
+        usable = n_full * self._block_len
+        # float64 promotion limited to the whole-block portion of this
+        # chunk — same per-chunk scope as the batch path.
+        left_f64 = buf[:usable, 0].astype(np.float64)
+        right_f64 = buf[:usable, 1].astype(np.float64)
+        left_blocks = left_f64.reshape(n_full, self._block_len)
+        right_blocks = right_f64.reshape(n_full, self._block_len)
+
+        # Per-block Pearson correlation. Block i lives entirely inside
+        # this feed's float64 working set; means / sums never straddle
+        # the carry boundary because that boundary is on a block edge.
+        left_zm = left_blocks - left_blocks.mean(axis=1, keepdims=True)
+        right_zm = right_blocks - right_blocks.mean(axis=1, keepdims=True)
+        num = np.sum(left_zm * right_zm, axis=1)
+        denom = np.sqrt(
+            np.sum(left_zm * left_zm, axis=1)
+            * np.sum(right_zm * right_zm, axis=1)
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            corr_chunk = np.where(denom > 0, num / denom, 0.0)
+        self._corr_chunks.append(np.clip(corr_chunk, -1.0, 1.0))
+
+        # Block RMS for the silence mask + weighting at finalize time.
+        self._block_rms_chunks.append(
+            np.sqrt(
+                np.mean(
+                    left_blocks * left_blocks + right_blocks * right_blocks,
+                    axis=1,
+                )
+                / 2.0
+            )
+        )
+
+        # Channel and mid/side sums, accumulated directly. The mid/side
+        # numbers must NOT come from the algebraic identity (see the
+        # module docstring) on centred-voice material.
+        self._sum_l2 += float(np.sum(left_f64 * left_f64))
+        self._sum_r2 += float(np.sum(right_f64 * right_f64))
+        mid_chunk = (left_f64 + right_f64) * 0.5
+        self._sum_mid_sq += float(np.sum(mid_chunk * mid_chunk))
+        side_chunk = (left_f64 - right_f64) * 0.5
+        self._sum_side_sq += float(np.sum(side_chunk * side_chunk))
+        self._total_samples += left_f64.size
+
+        # We've now produced at least one block — the sub-block buffer
+        # is dead weight from here on and can be released.
+        self._got_full_block = True
+        self._sub_block_buf_chunks = []
+        # Save the trailing < _block_len samples for the next feed.
+        self._carry = buf[usable:].copy()
+
+    def finalize(self) -> StereoMetrics:
+        """Return the metrics for everything fed so far."""
+        if self._total_samples == 0:
+            # Sub-block fallback: same one-shot Pearson the batch path
+            # uses when ``n_full < 1``. The whole input lives in the
+            # sub-block buffer here, which is bounded by ``_block_len``.
+            if not self._sub_block_buf_chunks:
+                return _empty_stereo()
+            buf = (
+                self._sub_block_buf_chunks[0]
+                if len(self._sub_block_buf_chunks) == 1
+                else np.concatenate(self._sub_block_buf_chunks, axis=0)
+            )
+            if buf.shape[0] == 0:
+                return _empty_stereo()
+            left_full = buf[:, 0].astype(np.float64)
+            right_full = buf[:, 1].astype(np.float64)
+            mean_corr = _pearson_full(left_full, right_full)
+            min_corr = mean_corr
+            sum_l2 = float(np.sum(left_full * left_full))
+            sum_r2 = float(np.sum(right_full * right_full))
+            mid_full = (left_full + right_full) * 0.5
+            side_full = (left_full - right_full) * 0.5
+            sum_mid_sq = float(np.sum(mid_full * mid_full))
+            sum_side_sq = float(np.sum(side_full * side_full))
+            total_samples = left_full.size
+        else:
+            corr = (
+                self._corr_chunks[0]
+                if len(self._corr_chunks) == 1
+                else np.concatenate(self._corr_chunks)
+            )
+            block_rms_arr = (
+                self._block_rms_chunks[0]
+                if len(self._block_rms_chunks) == 1
+                else np.concatenate(self._block_rms_chunks)
+            )
+            silence_threshold = 10.0 ** (_BLOCK_SILENCE_THRESHOLD_DB / 20.0)
+            mask = block_rms_arr >= silence_threshold
+            if not np.any(mask):
+                mean_corr = float(np.mean(corr))
+                min_corr = float(np.min(corr))
+            else:
+                weights = block_rms_arr[mask] * block_rms_arr[mask]
+                mean_corr = float(
+                    np.sum(corr[mask] * weights) / np.sum(weights)
+                )
+                min_corr = float(np.min(corr[mask]))
+            sum_l2 = self._sum_l2
+            sum_r2 = self._sum_r2
+            sum_mid_sq = self._sum_mid_sq
+            sum_side_sq = self._sum_side_sq
+            total_samples = self._total_samples
+
+        if total_samples == 0 or (sum_l2 == 0.0 and sum_r2 == 0.0):
+            return _empty_stereo()
+
+        rms_l = math.sqrt(max(0.0, sum_l2 / total_samples))
+        rms_r = math.sqrt(max(0.0, sum_r2 / total_samples))
+        rms_mid = math.sqrt(max(0.0, sum_mid_sq / total_samples))
+        rms_side = math.sqrt(max(0.0, sum_side_sq / total_samples))
+
+        stereo_ref = math.sqrt((rms_l * rms_l + rms_r * rms_r) / 2.0)
+        if stereo_ref <= 0.0:
+            mono_drop_db = _SILENCE_FLOOR_DB
+        else:
+            mono_drop_db = round(_to_db(rms_mid) - _to_db(stereo_ref), 2)
+
+        if rms_mid <= 0.0:
+            side_to_mid_db = 60.0
+        else:
+            side_to_mid_db = round(_to_db(rms_side) - _to_db(rms_mid), 2)
+
+        return StereoMetrics(
+            is_stereo=True,
+            mean_correlation=round(mean_corr, 3),
+            min_correlation=round(min_corr, 3),
+            mono_drop_db=mono_drop_db,
+            side_to_mid_db=side_to_mid_db,
+        )

@@ -140,3 +140,137 @@ def compute_dynamics(samples: np.ndarray, sample_rate: int) -> DynamicsMetrics:
         crest_factor_db=round(crest, 2),
         dr_score=dr_score,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Streaming variant — Phase 1 of the end-to-end RAM rewrite.
+# --------------------------------------------------------------------------- #
+
+
+class DynamicsStreamer:
+    """Streaming twin of :func:`compute_dynamics`.
+
+    The batch function above holds the entire mono buffer in RAM and walks
+    it chunk by chunk internally. The streamer flips that around: callers
+    push PCM chunks in (any size, any cadence) via :meth:`feed`, and the
+    accumulators inside the instance hold only:
+
+      - four scalar reductions (``peak_abs_lin``, ``sum_sq``,
+        ``total_samples``, plus a list of per-block RMS arrays), and
+      - at most one trailing partial 3-second block as a float64 carry.
+
+    :meth:`finalize` returns a :class:`DynamicsMetrics` that is numerically
+    equivalent to ``compute_dynamics(np.concatenate(chunks), sample_rate)``
+    regardless of how the input was sliced. The streamer makes one design
+    choice deliberately matching the batch path: only whole 3-second
+    blocks feed the DR score; any trailing tail contributes to peak / RMS
+    but not to DR. See the tests in ``test_dynamics_streamer.py``.
+    """
+
+    def __init__(self, sample_rate: int) -> None:
+        self.sample_rate = sample_rate
+        self._block_len = max(1, int(3.0 * sample_rate))
+        self._peak_abs_lin = 0.0
+        self._sum_sq = 0.0
+        self._total_samples = 0
+        # Each entry is the float64 per-block RMS for one feed call's
+        # whole-block portion. We concatenate at finalize time so we never
+        # repeatedly resize a single growing array.
+        self._block_rms_chunks: list[np.ndarray] = []
+        # Trailing tail from the previous feed that did not complete a
+        # full 3-second block. Prepended to the next chunk before the
+        # block split. Stays bounded by ``_block_len - 1`` samples.
+        self._carry: np.ndarray = np.zeros(0, dtype=np.float64)
+
+    def feed(self, chunk: np.ndarray) -> None:
+        """Consume one PCM chunk. May be any size; ``chunk.size == 0`` is a no-op.
+
+        ``chunk`` is treated as 1-D mono float32 / float64. Higher dims
+        are flattened to 1-D so callers passing a ``(n,)`` view of a
+        2-D buffer work without a separate reshape.
+        """
+        if chunk.size == 0:
+            return
+        if chunk.ndim != 1:
+            chunk = chunk.reshape(-1)
+        # float64 promotion is intentional and matches the batch path:
+        # ``chunk_peak`` / ``sum_sq`` need the wider exponent on
+        # multi-hour material so the running sum does not lose precision.
+        x_f64 = chunk.astype(np.float64, copy=False)
+
+        # Each input sample contributes to peak / sum_sq / total_samples
+        # exactly once — the carry-over below only affects per-block RMS.
+        chunk_peak = float(np.max(np.abs(x_f64)))
+        if chunk_peak > self._peak_abs_lin:
+            self._peak_abs_lin = chunk_peak
+        self._sum_sq += float(np.sum(x_f64 * x_f64))
+        self._total_samples += x_f64.size
+
+        # Per-block path: stitch the carry from the previous feed to the
+        # new samples, slice off whole 3-second blocks, save the new
+        # remainder. Block boundaries are at fixed offsets of the global
+        # signal, so they match the batch reference bit-for-bit.
+        if self._carry.size:
+            buf = np.concatenate([self._carry, x_f64])
+        else:
+            buf = x_f64
+        n_full = buf.shape[0] // self._block_len
+        if n_full > 0:
+            usable = n_full * self._block_len
+            blocks = buf[:usable].reshape(n_full, self._block_len)
+            block_rms = np.sqrt(np.mean(blocks * blocks, axis=1))
+            self._block_rms_chunks.append(block_rms)
+            # ``.copy()`` so the small tail doesn't keep the whole ``buf``
+            # alive through a view's base.
+            self._carry = buf[usable:].copy()
+        else:
+            # No new block produced — just hold the accumulated tail.
+            # Copy if the carry currently aliases the caller's chunk so
+            # we don't keep a reference to memory that's about to be
+            # released.
+            self._carry = buf.copy() if buf.base is not None else buf
+
+    def finalize(self) -> DynamicsMetrics:
+        """Return the metrics for everything fed so far.
+
+        Repeated calls are safe — the accumulators are not consumed.
+        Calling ``finalize`` without ever calling ``feed`` (or with only
+        empty chunks) returns the same silence sentinel as
+        ``compute_dynamics(np.zeros(...), sr)``.
+        """
+        if self._total_samples == 0:
+            return DynamicsMetrics(
+                peak_db=_SILENCE_FLOOR_DB,
+                rms_db=_SILENCE_FLOOR_DB,
+                crest_factor_db=0.0,
+                dr_score=0.0,
+            )
+
+        rms_lin = math.sqrt(self._sum_sq / self._total_samples)
+        peak_db = _to_db(self._peak_abs_lin)
+        rms_db = _to_db(rms_lin)
+        crest = peak_db - rms_db
+
+        if self._block_rms_chunks:
+            block_rms_arr = (
+                self._block_rms_chunks[0]
+                if len(self._block_rms_chunks) == 1
+                else np.concatenate(self._block_rms_chunks)
+            )
+            n_blocks = block_rms_arr.size
+            k = max(1, int(math.ceil(0.2 * n_blocks)))
+            top = np.sort(block_rms_arr)[-k:]
+            loud_rms = float(np.mean(top))
+            loud_rms_db = _to_db(loud_rms)
+            dr_raw = peak_db - loud_rms_db
+        else:
+            # Sub-block input: matches the batch fallback exactly.
+            dr_raw = crest
+
+        dr_score = max(0.0, min(30.0, round(dr_raw, 1)))
+        return DynamicsMetrics(
+            peak_db=round(peak_db, 2),
+            rms_db=round(rms_db, 2),
+            crest_factor_db=round(crest, 2),
+            dr_score=dr_score,
+        )

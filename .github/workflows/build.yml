@@ -551,3 +551,7 @@ jobs:
         with:
           files: release-files/*
           generate_release_notes: true
+          # Tags carrying a pre-release suffix (e.g. v2.1.0-rc.1) publish as
+          # a prerelease so they never displace the stable "Latest" release;
+          # a clean tag (v2.1.0) publishes as a normal release.
+          prerelease: ${{ contains(github.ref_name, '-') }}

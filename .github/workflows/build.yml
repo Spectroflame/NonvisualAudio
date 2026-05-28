@@ -2,6 +2,11 @@ name: Build desktop apps
 
 on:
   workflow_dispatch:
+    inputs:
+      test_marker:
+        description: 'Pre-release marker for a tester build (e.g. rc1, beta2). Empty = plain build. Stamped onto the artifact version only; never committed and no release/tag is created.'
+        required: false
+        default: ''
   push:
     tags:
       - 'v*'
@@ -68,6 +73,16 @@ jobs:
         # pyproject.toml so the About dialog, CFBundleShortVersionString,
         # and every artifact match the GitHub release tag exactly.
         run: python3.12 scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
+
+      - name: Stamp tester pre-release marker
+        # Manual tester builds only: append the dispatch marker (e.g. rc1)
+        # to the branch's plain version so the artifact reads 2.1.0rc1
+        # while the committed version stays 2.1.0. Must run before the
+        # dependency install below bakes the version into the dist metadata.
+        if: github.event_name == 'workflow_dispatch' && inputs.test_marker != ''
+        env:
+          TEST_MARKER: ${{ inputs.test_marker }}
+        run: python3.12 scripts/bump_version.py --marker "$TEST_MARKER" --no-reinstall
 
       - name: Install Python dependencies (universal2 via delocate-merge)
         # numpy, scipy and several others stopped publishing universal2
@@ -360,6 +375,13 @@ jobs:
         shell: pwsh
         run: python scripts/bump_version.py "$env:GITHUB_REF_NAME" --no-reinstall
 
+      - name: Stamp tester pre-release marker
+        if: github.event_name == 'workflow_dispatch' && inputs.test_marker != ''
+        shell: pwsh
+        env:
+          TEST_MARKER: ${{ inputs.test_marker }}
+        run: python scripts/bump_version.py --marker "$env:TEST_MARKER" --no-reinstall
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
@@ -434,6 +456,12 @@ jobs:
       - name: Sync version with pushed git tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: python scripts/bump_version.py "${GITHUB_REF_NAME}" --no-reinstall
+
+      - name: Stamp tester pre-release marker
+        if: github.event_name == 'workflow_dispatch' && inputs.test_marker != ''
+        env:
+          TEST_MARKER: ${{ inputs.test_marker }}
+        run: python scripts/bump_version.py --marker "$TEST_MARKER" --no-reinstall
 
       - name: Install system libraries needed by wxPython
         run: |

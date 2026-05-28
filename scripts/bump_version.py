@@ -33,6 +33,12 @@ from pathlib import Path
 # is consumed by pip, which will reject anything it cannot parse.
 _VERSION_RE = re.compile(r"^\d+(?:\.\d+){1,2}(?:[.\-+][A-Za-z0-9.\-+]+)?$")
 
+# A pre-release marker appended verbatim to the current version, e.g.
+# ``rc1`` → ``2.1.0rc1``. Kept to alphanumerics + dots so it cannot smuggle
+# in shell metacharacters or whitespace; pip's PEP 440 parser is the final
+# arbiter of whether the composed version is actually installable.
+_MARKER_RE = re.compile(r"^[A-Za-z0-9.]+$")
+
 _PYPROJECT_VERSION_LINE = re.compile(
     r'^(?P<prefix>\s*version\s*=\s*")(?P<version>[^"]*)(?P<suffix>".*)$',
     re.MULTILINE,
@@ -43,7 +49,20 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "version",
-        help="New version string, for example 2.1.0. A leading 'v' is stripped.",
+        nargs="?",
+        help=(
+            "New absolute version string, for example 2.1.0. A leading 'v' "
+            "is stripped. Omit when using --marker."
+        ),
+    )
+    parser.add_argument(
+        "--marker",
+        help=(
+            "Append a pre-release marker (e.g. rc1, beta2) to the CURRENT "
+            "pyproject version instead of setting an absolute version. Lets a "
+            "tester build report e.g. 2.1.0rc1 while the branch keeps the "
+            "plain 2.1.0 — the marker is never committed."
+        ),
     )
     parser.add_argument(
         "--no-reinstall",
@@ -69,6 +88,26 @@ def _normalise(version: str) -> str:
             "(expected e.g. 2.1.0 or 2.1.0-rc.1)."
         )
     return cleaned
+
+
+def _current_version(path: Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    match = _PYPROJECT_VERSION_LINE.search(text)
+    if not match:
+        sys.exit(
+            f"bump_version: could not find a 'version = \"…\"' line in {path}."
+        )
+    return match.group("version")
+
+
+def _compose_marker_version(path: Path, raw_marker: str) -> str:
+    marker = raw_marker.strip().lstrip(".")
+    if not _MARKER_RE.match(marker):
+        sys.exit(
+            f"bump_version: marker {raw_marker!r} must be alphanumeric "
+            "(e.g. rc1, beta2)."
+        )
+    return f"{_current_version(path)}{marker}"
 
 
 def _rewrite_pyproject(path: Path, new_version: str) -> str:
@@ -116,7 +155,14 @@ def _reinstall() -> None:
 
 def main() -> None:
     args = _parse_args()
-    new_version = _normalise(args.version)
+    if args.marker is not None:
+        if args.version is not None:
+            sys.exit("bump_version: pass either a version or --marker, not both.")
+        new_version = _compose_marker_version(args.pyproject, args.marker)
+    elif args.version is not None:
+        new_version = _normalise(args.version)
+    else:
+        sys.exit("bump_version: provide a version argument or --marker.")
     _rewrite_pyproject(args.pyproject, new_version)
     if not args.no_reinstall:
         _reinstall()

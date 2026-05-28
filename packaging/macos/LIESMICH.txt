@@ -1,0 +1,17 @@
+NonvisualAudio 2.1.0 — Test-Build (Release Candidate)
+
+macOS blockiert Apps, die nicht über den App Store kommen, beim ersten
+Start. So startest du NonvisualAudio trotzdem:
+
+1. Doppelklick auf "NonvisualAudio starten (Erststart).command".
+   macOS fragt einmal nach, weil das Skript aus dem Internet stammt —
+   mit "Öffnen" bestätigen. Das Skript gibt die App frei und startet sie.
+
+2. Falls Schritt 1 nicht klappt, im Terminal ausführen (Pfad anpassen):
+   xattr -dr com.apple.quarantine "/Pfad/zu/NonvisualAudio.app"
+   Danach die App per Doppelklick öffnen.
+
+Ab dem ersten erfolgreichen Start öffnet sich die App jederzeit normal.
+
+Wichtig: Skript und App im selben Ordner lassen, sonst findet das Skript
+die App nicht.

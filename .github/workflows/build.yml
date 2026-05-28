@@ -346,10 +346,19 @@ jobs:
           arch -x86_64 "$FF" -version | head -1
 
       - name: Package as zip
+        # Ship the .app alongside a first-launch helper (clears the
+        # quarantine xattr and opens the app) and a short readme, wrapped in
+        # a NonvisualAudio/ folder. Only sibling files are added next to the
+        # ad-hoc-signed bundle, so its signature stays intact.
         run: |
-          cd dist
-          ditto -c -k --sequesterRsrc --keepParent \
-            NonvisualAudio.app NonvisualAudio-macOS.zip
+          set -eux
+          STAGE=dist/pkg/NonvisualAudio
+          mkdir -p "$STAGE"
+          ditto dist/NonvisualAudio.app "$STAGE/NonvisualAudio.app"
+          cp "packaging/macos/NonvisualAudio starten (Erststart).command" "$STAGE/"
+          cp packaging/macos/LIESMICH.txt "$STAGE/"
+          chmod +x "$STAGE/NonvisualAudio starten (Erststart).command"
+          ditto -c -k --sequesterRsrc --keepParent "$STAGE" dist/NonvisualAudio-macOS.zip
 
       - uses: actions/upload-artifact@v4
         with:

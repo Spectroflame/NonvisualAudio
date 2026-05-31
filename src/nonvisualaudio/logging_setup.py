@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import os
 import platform
 import re
 import sys
@@ -87,6 +88,29 @@ def redact(text: str) -> str:
     if _HOME and _HOME in text:
         text = text.replace(_HOME, "~")
     return _ABS_PATH_RE.sub(lambda m: _basename(m.group(0)), text)
+
+
+def path_for_log(path: str | Path) -> str:
+    """Render a filesystem path for a log line, honouring the verbose toggle.
+
+    With verbose logging off (the default) only the final path component
+    is returned — e.g. ``Take 1.wav`` — so neither the user name nor any
+    folder names ever reach the log, even when those segments contain
+    spaces (which the line-level :func:`redact` regex cannot fully strip).
+
+    With verbose logging on, the full, unredacted path is returned. That
+    switch is opt-in: the user turns it on themselves in the diagnostics
+    dialog, typically right before sending a support log, so logging the
+    complete path is exactly what they asked for in that case.
+
+    Call this at the log site for import/export paths instead of passing
+    the raw path; it is independent of, and complementary to, the
+    formatter-level redaction applied to the file handler.
+    """
+    text = str(path)
+    if _verbose:
+        return text
+    return os.path.basename(text.rstrip("/\\")) or text
 
 
 class RedactingFormatter(logging.Formatter):

@@ -88,6 +88,22 @@ def test_redact_verbose_keeps_full_paths() -> None:
     assert logging_setup.redact(text) == text
 
 
+def test_path_for_log_returns_basename_when_not_verbose() -> None:
+    # Default (verbose off): only the file name, no folders, even when
+    # the path contains spaces — the case the line-level regex misses.
+    assert (
+        logging_setup.path_for_log("/Volumes/Field Recordings/Take 1.wav")
+        == "Take 1.wav"
+    )
+    assert logging_setup.path_for_log(Path("/Users/alice/Music/song.wav")) == "song.wav"
+
+
+def test_path_for_log_returns_full_path_when_verbose() -> None:
+    logging_setup.set_verbose(True)
+    full = "/Volumes/Field Recordings/Take 1.wav"
+    assert logging_setup.path_for_log(full) == full
+
+
 def test_redacting_formatter_scrubs_path_passed_as_arg() -> None:
     formatter = logging_setup.RedactingFormatter(fmt="%(message)s")
     record = logging.LogRecord(

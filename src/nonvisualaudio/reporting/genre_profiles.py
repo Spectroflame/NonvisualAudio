@@ -144,17 +144,31 @@ def _build_profile_objects(
     for p in profiles:
         cat_key = p.get("category_key", "")
         category_name = category_name_by_key.get(cat_key, cat_key)
-        objects.append(
-            GenreProfile(
-                key=p["key"],
-                display_name=_resolve_localised(p.get("display_name"), lang),
-                category=category_name,
-                target_lufs=float(p["target_lufs"]),
-                lra_low=float(p["lra_low"]),
-                lra_high=float(p["lra_high"]),
-                notes=_resolve_localised(p.get("notes", ""), lang),
+        try:
+            objects.append(
+                GenreProfile(
+                    key=p["key"],
+                    display_name=_resolve_localised(p.get("display_name"), lang),
+                    category=category_name,
+                    target_lufs=float(p["target_lufs"]),
+                    lra_low=float(p["lra_low"]),
+                    lra_high=float(p["lra_high"]),
+                    notes=_resolve_localised(p.get("notes", ""), lang),
+                )
             )
-        )
+        except (KeyError, ValueError, TypeError) as exc:
+            # A malformed profile — missing ``key``, or a missing /
+            # non-numeric ``target_lufs`` / ``lra_*`` — must never crash
+            # the import-time reload() and with it the whole app launch.
+            # Bundled profiles are well-formed, so in practice this only
+            # fires on a hand-edited or partially written user override:
+            # skip the bad entry and keep every valid profile (including
+            # the bundled defaults) available.
+            log.warning(
+                "skipping malformed genre profile %r: %s",
+                p.get("key", "<no key>"),
+                exc,
+            )
     return tuple(objects)
 
 

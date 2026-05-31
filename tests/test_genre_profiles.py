@@ -156,6 +156,62 @@ def test_broken_user_override_falls_back_to_bundle(isolated_user_dir: Path):
     assert "pop_modern" in genre_profiles.GENRES
 
 
+def test_schema_broken_user_profile_is_skipped_not_fatal(
+    isolated_user_dir: Path, caplog: pytest.LogCaptureFixture
+):
+    # Valid JSON, but the override profile is missing the required
+    # numeric fields (target_lufs / lra_*). This used to raise KeyError
+    # straight out of the import-time reload() and prevent the app from
+    # starting. It must now be skipped with a warning, leaving the
+    # bundled defaults fully usable.
+    (isolated_user_dir / "genres.json").write_text(
+        json.dumps(
+            {"profiles": [{"key": "x", "display_name": "X", "category_key": "c"}]}
+        ),
+        encoding="utf-8",
+    )
+    with caplog.at_level("WARNING", logger="nonvisualaudio.genre_profiles"):
+        genre_profiles.reload()  # must not raise
+    # Broken entry skipped...
+    assert "x" not in genre_profiles.GENRES
+    # ...bundle defaults intact...
+    assert len(genre_profiles.GENRES) == 42
+    assert "pop_modern" in genre_profiles.GENRES
+    # ...and the skip was logged.
+    assert any(
+        "malformed genre profile" in rec.getMessage() for rec in caplog.records
+    )
+
+
+def test_one_broken_profile_does_not_drop_valid_siblings(isolated_user_dir: Path):
+    # A broken profile next to a well-formed one: only the broken one is
+    # dropped, the valid sibling still loads.
+    (isolated_user_dir / "genres.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "categories": [{"key": "audio_drama", "display_name": "Audio Drama"}],
+                "profiles": [
+                    {"key": "broken", "category_key": "audio_drama"},
+                    {
+                        "key": "good_one",
+                        "category_key": "audio_drama",
+                        "display_name": "Good One",
+                        "target_lufs": -18.0,
+                        "lra_low": 8.0,
+                        "lra_high": 14.0,
+                        "notes": "fine",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    genre_profiles.reload()  # must not raise
+    assert "broken" not in genre_profiles.GENRES
+    assert genre_profiles.GENRES["good_one"].target_lufs == -18.0
+
+
 def test_missing_user_override_is_not_an_error(isolated_user_dir: Path):
     # File was never written by the fixture.
     assert not (isolated_user_dir / "genres.json").exists()

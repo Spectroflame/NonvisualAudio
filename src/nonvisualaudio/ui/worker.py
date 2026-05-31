@@ -32,6 +32,7 @@ from nonvisualaudio.errors import (
     MissingFFmpegError,
     UserFacingError,
 )
+from nonvisualaudio import logging_setup
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
 from nonvisualaudio.reporting.builder import ReportSections, build_report
@@ -326,7 +327,9 @@ class AnalysisWorker:
                 self._emit_progress(slice_end, t("ui.worker.skipped", filename=filename))
                 continue
             except Exception as exc:  # noqa: BLE001 — any other failure is unexpected
-                log.exception("unexpected error on %s", filename)
+                log.exception(
+                    "unexpected error on %s", logging_setup.path_for_log(target_path)
+                )
                 failures.append(
                     (
                         filename,
@@ -344,7 +347,7 @@ class AnalysisWorker:
                 "target %d/%d analyzed: %s I=%.1f LUFS crest=%.1f dB",
                 i + 1,
                 n_targets,
-                filename,
+                logging_setup.path_for_log(target_path),
                 result.loudness.integrated_lufs,
                 result.dynamics.crest_factor_db,
             )
@@ -384,7 +387,10 @@ class AnalysisWorker:
                     section_level=per_file_section_level,
                 )
             except Exception as exc:  # noqa: BLE001 — report builder is deterministic but paranoid
-                log.exception("report builder failed for %s", filename)
+                log.exception(
+                    "report builder failed for %s",
+                    logging_setup.path_for_log(target_path),
+                )
                 failures.append(
                     (
                         filename,

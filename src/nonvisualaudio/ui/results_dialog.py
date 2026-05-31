@@ -14,6 +14,7 @@ from pathlib import Path
 
 import wx
 
+from nonvisualaudio import logging_setup
 from nonvisualaudio.localization import current_lang, t
 from nonvisualaudio.reporting.export import to_html, to_markdown, to_plain_text
 from nonvisualaudio.reporting.templates import ReportDoc
@@ -223,7 +224,7 @@ class ResultsDialog(wx.Dialog):
         try:
             chosen.write_text(rendered, encoding="utf-8")
         except OSError as exc:
-            log.exception("export failed for %s", chosen)
+            log.exception("export failed for %s", logging_setup.path_for_log(chosen))
             show_error(
                 self,
                 UserFacingError(
@@ -238,7 +239,11 @@ class ResultsDialog(wx.Dialog):
             )
             return
         _strip_macos_export_attrs(chosen)
-        log.info("exported report to %s (%d bytes)", chosen, len(rendered))
+        log.info(
+            "exported report to %s (%d bytes)",
+            logging_setup.path_for_log(chosen),
+            len(rendered),
+        )
         a11y.update_help(
             self.export_btn,
             t("ui.results.export.saved_hint", filename=chosen.name),

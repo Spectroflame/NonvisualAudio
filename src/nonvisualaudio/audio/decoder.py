@@ -26,6 +26,7 @@ from nonvisualaudio.audio.ffmpeg_runner import (
     run,
     run_split_streams_streaming,
 )
+from nonvisualaudio.cancellation import Cancellation
 from nonvisualaudio.errors import AudioDecodeError, MissingFFmpegError
 from nonvisualaudio.localization import t
 
@@ -153,7 +154,9 @@ def _parse_channel_layout(text: str) -> int:
     return _CHANNEL_LAYOUT_COUNTS.get(text, 0)
 
 
-def _probe_via_ffmpeg(path: Path) -> tuple[int, int, float]:
+def _probe_via_ffmpeg(
+    path: Path, cancel: Cancellation | None = None
+) -> tuple[int, int, float]:
     """Return (sample_rate, channels, duration_seconds) using ffmpeg."""
     args = [
         find_ffmpeg(),
@@ -168,7 +171,7 @@ def _probe_via_ffmpeg(path: Path) -> tuple[int, int, float]:
         "null",
         "-",
     ]
-    proc = run(args, timeout=60.0)
+    proc = run(args, timeout=60.0, cancel=cancel)
     stderr = proc.stderr.decode("utf-8", errors="replace")
 
     sample_rate = 0
@@ -359,6 +362,7 @@ def _ffmpeg_decode_with_loudness(
     channels: int,
     duration: float,
     on_progress: DecodeProgressCb | None,
+    cancel: Cancellation | None = None,
 ) -> tuple[DecodedAudio, LoudnessMetrics]:
     """One ffmpeg pass that produces PCM *and* the ebur128 summary.
 
@@ -484,6 +488,7 @@ def _ffmpeg_decode_with_loudness(
             timeout=1200.0,
             stdout_chunk_handler=_on_chunk,
             stderr_line_callback=_on_line,
+            cancel=cancel,
         )
     except FFmpegError as exc:
         raise _ffmpeg_error_to_user_error(exc, path) from exc
@@ -876,6 +881,7 @@ def decode_and_measure_streaming(
 def decode_and_measure(
     path: str | Path,
     on_progress: DecodeProgressCb | None = None,
+    cancel: Cancellation | None = None,
 ) -> tuple[DecodedAudio, LoudnessMetrics]:
     """Decode the file *and* measure EBU R128 loudness in one go.
 
@@ -910,10 +916,11 @@ def decode_and_measure(
             p,
             on_progress=loud_progress,
             duration_seconds=sf_result.duration_seconds,
+            cancel=cancel,
         )
         return sf_result, loudness
 
-    sample_rate, channels, duration = _probe_via_ffmpeg(p)
+    sample_rate, channels, duration = _probe_via_ffmpeg(p, cancel=cancel)
     if sample_rate == 0:
         log.warning(
             "ffmpeg did not report a sample rate for %s; defaulting to 48000",
@@ -922,7 +929,7 @@ def decode_and_measure(
         sample_rate = 48000
     try:
         return _ffmpeg_decode_with_loudness(
-            p, sample_rate, channels, duration, on_progress
+            p, sample_rate, channels, duration, on_progress, cancel=cancel
         )
     except MissingFFmpegError:
         raise

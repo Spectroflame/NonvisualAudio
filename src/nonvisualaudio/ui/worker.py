@@ -26,6 +26,7 @@ from nonvisualaudio.analysis.memory import (
 from nonvisualaudio.analysis.pipeline import analyze
 from nonvisualaudio.analysis.project import analyze_project
 from nonvisualaudio.analysis.result import AnalysisResult
+from nonvisualaudio.cancellation import Cancellation, CancelledError
 from nonvisualaudio.errors import (
     AudioDecodeError,
     LoudnessMeasurementError,
@@ -109,7 +110,12 @@ class AnalysisWorker:
         self._project_mode = project_mode
         self._project_name = project_name
         self._reference_name = reference_name
-        self._thread = threading.Thread(target=self._run, daemon=True, name="nva-analysis")
+        # Shared cancellation token. The UI calls cancel() on it; the
+        # analysis call chain polls it and kills any running ffmpeg.
+        self._cancel = Cancellation()
+        self._thread = threading.Thread(
+            target=self._run_guarded, daemon=True, name="nva-analysis"
+        )
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -117,6 +123,14 @@ class AnalysisWorker:
 
     def start(self) -> None:
         self._thread.start()
+
+    def cancel(self) -> None:
+        """Signal the running analysis to stop and kill its subprocess.
+
+        Safe to call from the UI thread and to call more than once.
+        """
+        log.info("cancel requested for running analysis")
+        self._cancel.cancel()
 
     def _emit_progress(self, percent: int, label: str) -> None:
         wx.CallAfter(self._on_progress, percent, label)
@@ -184,6 +198,7 @@ class AnalysisWorker:
                 percent_end=percent_end,
                 label_prefix=prefix,
                 confirm_memory_cb=self._confirm_memory,
+                cancel=self._cancel,
             )
         # Multi-file reference: build a project-style reference. The
         # combined AnalysisResult plugs straight into the existing
@@ -195,8 +210,23 @@ class AnalysisWorker:
             percent_start=percent_start,
             percent_end=percent_end,
             confirm_memory_cb=self._confirm_memory,
+            cancel=self._cancel,
         )
         return ref_project.combined
+
+    def _run_guarded(self) -> None:
+        """Thread entry point: run the analysis, swallow cancellation.
+
+        A cancel anywhere in the call chain raises :class:`CancelledError`,
+        which unwinds to here. We log it at INFO — cancellation belongs in
+        the support log but is not a fault — and post nothing back to the
+        UI: no results, no error dialog. The UI has already returned to
+        idle when the user confirmed the cancel.
+        """
+        try:
+            self._run()
+        except CancelledError:
+            log.info("analysis cancelled by user; no result posted")
 
     def _run(self) -> None:
         t0 = time.time()
@@ -301,7 +331,13 @@ class AnalysisWorker:
                     percent_end=slice_end,
                     label_prefix=prefix,
                     confirm_memory_cb=self._confirm_memory,
+                    cancel=self._cancel,
                 )
+            except CancelledError:
+                # Cancellation is not a per-file failure — let it unwind
+                # the whole run before the broad handlers below treat it
+                # as an unexpected error.
+                raise
             except MissingFFmpegError as exc:
                 # FFmpeg missing is a global stop — continuing with other
                 # files would just fail the same way.
@@ -527,7 +563,11 @@ class AnalysisWorker:
                 percent_start=project_start,
                 percent_end=92,
                 confirm_memory_cb=self._confirm_memory,
+                cancel=self._cancel,
             )
+        except CancelledError:
+            # Let cancellation unwind past the broad handler below.
+            raise
         except MissingFFmpegError as exc:
             self._emit_error(exc)
             return

@@ -67,6 +67,18 @@ class MainWindow(wx.Frame):
         self._reference_paths: list[str] = []
         self._click_ticker = ClickTicker(self)
         self._worker = None  # keep a reference to the running worker
+        # Cancellation bookkeeping. ``_run_token`` is bumped every time an
+        # analysis starts or is cancelled; worker callbacks capture the
+        # token they were started with and are dropped if it no longer
+        # matches, so a late callback from an abandoned run can never
+        # paint results or errors over a fresh run. ``_analysis_running``
+        # gates the cancel action; ``_cancel_dialog_open`` blocks a second
+        # confirmation prompt; ``_pending_result`` carries a result that
+        # arrived while the confirmation prompt was open.
+        self._run_token: int = 0
+        self._analysis_running: bool = False
+        self._cancel_dialog_open: bool = False
+        self._pending_result: tuple | None = None
         # ETA state: ``_progress_started_at`` is the monotonic clock when
         # the user pressed Analyze; ``_progress_eta_seconds`` holds the
         # last EMA-smoothed remaining-time estimate (None until the bar
@@ -265,9 +277,14 @@ class MainWindow(wx.Frame):
         # Mark Analyze as the default so Enter from any focused control
         # triggers analysis. wx also paints it visually highlighted on
         # most platforms, which is a useful cue for sighted collaborators.
+        # One button toggles between starting and cancelling: it reads
+        # "Analyze" while idle and "Cancel" while a run is in progress, so
+        # there is only ever one primary action. The click is routed
+        # through a state-aware dispatcher; the visible label and the
+        # screen-reader name/hint are swapped by _set_analyze_button_state.
         self.analyze_btn = wx.Button(panel, label=t("ui.btn.analyze"))
         a11y.set_a11y(self.analyze_btn, t("ui.label.analyze"), t("ui.hint.analyze"))
-        self.analyze_btn.Bind(wx.EVT_BUTTON, self._on_analyze)
+        self.analyze_btn.Bind(wx.EVT_BUTTON, self._on_analyze_or_cancel)
         self.analyze_btn.Disable()
         self.analyze_btn.SetDefault()
         root.Add(self.analyze_btn, flag=wx.LEFT | wx.RIGHT, border=10)
@@ -313,10 +330,21 @@ class MainWindow(wx.Frame):
         # physical Cmd+?) to open the About/Help dialog. Routing F1 to
         # ID_ABOUT means the same handler is hit no matter whether the
         # user uses the menu, F1, or the macOS Cmd+? convention.
+        # Dedicated command id for the Escape→cancel accelerator. It must
+        # NOT be the Analyze button's id: while idle that button starts an
+        # analysis, and Escape must never do that — it only ever cancels.
+        self._cancel_cmd_id = wx.NewIdRef()
         accel = wx.AcceleratorTable(
             [
                 wx.AcceleratorEntry(wx.ACCEL_CMD, ord("O"), self._get_id(self.open_btn)),
                 wx.AcceleratorEntry(wx.ACCEL_CMD, ord("R"), self._get_id(self.analyze_btn)),
+                # Escape raises the same "really cancel?" prompt as the
+                # button; the handler is a no-op when nothing is running.
+                wx.AcceleratorEntry(
+                    wx.ACCEL_NORMAL,
+                    wx.WXK_ESCAPE,
+                    int(self._cancel_cmd_id),
+                ),
                 wx.AcceleratorEntry(
                     wx.ACCEL_NORMAL,
                     wx.WXK_F1,
@@ -330,6 +358,8 @@ class MainWindow(wx.Frame):
             ]
         )
         self.SetAcceleratorTable(accel)
+        # Escape dispatches an EVT_MENU on the dedicated id → _on_cancel.
+        self.Bind(wx.EVT_MENU, self._on_cancel, id=int(self._cancel_cmd_id))
 
         # Drag-and-drop: both the outer panel (big hit area for sighted
         # users) and the targets_view (the visual home of the file list)
@@ -895,9 +925,37 @@ class MainWindow(wx.Frame):
     # ------------------------------------------------------------------ #
 
     def _update_analyze_state(self) -> None:
+        # While a run is in progress the button is the always-enabled
+        # Cancel action; target-list changes must not disable it.
+        if self._analysis_running:
+            return
         has_targets = bool(self._target_paths)
         self.analyze_btn.Enable(has_targets)
         self.clear_targets_btn.Enable(has_targets)
+
+    def _set_analyze_button_state(self, running: bool) -> None:
+        """Toggle the single action button between Analyze and Cancel.
+
+        Updates the visible label *and* the screen-reader name/hint so the
+        announcement matches what the button now does.
+        """
+        if running:
+            self.analyze_btn.SetLabel(t("ui.btn.cancel"))
+            a11y.set_a11y(
+                self.analyze_btn, t("ui.label.cancel"), t("ui.hint.cancel")
+            )
+        else:
+            self.analyze_btn.SetLabel(t("ui.btn.analyze"))
+            a11y.set_a11y(
+                self.analyze_btn, t("ui.label.analyze"), t("ui.hint.analyze")
+            )
+
+    def _on_analyze_or_cancel(self, event: wx.Event) -> None:
+        """Route the one action button to start or cancel by current state."""
+        if self._analysis_running:
+            self._on_cancel(event)
+        else:
+            self._on_analyze(event)
 
     def _on_analyze(self, event: wx.Event) -> None:
         if not self._target_paths:
@@ -934,14 +992,24 @@ class MainWindow(wx.Frame):
         if not self._ram_precheck():
             return
 
-        self.analyze_btn.Disable()
+        # New run: bump the token so any straggler callback from a
+        # previous (e.g. just-cancelled) run is ignored from here on.
+        self._run_token += 1
+        token = self._run_token
+        self._analysis_running = True
+        self._pending_result = None
         self.open_btn.Disable()
+        # Flip the (still-enabled) Analyze button into its Cancel role and
+        # keep focus on it, so a keyboard / screen-reader user lands on the
+        # abort action straight away.
+        self._set_analyze_button_state(running=True)
         self.SetStatusText(t("status.running"))
         self.progress.SetValue(0)
         self.progress.Show()
         self.progress_label.ChangeValue(t("ui.progress.starting"))
         self.progress_label.Show()
         self.Layout()
+        self.analyze_btn.SetFocus()
         self._progress_started_at = time.monotonic()
         self._progress_eta_seconds = None
         self._click_ticker.start()
@@ -960,9 +1028,13 @@ class MainWindow(wx.Frame):
             self._target_paths,
             genre_keys,
             self._reference_paths or None,
-            self._on_analysis_done,
-            self._on_analysis_failed,
-            self._on_analysis_progress,
+            lambda report, had_failures, _tok=token: self._on_analysis_done(
+                _tok, report, had_failures
+            ),
+            lambda err, _tok=token: self._on_analysis_failed(_tok, err),
+            lambda percent, stage, _tok=token: self._on_analysis_progress(
+                _tok, percent, stage
+            ),
             sections=sections,
             project_mode=self._project_mode,
             project_name=self._derive_project_name(),
@@ -1164,7 +1236,10 @@ class MainWindow(wx.Frame):
             )
         return self._format_eta(self._progress_eta_seconds)
 
-    def _on_analysis_progress(self, percent: int, stage: str) -> None:
+    def _on_analysis_progress(self, token: int, percent: int, stage: str) -> None:
+        # Drop progress from an abandoned run (cancelled or superseded).
+        if token != self._run_token:
+            return
         # The gauge owns the percent — both visually and as a screen-reader
         # value — so the stage text and the status bar carry only the
         # phase name and the ETA. Two competing percent readings on
@@ -1185,7 +1260,11 @@ class MainWindow(wx.Frame):
         self.SetStatusText(status)
 
     def _stop_running_ui(self) -> None:
+        self._analysis_running = False
         self._click_ticker.stop()
+        # Restore the action button to its "Analyze" role before
+        # _update_analyze_state re-enables it according to the target list.
+        self._set_analyze_button_state(running=False)
         self.progress.Hide()
         self.progress.SetValue(0)
         self.progress_label.Hide()
@@ -1195,20 +1274,41 @@ class MainWindow(wx.Frame):
         self.open_btn.Enable()
         self._update_analyze_state()
 
-    def _on_analysis_done(self, report: ReportDoc, had_failures: bool) -> None:
+    def _on_analysis_done(
+        self, token: int, report: ReportDoc, had_failures: bool
+    ) -> None:
+        # Stale callback from an abandoned run: ignore it completely so it
+        # cannot raise a results window over a fresh run or the idle UI.
+        if token != self._run_token:
+            log.info("dropping stale 'done' callback from an abandoned run")
+            return
+        # The result landed while the "really cancel?" prompt is open. Stash
+        # it and let _on_cancel deliver it once the prompt closes, so we
+        # never stack a results window on top of the confirmation dialog.
+        if self._cancel_dialog_open:
+            self._pending_result = ("done", report, had_failures)
+            return
         log.info(
             "analysis done, %d section(s) delivered to UI, failures=%s",
             len(report.sections),
             had_failures,
         )
+        self._worker = None
         self._stop_running_ui()
         self.SetStatusText(
             t("status.partial") if had_failures else t("status.done")
         )
         self._show_results(report)
 
-    def _on_analysis_failed(self, err: UserFacingError) -> None:
+    def _on_analysis_failed(self, token: int, err: UserFacingError) -> None:
+        if token != self._run_token:
+            log.info("dropping stale 'error' callback from an abandoned run")
+            return
+        if self._cancel_dialog_open:
+            self._pending_result = ("error", err)
+            return
         log.error("analysis failed: %s", err)
+        self._worker = None
         self._stop_running_ui()
         self.SetStatusText(t("status.error"))
         show_error(self, err)
@@ -1218,6 +1318,83 @@ class MainWindow(wx.Frame):
             self.analyze_btn.SetFocus()
         else:
             self.open_btn.SetFocus()
+
+    def _on_cancel(self, event: wx.Event) -> None:
+        """Confirm, then abort the running analysis. Shared by button + Escape.
+
+        Escape fires this even when nothing is running, so the no-op
+        guard comes first. A second invocation while the confirmation
+        prompt is open is ignored, so repeated presses cannot stack
+        dialogs.
+        """
+        if not self._analysis_running or self._worker is None:
+            return
+        if self._cancel_dialog_open:
+            return
+        self._cancel_dialog_open = True
+        try:
+            answer = wx.MessageBox(
+                t("ui.cancel_confirm.body"),
+                t("ui.cancel_confirm.title"),
+                style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+                parent=self,
+            )
+        finally:
+            self._cancel_dialog_open = False
+
+        # The run finished while the prompt was open: there is nothing left
+        # to abort, so deliver the result that arrived in the meantime.
+        if self._pending_result is not None:
+            self._deliver_pending_result()
+            return
+
+        if answer != wx.YES:
+            # "No / keep running": the button stays in its Cancel role and
+            # the analysis carries on. Put focus back on it.
+            log.info("cancel declined; analysis continues")
+            if self._analysis_running:
+                self.analyze_btn.SetFocus()
+            return
+
+        # Confirmed. Bump the token first so any callback the worker has
+        # already queued is dropped, then signal the worker (which kills
+        # any running ffmpeg) and return the UI to a clean idle state.
+        log.info("cancel confirmed by user")
+        self._run_token += 1
+        worker = self._worker
+        self._worker = None
+        self._stop_running_ui()
+        if worker is not None:
+            worker.cancel()
+        self.SetStatusText(t("status.cancelled"))
+        if self.analyze_btn.IsEnabled():
+            self.analyze_btn.SetFocus()
+        else:
+            self.open_btn.SetFocus()
+
+    def _deliver_pending_result(self) -> None:
+        """Deliver a result that arrived while the cancel prompt was open."""
+        pending = self._pending_result
+        self._pending_result = None
+        self._worker = None
+        if pending is None:
+            return
+        if pending[0] == "done":
+            _kind, report, had_failures = pending
+            self._stop_running_ui()
+            self.SetStatusText(
+                t("status.partial") if had_failures else t("status.done")
+            )
+            self._show_results(report)
+        else:
+            _kind, err = pending
+            self._stop_running_ui()
+            self.SetStatusText(t("status.error"))
+            show_error(self, err)
+            if self.analyze_btn.IsEnabled():
+                self.analyze_btn.SetFocus()
+            else:
+                self.open_btn.SetFocus()
 
     def _show_results(self, report: ReportDoc) -> None:
         dlg = ResultsDialog(self, report=report)
@@ -1238,8 +1415,15 @@ class MainWindow(wx.Frame):
 
     def _on_close(self, event: wx.CloseEvent) -> None:
         # The analysis worker is a daemon thread and will die with the
-        # process; nothing to join here. Just stop the click to avoid a
-        # trailing tick after the window disappears.
+        # process, but a still-running ffmpeg child would otherwise linger
+        # until the OS reaps it — so signal cancel to kill it promptly.
+        if self._worker is not None:
+            try:
+                self._worker.cancel()
+            except Exception as exc:  # noqa: BLE001 — never block shutdown
+                log.debug("worker cancel raised during shutdown: %s", exc)
+        # Just stop the click to avoid a trailing tick after the window
+        # disappears.
         try:
             self._click_ticker.stop()
         except Exception as exc:  # noqa: BLE001 — never block shutdown on audio cleanup

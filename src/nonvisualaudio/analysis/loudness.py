@@ -45,6 +45,7 @@ from nonvisualaudio.audio.ffmpeg_runner import (
     find_ffmpeg,
     run_split_streams,
 )
+from nonvisualaudio.cancellation import Cancellation
 from nonvisualaudio.errors import LoudnessMeasurementError
 from nonvisualaudio.localization import t
 
@@ -183,6 +184,7 @@ def measure_loudness(
     *,
     on_progress: LoudnessProgressCb | None = None,
     duration_seconds: float | None = None,
+    cancel: Cancellation | None = None,
 ) -> LoudnessMetrics:
     """Run ffmpeg ebur128 on ``path`` and return the parsed metrics.
 
@@ -209,7 +211,7 @@ def measure_loudness(
     progress_handler = _make_progress_line_callback(duration_seconds, on_progress)
     try:
         _stdout, stderr = run_split_streams(
-            args, timeout=1200.0, stderr_line_callback=progress_handler
+            args, timeout=1200.0, stderr_line_callback=progress_handler, cancel=cancel
         )
     except FFmpegError as exc:
         raw = str(exc)

@@ -48,6 +48,7 @@ from nonvisualaudio.analysis.spectrum import compute_spectrum
 from nonvisualaudio.analysis.stereo import compute_stereo
 from nonvisualaudio.audio.decoder import DecodedAudio, decode, decode_and_measure
 from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
+from nonvisualaudio.cancellation import Cancellation
 from nonvisualaudio.errors import LoudnessMeasurementError
 from nonvisualaudio.localization import t
 
@@ -150,7 +151,9 @@ def _concatenate_decoded_stereo(
 
 
 def _measure_loudness_combined(
-    paths: list[Path], project_label: str
+    paths: list[Path],
+    project_label: str,
+    cancel: Cancellation | None = None,
 ) -> LoudnessMetrics:
     """Run ebur128 over the concatenation of every input file.
 
@@ -166,7 +169,7 @@ def _measure_loudness_combined(
     if not paths:
         raise ValueError("at least one path required")
     if len(paths) == 1:
-        return measure_loudness(paths[0])
+        return measure_loudness(paths[0], cancel=cancel)
 
     n = len(paths)
     inputs: list[str] = []
@@ -195,7 +198,7 @@ def _measure_loudness_combined(
     # 30 minutes of audio at realtime ≈ 30s of ffmpeg work, so the
     # 1200-second budget covers very long projects with margin.
     try:
-        proc = run(args, timeout=1200.0)
+        proc = run(args, timeout=1200.0, cancel=cancel)
     except FFmpegError as exc:
         raw = str(exc)
         if raw.startswith("timeout:"):
@@ -230,6 +233,7 @@ def analyze_project(
     percent_start: int = 0,
     percent_end: int = 100,
     confirm_memory_cb: ConfirmMemoryCb | None = None,
+    cancel: Cancellation | None = None,
 ) -> ProjectResult:
     """Run a project-mode analysis over ``paths``.
 
@@ -279,6 +283,10 @@ def analyze_project(
     # gets the remaining 70..100 %.
     per_file_span = 70.0 / n
     for i, raw in enumerate(paths):
+        # Cancel between files: a cancel during track 3 of 20 stops here
+        # before any further decode, so no partial project is assembled.
+        if cancel is not None:
+            cancel.raise_if_cancelled()
         slice_start = i * per_file_span
         prefix = t("project.file_label", index=i + 1, total=n)
         _scaled(int(slice_start), f"{prefix}: {t('pipeline.decoding')}")
@@ -290,7 +298,9 @@ def analyze_project(
             # Decode + loudness occupy 0..80% of this file's slice.
             _scaled(int(_start + per_file_span * inner_pct * 0.008), f"{_prefix}: {label}")
 
-        decoded, loud = decode_and_measure(raw, on_progress=_on_decode_progress)
+        decoded, loud = decode_and_measure(
+            raw, on_progress=_on_decode_progress, cancel=cancel
+        )
         decoded_tracks.append(decoded)
         # Sequential per-track analyses, ordered to match pipeline.analyze.
         # We cannot free decoded.stereo_samples here (the combined stereo
@@ -326,9 +336,11 @@ def analyze_project(
             loud.integrated_lufs,
         )
 
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     _scaled(72, t("project.combining_loudness"))
     combined_loudness = _measure_loudness_combined(
-        [Path(p) for p in paths], label
+        [Path(p) for p in paths], label, cancel=cancel
     )
 
     # True-peak provenance for project mode. The ffmpeg concat pass
@@ -351,6 +363,8 @@ def analyze_project(
                 true_peak_track_filename=loudest.file_info.filename,
             )
 
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     _scaled(85, t("project.combining_samples"))
     combined_samples, target_rate = _concatenate_decoded(decoded_tracks)
 

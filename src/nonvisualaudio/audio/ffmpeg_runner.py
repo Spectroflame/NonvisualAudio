@@ -19,6 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Sequence
 
+from nonvisualaudio.cancellation import Cancellation, CancelledError
 from nonvisualaudio.errors import MissingFFmpegError
 from nonvisualaudio.localization import t
 
@@ -173,6 +174,7 @@ def run_split_streams(
     *,
     timeout: float = 600.0,
     stderr_line_callback: Callable[[bytes], None] | None = None,
+    cancel: Cancellation | None = None,
 ) -> tuple[bytes, str]:
     """Run ``args`` capturing stdout and stderr through separate pipes.
 
@@ -188,10 +190,17 @@ def run_split_streams(
     ebur128 ``t:`` markers and emit live progress while the ffmpeg pass
     is still running. The callback must be cheap; exceptions are caught
     and logged so a buggy callback cannot wedge the worker thread.
+
+    ``cancel`` — if given — lets the caller stop the run mid-flight: the
+    process is registered with it so a concurrent :meth:`Cancellation.cancel`
+    terminates ffmpeg, and a :class:`CancelledError` is raised instead of
+    an :class:`FFmpegError` once the process has been torn down.
     """
     binary = Path(args[0]).name
     log.debug("exec stream %s %s", binary, " ".join(str(a) for a in args[1:]))
     t0 = time.time()
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     try:
         proc = subprocess.Popen(
             list(args),
@@ -202,6 +211,8 @@ def run_split_streams(
     except FileNotFoundError as exc:
         log.error("%s not found on PATH", binary)
         raise FFmpegError(f"binary_not_found:{args[0]}") from exc
+    if cancel is not None:
+        cancel.bind_process(proc)
 
     stderr_chunks: list[bytes] = []
 
@@ -239,6 +250,14 @@ def run_split_streams(
         proc.wait()
         log.error("%s timed out after %.1fs", binary, timeout)
         raise FFmpegError(f"timeout:{timeout}") from exc
+    finally:
+        if cancel is not None:
+            cancel.clear_process()
+    # A cancel that fired during the run terminated the process, which
+    # surfaces here as a non-zero exit. Report it as cancellation, never
+    # as an FFmpegError, so it cannot reach an error dialog.
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     # Reader thread should be near the end by now; cap the join so a
     # stuck thread cannot freeze the analyser indefinitely.
     stderr_thread.join(timeout=30.0)
@@ -266,6 +285,7 @@ def run_split_streams_streaming(
     stdout_chunk_handler: Callable[[bytes], None],
     stderr_line_callback: Callable[[bytes], None] | None = None,
     chunk_size: int = 1 << 20,
+    cancel: Cancellation | None = None,
 ) -> str:
     """Streaming variant of :func:`run_split_streams`.
 
@@ -287,6 +307,8 @@ def run_split_streams_streaming(
         "exec stream(chunked) %s %s", binary, " ".join(str(a) for a in args[1:])
     )
     t0 = time.time()
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     try:
         proc = subprocess.Popen(
             list(args),
@@ -297,6 +319,8 @@ def run_split_streams_streaming(
     except FileNotFoundError as exc:
         log.error("%s not found on PATH", binary)
         raise FFmpegError(f"binary_not_found:{args[0]}") from exc
+    if cancel is not None:
+        cancel.bind_process(proc)
 
     stderr_chunks: list[bytes] = []
 
@@ -322,6 +346,12 @@ def run_split_streams_streaming(
     try:
         assert proc.stdout is not None
         while True:
+            # Cooperative cancel: a cancel between chunks stops the read
+            # loop, tears the process down, and raises CancelledError.
+            if cancel is not None and cancel.is_cancelled():
+                proc.kill()
+                proc.wait()
+                raise CancelledError()
             chunk = proc.stdout.read(chunk_size)
             if not chunk:
                 break
@@ -347,6 +377,14 @@ def run_split_streams_streaming(
         proc.wait()
         log.error("%s timed out after %.1fs", binary, timeout)
         raise FFmpegError(f"timeout:{timeout}") from exc
+    finally:
+        if cancel is not None:
+            cancel.clear_process()
+    # A cancel that fired during the run terminated the process, which
+    # surfaces here as a non-zero exit. Report it as cancellation, never
+    # as an FFmpegError, so it cannot reach an error dialog.
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     stderr_thread.join(timeout=30.0)
     stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace")
     elapsed = time.time() - t0
@@ -368,23 +406,37 @@ def run_split_streams_streaming(
     return stderr_text
 
 
-def run(args: Sequence[str], *, timeout: float = 300.0) -> subprocess.CompletedProcess:
+def run(
+    args: Sequence[str],
+    *,
+    timeout: float = 300.0,
+    cancel: Cancellation | None = None,
+) -> subprocess.CompletedProcess:
     """Run a command and return the completed process.
 
     Captures both stdout and stderr as bytes. Raises ``FFmpegError`` on
     non-zero exit or timeout. The caller is responsible for parsing output
     and, if appropriate, re-wrapping the error with filename context before
     it reaches the user.
+
+    ``cancel`` — if given — makes the (potentially long) run abortable: the
+    process is registered so :meth:`Cancellation.cancel` can terminate it,
+    and a :class:`CancelledError` is raised instead of an ``FFmpegError``
+    once it has been torn down. When ``cancel`` is ``None`` the behaviour is
+    identical to the previous ``subprocess.run`` implementation.
     """
     t0 = time.time()
     binary = Path(args[0]).name
     log.debug("exec %s %s", binary, " ".join(str(a) for a in args[1:]))
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     try:
-        proc = subprocess.run(
+        # Popen rather than subprocess.run so the running process can be
+        # registered for cancellation; subprocess.run hides the handle.
+        proc = subprocess.Popen(
             list(args),
-            check=False,
-            capture_output=True,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             # Explicit minimal environment: PATH plus the platform's
             # dynamic-linker hints so a non-statically-linked ffmpeg can
             # still resolve its dylibs. See _subprocess_env().
@@ -393,21 +445,43 @@ def run(args: Sequence[str], *, timeout: float = 300.0) -> subprocess.CompletedP
     except FileNotFoundError as exc:
         log.error("%s not found on PATH", binary)
         raise FFmpegError(f"binary_not_found:{args[0]}") from exc
-    except subprocess.TimeoutExpired as exc:
-        log.error("%s timed out after %.1fs", binary, timeout)
-        raise FFmpegError(f"timeout:{timeout}") from exc
+    if cancel is not None:
+        cancel.bind_process(proc)
+    try:
+        try:
+            stdout, stderr_bytes = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            proc.kill()
+            proc.communicate()
+            log.error("%s timed out after %.1fs", binary, timeout)
+            raise FFmpegError(f"timeout:{timeout}") from exc
+    finally:
+        if cancel is not None:
+            cancel.clear_process()
+    # A cancel that fired during the run terminated the process; surface it
+    # as cancellation, never as an FFmpegError, so it cannot reach a dialog.
+    if cancel is not None:
+        cancel.raise_if_cancelled()
+    completed = subprocess.CompletedProcess(
+        args=list(args),
+        returncode=proc.returncode,
+        stdout=stdout,
+        stderr=stderr_bytes,
+    )
     elapsed = time.time() - t0
-    if proc.returncode != 0:
-        stderr = proc.stderr.decode("utf-8", errors="replace")
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", errors="replace")
         log.error(
             "%s exited %d after %.2fs: %s",
             binary,
-            proc.returncode,
+            completed.returncode,
             elapsed,
             stderr[:400],
         )
         raise FFmpegError(
-            f"exit:{proc.returncode}\n{stderr}"
+            f"exit:{completed.returncode}\n{stderr}"
         )
-    log.debug("%s done in %.2fs (%d bytes stdout)", binary, elapsed, len(proc.stdout))
-    return proc
+    log.debug(
+        "%s done in %.2fs (%d bytes stdout)", binary, elapsed, len(completed.stdout)
+    )
+    return completed

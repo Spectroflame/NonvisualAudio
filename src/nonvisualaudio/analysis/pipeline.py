@@ -18,6 +18,7 @@ from nonvisualaudio.analysis.result import AnalysisResult, FileInfo
 from nonvisualaudio.analysis.spectrum import compute_spectrum
 from nonvisualaudio.analysis.stereo import compute_stereo
 from nonvisualaudio.audio.decoder import decode_and_measure
+from nonvisualaudio.cancellation import Cancellation
 from nonvisualaudio.localization import t
 
 log = logging.getLogger("nonvisualaudio.pipeline")
@@ -47,6 +48,7 @@ def analyze(
     percent_end: int = 100,
     label_prefix: str = "",
     confirm_memory_cb: ConfirmMemoryCb | None = None,
+    cancel: Cancellation | None = None,
 ) -> AnalysisResult:
     """Run the full analysis pipeline on one audio file.
 
@@ -97,7 +99,11 @@ def analyze(
         label = t("pipeline.loudness") if stage_key == "loudness" else t("pipeline.decoding")
         emit(outer, f"{prefix}{label}")
 
-    decoded, loudness = decode_and_measure(path, on_progress=_on_decode_progress)
+    decoded, loudness = decode_and_measure(
+        path, on_progress=_on_decode_progress, cancel=cancel
+    )
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     file_info = FileInfo(
         filename=decoded.filename,
         duration_seconds=decoded.duration_seconds,
@@ -119,8 +125,12 @@ def analyze(
     stereo = compute_stereo(decoded.stereo_samples, decoded.sample_rate)
     if decoded.stereo_samples is not None:
         decoded = replace(decoded, stereo_samples=None)
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     emit(87, f"{prefix}{t('pipeline.dynamics')}")
     dynamics = compute_dynamics(decoded.samples, decoded.sample_rate)
+    if cancel is not None:
+        cancel.raise_if_cancelled()
     emit(94, f"{prefix}{t('pipeline.spectrum')}")
     spectrum = compute_spectrum(decoded.samples, decoded.sample_rate)
 

@@ -38,9 +38,6 @@ Fehlerbehebungen
   zuverlässig beim ersten Mal aus. Weiterhin wird nun erkannt, ob
   der Fokus im Target-Bereich oder im Referenz-Bereich sitzt, und
   der Inhalt entsprechend dort eingefügt.
-- macOS-Vordergrund-Fix: Aus dem Terminal gestartet kommt die App
-  jetzt zuverlässig nach vorne, sodass VoiceOver direkt im Fenster
-  landet.
 - Bedien-Optimierungen: Diverse kleinere Verbesserungen an Bedienung
   und Screenreader-Ausgabe; eine laufende Analyse lässt sich nun per
   Schaltfläche oder Escape abbrechen.

@@ -34,6 +34,7 @@ _msg_send_charp = None
 _msg_send_void = None
 _msg_send_id = None
 _msg_send_bool_sel = None
+_msg_send_void_bool = None
 _NSSTRING_CLASS: int = 0
 _NSAPPLICATION_CLASS: int = 0
 _SEL_STRING_FROM_UTF8: int = 0
@@ -42,6 +43,7 @@ _SEL_DOCUMENT_VIEW: int = 0
 _SEL_RESPONDS_TO_SELECTOR: int = 0
 _SEL_SHARED_APPLICATION: int = 0
 _SEL_SET_HELP_MENU: int = 0
+_SEL_ACTIVATE_IGNORING: int = 0
 
 
 def _initialise_runtime() -> bool:
@@ -54,10 +56,12 @@ def _initialise_runtime() -> bool:
     """
     global _libobjc
     global _msg_send_charp, _msg_send_void, _msg_send_id, _msg_send_bool_sel
+    global _msg_send_void_bool
     global _NSSTRING_CLASS, _NSAPPLICATION_CLASS
     global _SEL_STRING_FROM_UTF8, _SEL_SET_ACCESSIBILITY_TITLE
     global _SEL_DOCUMENT_VIEW, _SEL_RESPONDS_TO_SELECTOR
     global _SEL_SHARED_APPLICATION, _SEL_SET_HELP_MENU
+    global _SEL_ACTIVATE_IGNORING
 
     libobjc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.A.dylib")
     _libobjc = libobjc
@@ -115,6 +119,16 @@ def _initialise_runtime() -> bool:
     )
     _msg_send_bool_sel = proto_bool_sel(msg_send_addr)
 
+    # [NSApp activateIgnoringOtherApps:(BOOL)] -> void — used to pull a
+    # Terminal-launched (non-bundled) process to the foreground at startup.
+    proto_void_bool = ctypes.CFUNCTYPE(
+        None,
+        ctypes.c_void_p,  # self (NSApplication*)
+        ctypes.c_void_p,  # _cmd (SEL)
+        ctypes.c_bool,  # BOOL flag
+    )
+    _msg_send_void_bool = proto_void_bool(msg_send_addr)
+
     _NSSTRING_CLASS = libobjc.objc_getClass(b"NSString")
     _NSAPPLICATION_CLASS = libobjc.objc_getClass(b"NSApplication")
     _SEL_STRING_FROM_UTF8 = libobjc.sel_registerName(b"stringWithUTF8String:")
@@ -127,6 +141,9 @@ def _initialise_runtime() -> bool:
     )
     _SEL_SHARED_APPLICATION = libobjc.sel_registerName(b"sharedApplication")
     _SEL_SET_HELP_MENU = libobjc.sel_registerName(b"setHelpMenu:")
+    _SEL_ACTIVATE_IGNORING = libobjc.sel_registerName(
+        b"activateIgnoringOtherApps:"
+    )
 
     if not (
         _NSSTRING_CLASS
@@ -278,3 +295,38 @@ def clear_help_menu_search() -> None:
         )
     except Exception as exc:  # noqa: BLE001
         log.debug("clear_help_menu_search failed: %s", exc)
+
+
+def activate_app() -> None:
+    """Bring the application to the foreground at startup.
+
+    A non-bundled Python process launched from a ``.command`` (i.e. from
+    Terminal) does not become the frontmost application on its own, so the
+    main window opens behind Terminal and VoiceOver never lands in it. Calling
+    ``[[NSApplication sharedApplication] activateIgnoringOtherApps:YES]``
+    pulls the process to the front. This only affects window focus/ordering;
+    it changes no application behaviour. No-op on non-macOS and on init
+    failure, so callers can invoke it unconditionally.
+    """
+    if (
+        not _AVAILABLE
+        or _NSAPPLICATION_CLASS == 0
+        or _SEL_SHARED_APPLICATION == 0
+        or _SEL_ACTIVATE_IGNORING == 0
+        or _msg_send_void_bool is None
+    ):
+        return
+    try:
+        app_ptr = _msg_send_id(
+            ctypes.c_void_p(_NSAPPLICATION_CLASS),
+            _SEL_SHARED_APPLICATION,
+        )
+        if not app_ptr:
+            return
+        _msg_send_void_bool(
+            ctypes.c_void_p(int(app_ptr)),
+            _SEL_ACTIVATE_IGNORING,
+            True,
+        )
+    except Exception as exc:  # noqa: BLE001 — focus is best-effort, never crash
+        log.debug("activate_app failed: %s", exc)

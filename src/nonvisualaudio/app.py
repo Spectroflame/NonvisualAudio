@@ -13,6 +13,7 @@ from nonvisualaudio import localization, logging_setup, preferences
 from nonvisualaudio.errors import UserFacingError
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting import genre_profiles
+from nonvisualaudio.ui import macos_a11y
 from nonvisualaudio.ui import theme
 from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.ui.main_window import MainWindow
@@ -57,6 +58,16 @@ class NonvisualAudioApp(wx.App):
         window = MainWindow()
         window.Show()
         self.SetTopWindow(window)
+        # A process launched from the .command dev-launcher (i.e. from
+        # Terminal) opens behind Terminal and never becomes frontmost, so a
+        # VoiceOver user lands nowhere. Raise the window and pull the app to
+        # the foreground. Both are focus/ordering only — no behaviour change,
+        # and macos_a11y.activate_app() is a no-op off macOS. The startup
+        # clipboard scan still runs as before: it is queued via wx.CallAfter
+        # in MainWindow.__init__ and fires once the event loop starts, after
+        # this method returns.
+        window.Raise()
+        macos_a11y.activate_app()
         return True
 
     def OnExceptionInMainLoop(self) -> bool:  # noqa: N802 — wx convention

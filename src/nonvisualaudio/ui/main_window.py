@@ -999,9 +999,13 @@ class MainWindow(wx.Frame):
         self._analysis_running = True
         self._pending_result = None
         self.open_btn.Disable()
-        # Flip the (still-enabled) Analyze button into its Cancel role and
-        # keep focus on it, so a keyboard / screen-reader user lands on the
-        # abort action straight away.
+        # Flip the (still-enabled) Analyze button into its Cancel role. The
+        # button keeps the focus it already holds from the click / keyboard
+        # activation, so the abort action stays right under the user without
+        # us forcing focus: an explicit SetFocus() here would make VoiceOver
+        # re-announce "Cancel, button" on every start, which reads as a delay
+        # before the analysis. Escape still cancels via its frame-level
+        # accelerator regardless of where focus sits.
         self._set_analyze_button_state(running=True)
         self.SetStatusText(t("status.running"))
         self.progress.SetValue(0)
@@ -1009,7 +1013,6 @@ class MainWindow(wx.Frame):
         self.progress_label.ChangeValue(t("ui.progress.starting"))
         self.progress_label.Show()
         self.Layout()
-        self.analyze_btn.SetFocus()
         self._progress_started_at = time.monotonic()
         self._progress_eta_seconds = None
         self._click_ticker.start()

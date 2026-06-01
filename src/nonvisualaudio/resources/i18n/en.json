@@ -64,7 +64,7 @@
   "ui.label.analyze": "Analyze",
   "ui.hint.analyze": "Run the analysis and display results in a separate window.",
   "ui.label.cancel": "Cancel analysis",
-  "ui.hint.cancel": "Cancels the running analysis. Also reachable with Escape. A confirmation prompt follows.",
+  "ui.hint.cancel": "Cancels the running analysis.",
   "ui.cancel_confirm.title": "Cancel analysis?",
   "ui.cancel_confirm.body": "Really cancel the running analysis? Results already computed by earlier analyses are kept.",
   "ui.label.progress_bar": "Analysis progress",

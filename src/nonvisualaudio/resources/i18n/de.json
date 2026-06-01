@@ -64,7 +64,7 @@
   "ui.label.analyze": "Analysieren",
   "ui.hint.analyze": "Startet die Analyse und zeigt das Ergebnis in einem eigenen Fenster an.",
   "ui.label.cancel": "Analyse abbrechen",
-  "ui.hint.cancel": "Bricht die laufende Analyse ab. Mit Escape erreichbar. Es folgt eine Sicherheitsabfrage.",
+  "ui.hint.cancel": "Bricht die laufende Analyse ab.",
   "ui.cancel_confirm.title": "Analyse abbrechen?",
   "ui.cancel_confirm.body": "Die laufende Analyse wirklich abbrechen? Bereits berechnete Ergebnisse früherer Analysen bleiben erhalten.",
   "ui.label.progress_bar": "Analyse-Fortschritt",

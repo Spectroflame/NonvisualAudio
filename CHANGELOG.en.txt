@@ -18,6 +18,15 @@ New
   plain-text file, a heading-navigable HTML file, or a Markdown
   file.
 
+Robustness and privacy
+
+- More robust start: malformed custom genre profiles (genres.json)
+  no longer crash the app on launch; each bad profile is skipped with
+  a warning and the bundled default profiles stay available.
+- Leaner logging: with normal logging no folder or user names reach
+  the log file anymore — not even for import/export paths that
+  contain spaces.
+
 Bug fixes
 
 - macOS import fix: hidden system files are now skipped when
@@ -26,3 +35,8 @@ Bug fixes
   first try. The app also detects whether the focus is in the
   target area or the reference area and pastes the content
   accordingly.
+- macOS foreground fix: when launched from Terminal the app now
+  reliably comes to the front, so VoiceOver lands right in the window.
+- Interaction polish: assorted smaller improvements to interaction
+  and screen-reader output; a running analysis can now be cancelled
+  via the button or Escape.

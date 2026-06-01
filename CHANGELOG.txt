@@ -19,6 +19,16 @@ Neu
   flexibel als Textdatei, per Überschriften navigierbares HTML oder
   Markdown-Datei exportiert werden.
 
+Robustheit und Datenschutz
+
+- Robusterer Start: Fehlerhafte eigene Genre-Profile (genres.json)
+  bringen die App beim Start nicht mehr zum Absturz, sondern werden
+  mit einem Hinweis übersprungen; die mitgelieferten Standardprofile
+  bleiben erhalten.
+- Datensparsames Protokoll: Bei normaler Protokollierung gelangen
+  keine Ordner- oder Benutzernamen mehr in die Logdatei — auch nicht
+  bei Im- und Export-Pfaden mit Leerzeichen.
+
 Fehlerbehebungen
 
 - macOS-Import-Fix: Versteckte Systemdateien werden beim Importieren
@@ -28,6 +38,12 @@ Fehlerbehebungen
   zuverlässig beim ersten Mal aus. Weiterhin wird nun erkannt, ob
   der Fokus im Target-Bereich oder im Referenz-Bereich sitzt, und
   der Inhalt entsprechend dort eingefügt.
+- macOS-Vordergrund-Fix: Aus dem Terminal gestartet kommt die App
+  jetzt zuverlässig nach vorne, sodass VoiceOver direkt im Fenster
+  landet.
+- Bedien-Optimierungen: Diverse kleinere Verbesserungen an Bedienung
+  und Screenreader-Ausgabe; eine laufende Analyse lässt sich nun per
+  Schaltfläche oder Escape abbrechen.
 
 
 NONVISUALAUDIO — VERSION 2.0.4

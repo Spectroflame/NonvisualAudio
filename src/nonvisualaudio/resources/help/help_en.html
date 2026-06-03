@@ -67,6 +67,7 @@
       <li><a href="#dynamics">Dynamics (crest factor, DR)</a></li>
       <li><a href="#frequency">Frequency balance and bands</a></li>
       <li><a href="#peaks">Spectral peaks</a></li>
+      <li><a href="#stereo">Stereo image (correlation, mono, width)</a></li>
     </ol>
   </li>
   <li><a href="#genres">Genre profiles</a></li>
@@ -152,11 +153,21 @@
     every launch. See
     <a href="#project">Project mode for albums and audio dramas</a>.
   </dd>
+  <dt>Analyze / Cancel</dt>
+  <dd>
+    Starts the analysis (also <kbd>Cmd+R</kbd> / <kbd>Ctrl+R</kbd>).
+    While an analysis is running, the same button turns into
+    <kbd>Cancel</kbd>, so there is only ever one primary action. A
+    running analysis can be cancelled from that button or with
+    <kbd>Escape</kbd>; a short "Cancel analysis?" confirmation appears
+    before the run is actually stopped.
+  </dd>
   <dt>Progress bar and status line</dt>
   <dd>
     Appear while an analysis is running. The status line also sits
     in the tab order, so a screen reader can focus it to hear the
-    current phase and percentage.
+    current phase, the percentage, and a continuously updated estimate
+    of the remaining time.
   </dd>
 </dl>
 <p>
@@ -342,6 +353,43 @@
   high-pass filter for sub-50 Hz rumble).
 </p>
 </section>
+
+<section id="stereo">
+<h3>5.6 Stereo image (correlation, mono, width)</h3>
+<p>
+  For stereo files, NonvisualAudio judges the stereo image with three
+  numbers — what a sighted engineer would read off a goniometer, in
+  plain words:
+</p>
+<dl>
+  <dt>L/R correlation</dt>
+  <dd>
+    How alike the left and right channels are, on a scale from minus 1
+    to plus 1. Plus 1 means fully correlated (effectively mono), 0
+    means uncorrelated (wide stereo), minus 1 means out of phase —
+    which points to a phase problem. Alongside the mean, the worst
+    block value is reported too, so a brief out-of-phase moment is not
+    hidden by the average.
+  </dd>
+  <dt>Mono level drop</dt>
+  <dd>
+    How many dB the level falls when the file is summed to mono (0 dB
+    means no loss — full mono compatibility). Important for playback
+    on a single speaker, a phone, or a kitchen radio.
+  </dd>
+  <dt>Stereo width</dt>
+  <dd>
+    The ratio of side energy to mid energy. Very narrow means almost
+    everything sits in the centre; unusually large points to
+    stereo-widening effects or an accidental phase reversal.
+  </dd>
+</dl>
+<p>
+  For mono files (or an all-mono project) the stereo image block is
+  skipped with a note to that effect. When the readings are critical,
+  the report adds concrete guidance in the Recommendations section.
+</p>
+</section>
 </section>
 
 <section id="genres">
@@ -518,6 +566,9 @@
   <li><strong>COMPARISON TO ...</strong> sections — one per selected
       genre and one for the reference file or reference project, if
       any.</li>
+  <li><strong>STEREO IMAGE</strong> — L/R correlation, mono level
+      drop, and stereo width, each with a one-sentence verdict
+      (skipped with a note for mono files).</li>
   <li><strong>RECOMMENDATIONS</strong> — concrete EQ and mastering
       suggestions derived from the measurements.</li>
   <li>In project mode, an additional <strong>CROSS-TRACK
@@ -533,6 +584,20 @@
   LUFS" on English, "minus 21,4 LUFS" on German, so a screen reader
   always speaks them naturally.
 </p>
+<h3>Copying and exporting the report</h3>
+<p>
+  The results window has two buttons at the bottom for handing the
+  report on:
+</p>
+<ul>
+  <li><kbd>Copy Report</kbd> puts the whole text on the clipboard
+      (also <kbd>Cmd+Shift+C</kbd> / <kbd>Ctrl+Shift+C</kbd>).</li>
+  <li><kbd>Export...</kbd> saves the report to a file. The format
+      follows the chosen extension: <code>.txt</code> for plain text,
+      <code>.html</code> for a self-contained page with navigable
+      headings (jump heading to heading with a screen reader in the
+      browser), or <code>.md</code> for Markdown.</li>
+</ul>
 </section>
 
 <section id="shortcuts">
@@ -558,6 +623,8 @@
       <kbd>Show README</kbd> opens this user guide.</dd>
   <dt>In the results window: <kbd>Cmd+Shift+C</kbd> / <kbd>Ctrl+Shift+C</kbd></dt>
   <dd>Copy the entire report to the clipboard.</dd>
+  <dt>In the main window during an analysis: <kbd>Escape</kbd></dt>
+  <dd>Cancel the running analysis (with a short confirmation).</dd>
   <dt>In any dialog: <kbd>Escape</kbd></dt>
   <dd>Close the dialog and return to the main window.</dd>
 </dl>

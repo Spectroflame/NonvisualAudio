@@ -67,6 +67,7 @@
       <li><a href="#dynamik">Dynamik (Crest-Faktor, DR)</a></li>
       <li><a href="#frequenz">Frequenzbalance und Bänder</a></li>
       <li><a href="#resonanzen">Spektrale Resonanzen</a></li>
+      <li><a href="#stereo">Stereobild (Korrelation, Mono, Breite)</a></li>
     </ol>
   </li>
   <li><a href="#genres">Genre-Profile</a></li>
@@ -157,12 +158,21 @@
     Beim Start der App immer aus; siehe
     <a href="#projekt">Projekt-Modus für Alben und Hörspiele</a>.
   </dd>
+  <dt>Analysieren / Abbrechen</dt>
+  <dd>
+    Startet die Analyse (auch per <kbd>Cmd+R</kbd> / <kbd>Strg+R</kbd>).
+    Während eine Analyse läuft, wird aus derselben Schaltfläche
+    <kbd>Abbrechen</kbd> — so gibt es immer nur eine Hauptaktion. Eine
+    laufende Analyse lässt sich darüber oder mit <kbd>Escape</kbd>
+    abbrechen; es folgt eine kurze Rückfrage „Analyse abbrechen?",
+    bevor der Lauf tatsächlich gestoppt wird.
+  </dd>
   <dt>Fortschrittsbalken und Status-Zeile</dt>
   <dd>
     Erscheinen während einer laufenden Analyse. Die Status-Zeile
     liegt im Tab-Order — der Screenreader kann also den Fokus
-    dorthin setzen, um die aktuelle Phase und den Prozentsatz
-    vorgelesen zu bekommen.
+    dorthin setzen, um die aktuelle Phase, den Prozentsatz und die
+    laufend aktualisierte geschätzte Restzeit vorgelesen zu bekommen.
   </dd>
 </dl>
 <p>
@@ -356,6 +366,45 @@
   High-Shelf in den Höhen, Hochpass unterhalb 50 Hz gegen Rumpeln).
 </p>
 </section>
+
+<section id="stereo">
+<h3>5.6 Stereobild (Korrelation, Mono, Breite)</h3>
+<p>
+  Bei Stereo-Dateien beurteilt NonvisualAudio das Stereobild mit drei
+  Kennzahlen — das, was ein sehender Tontechniker am Goniometer
+  ablesen würde, als Klartext:
+</p>
+<dl>
+  <dt>L/R-Korrelation</dt>
+  <dd>
+    Wie ähnlich linker und rechter Kanal sind, im Bereich von minus 1
+    bis plus 1. Plus 1 heißt vollständig korreliert (praktisch mono),
+    0 unkorreliert (breites Stereo), minus 1 gegenphasig — letzteres
+    deutet auf ein Phasenproblem hin. Neben dem Mittelwert wird auch
+    der schlechteste Block-Wert genannt, damit eine kurze gegenphasige
+    Stelle nicht im Durchschnitt untergeht.
+  </dd>
+  <dt>Mono-Pegelabfall</dt>
+  <dd>
+    Um wie viele dB der Pegel einbricht, wenn die Datei zu Mono
+    summiert wird (0 dB heißt: kein Verlust, volle Mono-Kompatibilität).
+    Wichtig für Wiedergabe über einzelne Lautsprecher, Telefon oder
+    Küchenradio.
+  </dd>
+  <dt>Stereo-Breite</dt>
+  <dd>
+    Das Verhältnis von Seiten- zu Mitten-Energie. Sehr schmal heißt,
+    fast alles sitzt in der Mitte; ungewöhnlich groß deutet auf
+    Stereo-Verbreiterer oder eine versehentliche Phasenumkehr hin.
+  </dd>
+</dl>
+<p>
+  Bei Mono-Dateien (oder einem reinen Mono-Projekt) entfällt der
+  Stereobild-Block mit einem entsprechenden Hinweis. Sind die Werte
+  kritisch, ergänzt der Report im Abschnitt „Empfehlungen" konkrete
+  Hinweise dazu.
+</p>
+</section>
 </section>
 
 <section id="genres">
@@ -540,6 +589,9 @@
   <li><strong>VERGLEICH MIT ...</strong> — je ein Abschnitt pro
       ausgewähltem Genre und einer für die Referenz-Datei oder das
       Referenz-Projekt, falls vorhanden.</li>
+  <li><strong>STEREOBILD</strong> — L/R-Korrelation, Mono-Pegelabfall
+      und Stereo-Breite mit je einem Urteil in einem Satz (bei
+      Mono-Dateien mit Hinweis übersprungen).</li>
   <li><strong>EMPFEHLUNGEN</strong> — konkrete EQ- und Mastering-
       Vorschläge aus den Messwerten abgeleitet.</li>
   <li>Im Projekt-Modus zusätzlich <strong>KONSISTENZ ÜBER ALLE
@@ -555,6 +607,22 @@
   LUFS" auf Deutsch bzw. „minus 21.4 LUFS" auf Englisch — so spricht
   der Screenreader sie immer natürlich aus.
 </p>
+<h3>Report kopieren und exportieren</h3>
+<p>
+  Das Ergebnis-Fenster hat unten zwei Schaltflächen zum Weitergeben
+  des Reports:
+</p>
+<ul>
+  <li><kbd>Report kopieren</kbd> legt den kompletten Text in die
+      Zwischenablage (auch <kbd>Cmd+Umschalt+C</kbd> /
+      <kbd>Strg+Umschalt+C</kbd>).</li>
+  <li><kbd>Exportieren...</kbd> speichert den Report als Datei. Das
+      Format ergibt sich aus der gewählten Endung: <code>.txt</code>
+      als reiner Text, <code>.html</code> als eigenständige Seite mit
+      navigierbaren Überschriften (im Browser per Screenreader von
+      Überschrift zu Überschrift springbar) oder <code>.md</code> als
+      Markdown.</li>
+</ul>
 </section>
 
 <section id="shortcuts">
@@ -581,6 +649,8 @@
       <kbd>README anzeigen</kbd> zu diesem Handbuch.</dd>
   <dt>Im Ergebnis-Fenster: <kbd>Cmd+Umschalt+C</kbd> / <kbd>Strg+Umschalt+C</kbd></dt>
   <dd>Den kompletten Report in die Zwischenablage kopieren.</dd>
+  <dt>Im Hauptfenster während einer Analyse: <kbd>Escape</kbd></dt>
+  <dd>Die laufende Analyse abbrechen (mit kurzer Rückfrage).</dd>
   <dt>In jedem Dialog: <kbd>Escape</kbd></dt>
   <dd>Dialog schließen und zurück ins Hauptfenster.</dd>
 </dl>

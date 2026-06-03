@@ -53,10 +53,14 @@ log = logging.getLogger("nonvisualaudio.ui")
 
 class MainWindow(wx.Frame):
     def __init__(self) -> None:
+        # The frame is sized from its content at the end of __init__
+        # (see the SetClientSize / SetMinSize block) rather than from a
+        # fixed guess: a hard-coded height could be smaller than what the
+        # controls actually need — especially with longer German labels —
+        # and would clip the bottom-most control (the Analyze button).
         super().__init__(
             parent=None,
             title=t("ui.main.title"),
-            size=wx.Size(760, 600),
         )
         self.SetName(t("ui.main.title"))
 
@@ -377,6 +381,30 @@ class MainWindow(wx.Frame):
         # Paint the window with the chosen theme. Done at the end of
         # __init__ so every widget already exists.
         theme.apply(self)
+
+        # Size the frame to its content instead of a fixed guess, so the
+        # Analyze button (the bottom-most idle control) is always fully
+        # visible on first open, in both UI languages.
+        #
+        # The progress gauge and stage label are hidden while idle, so a
+        # plain content measurement would not reserve room for them — and
+        # starting an analysis reveals them, which would then push the
+        # lower controls off the bottom. To avoid that, show them only for
+        # the measurement, take the sizer's minimum, then hide them again:
+        # the reserved height stays, so revealing them later never causes a
+        # new overflow. Width keeps a 760 px floor for a comfortable
+        # sighted layout but grows if longer labels need more.
+        self.progress.Show()
+        self.progress_label.Show()
+        content = root.CalcMin()
+        self.progress.Hide()
+        self.progress_label.Hide()
+        self.SetClientSize(wx.Size(max(760, content.x), content.y))
+        # Floor the window at its content size so the primary action can
+        # never be shrunk out of view.
+        self.SetMinSize(self.GetSize())
+        self.Layout()
+        self.Centre()
 
         # Startup clipboard scan. Runs once after the main event loop
         # picks up control so the dialog does not interleave with the

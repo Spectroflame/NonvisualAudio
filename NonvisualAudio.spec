@@ -54,12 +54,33 @@ datas = []
 if _ffmpeg_src.is_file():
     datas.append((str(_ffmpeg_src), _ffmpeg_dst))
 
-# Ship the nonvisualaudio package's own dist-info. The About dialog
-# reads the version via importlib.metadata.version("nonvisualaudio");
-# without the metadata in the bundle that lookup fails, pyproject.toml
-# is not shipped either, and the version silently degrades to the
-# "0.0.0+unknown" fallback. CI installs the package before invoking
-# PyInstaller, so the metadata is always present there.
+# Stamp the resolved version into a tiny data file shipped INSIDE the
+# Python package path (``nonvisualaudio/_version.txt``), not at the app
+# root. It is an internal build artifact / diagnostic metadatum — never
+# a user-facing file, never user-editable config, and never placed in a
+# user-data, export, or diagnostic directory. It is NOT a security
+# mechanism: anyone who can write into the bundle can edit it, and the
+# runtime trusts it only for display/diagnostics.
+#
+# At runtime nonvisualaudio.__version__ reads THIS file (see
+# src/nonvisualaudio/__init__.py), so the logged / About / diagnostic
+# version is bit-for-bit the same value as the Info.plist below — both
+# derive from this one _project_version() read. This is the single
+# source of truth inside the frozen bundle and cannot drift from the
+# build the way the dist-info can (it only refreshes on a (re)install,
+# so a missed reinstall would otherwise log a stale version, e.g.
+# "2.0.4 started" for a 2.1.0 build). The build-side artifact lives
+# under ``build/`` (git-ignored), so it never lands in a source tree.
+_version_file = Path("build") / "_version.txt"
+_version_file.parent.mkdir(parents=True, exist_ok=True)
+_version_file.write_text(_VERSION + "\n", encoding="utf-8")
+datas.append((str(_version_file), "nonvisualaudio"))
+
+# Also ship the package's own dist-info as a fallback version source
+# (importlib.metadata.version("nonvisualaudio")) and for any third-party
+# code that introspects it. The version display no longer depends on it
+# being current — _version.txt above is authoritative — but keeping it
+# avoids the "0.0.0+unknown" fallback if that file ever goes missing.
 try:
     datas += copy_metadata("nonvisualaudio")
 except Exception:

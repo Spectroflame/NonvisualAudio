@@ -11,10 +11,12 @@ on:
     tags:
       - 'v*'
 
-# The release step needs write access to create a GitHub Release; the
-# per-platform jobs only need read access.
+# Least privilege by default: the per-platform build jobs only read the
+# repo and upload artifacts (upload-artifact needs no extra permission).
+# Only the release job is granted write access, scoped on the job itself,
+# so it alone can create a GitHub Release.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # ------------------------------------------------------------------ #
@@ -360,6 +362,32 @@ jobs:
           chmod +x "$STAGE/NonvisualAudio starten (Erststart).command"
           ditto -c -k --sequesterRsrc --keepParent "$STAGE" dist/NonvisualAudio-macOS.zip
 
+      - name: Verify the macOS zip contents
+        # The 2.1.0 package shipped with the first-launch helper missing /
+        # misnamed. Fail the build here if any of the three expected
+        # entries is absent or the helper is not executable, rather than
+        # discovering it after a user double-clicks a broken download.
+        run: |
+          set -eux
+          ZIP=dist/NonvisualAudio-macOS.zip
+          test -f "$ZIP"
+
+          # 1) Listing-level checks: every required entry is present.
+          unzip -Z1 "$ZIP" | tee /tmp/ziplist.txt
+          grep -qx "NonvisualAudio/NonvisualAudio.app/" /tmp/ziplist.txt
+          grep -qx "NonvisualAudio/NonvisualAudio starten (Erststart).command" /tmp/ziplist.txt
+          grep -qx "NonvisualAudio/LIESMICH.txt" /tmp/ziplist.txt
+
+          # 2) Extract to /tmp and re-check on disk, including that the
+          #    helper survived the round-trip as an executable file.
+          DEST=$(mktemp -d)
+          ditto -x -k "$ZIP" "$DEST"
+          test -d "$DEST/NonvisualAudio/NonvisualAudio.app"
+          test -f "$DEST/NonvisualAudio/LIESMICH.txt"
+          HELPER="$DEST/NonvisualAudio/NonvisualAudio starten (Erststart).command"
+          test -f "$HELPER"
+          test -x "$HELPER"
+
       - uses: actions/upload-artifact@v4
         with:
           name: NonvisualAudio-macOS
@@ -556,6 +584,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [macos, windows, linux]
     runs-on: ubuntu-latest
+    # Only this job creates a GitHub Release, so write access is scoped
+    # here rather than granted to every build job.
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:

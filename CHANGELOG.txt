@@ -1,3 +1,19 @@
+NONVISUALAUDIO — VERSION 2.1.1
+
+Hotfix für das Release-Paket.
+
+- macOS-Paketierung repariert: Der Erststart-Helfer liegt jetzt mit
+  dem korrekten Dateinamen im Zip und wird vor dem Packen ausführbar
+  gemacht.
+- Release-Prüfung ergänzt: Der CI-Build verifiziert jetzt, dass App,
+  Erststart-Helfer und LIESMICH tatsächlich im macOS-Zip enthalten
+  sind.
+- Download-Dokumentation korrigiert: Das macOS-Artefakt ist ein
+  Universal2-Build für Apple Silicon und Intel.
+- CI-Berechtigungen eingeschränkt: Schreibrechte für GitHub Releases
+  gelten nur noch im Release-Job.
+
+
 NONVISUALAUDIO — VERSION 2.1.0
 
 Neben Stabilitätsverbesserungen unter der Haube bringt dieses Update

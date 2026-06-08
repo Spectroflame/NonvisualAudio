@@ -1,3 +1,19 @@
+NONVISUALAUDIO — VERSION 2.1.1
+
+Hotfix for the release package.
+
+- macOS packaging repaired: the first-launch helper now ships in the
+  zip under the correct file name and is made executable before
+  packing.
+- Release check added: the CI build now verifies that the app, the
+  first-launch helper, and the LIESMICH readme are actually present in
+  the macOS zip.
+- Download documentation corrected: the macOS artifact is a Universal2
+  build for Apple Silicon and Intel.
+- CI permissions tightened: write access for GitHub Releases now
+  applies only within the release job.
+
+
 NONVISUALAUDIO — VERSION 2.1.0
 
 Alongside under-the-hood stability work, this update brings the

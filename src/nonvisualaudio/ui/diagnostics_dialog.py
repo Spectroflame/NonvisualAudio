@@ -14,7 +14,7 @@ import wx
 
 from nonvisualaudio import diagnostics, logging_setup, preferences
 from nonvisualaudio.localization import t
-from nonvisualaudio.ui import a11y, theme
+from nonvisualaudio.ui import a11y, log_viewer_dialog, theme
 
 log = logging.getLogger("nonvisualaudio.diagnostics")
 
@@ -86,6 +86,15 @@ class DiagnosticsDialog(wx.Dialog):
         self.folder_btn.Bind(wx.EVT_BUTTON, self._on_open_folder)
         button_row.Add(self.folder_btn, flag=wx.LEFT, border=8)
 
+        self.viewlog_btn = wx.Button(self, label=t("ui.diagnostics.btn.viewlog"))
+        a11y.set_a11y(
+            self.viewlog_btn,
+            t("ui.diagnostics.viewlog_name"),
+            t("ui.diagnostics.viewlog_hint"),
+        )
+        self.viewlog_btn.Bind(wx.EVT_BUTTON, self._on_view_log)
+        button_row.Add(self.viewlog_btn, flag=wx.LEFT, border=8)
+
         button_row.AddStretchSpacer(1)
 
         self.close_btn = wx.Button(self, wx.ID_CLOSE, label=t("ui.btn.close"))
@@ -101,7 +110,11 @@ class DiagnosticsDialog(wx.Dialog):
         root.Add(button_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=12)
 
         self.SetSizer(root)
-        self.SetInitialSize(wx.Size(580, 440))
+        # Wide enough for the four-button German row ("Diagnosebericht
+        # erzeugen | Protokollordner öffnen | Aktuelles Protokoll
+        # anzeigen | Schließen") — verified by
+        # scripts/verify_log_viewer_layout.py.
+        self.SetInitialSize(wx.Size(760, 440))
         self.CentreOnParent()
 
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char)
@@ -129,6 +142,9 @@ class DiagnosticsDialog(wx.Dialog):
 
     def _on_save(self, _event: wx.CommandEvent) -> None:
         save_report(self)
+
+    def _on_view_log(self, _event: wx.CommandEvent) -> None:
+        log_viewer_dialog.show_log_viewer(self)
 
     def _on_open_folder(self, _event: wx.CommandEvent) -> None:
         if diagnostics.open_log_folder():

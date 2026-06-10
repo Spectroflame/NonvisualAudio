@@ -45,6 +45,19 @@ def test_unknown_key_returns_raw_key():
     assert localization.t("totally.missing.key") == "totally.missing.key"
 
 
+def test_de_and_en_catalogs_have_identical_keys():
+    """Every key must exist in both bundled catalogs.
+
+    English is the master; a key present in only one file means a
+    translation was forgotten. Asserting the two difference lists
+    separately makes the failure message name the missing keys.
+    """
+    en = set(localization._load_bundle("en"))
+    de = set(localization._load_bundle("de"))
+    assert sorted(en - de) == [], "keys missing in de.json"
+    assert sorted(de - en) == [], "keys missing in en.json"
+
+
 def test_format_substitution_applies_named_kwargs():
     # Use the lower-level catalogue so we do not have to ship a fake
     # key in the JSON files.

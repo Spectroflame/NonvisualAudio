@@ -32,6 +32,7 @@ from nonvisualaudio.ui.drop import expand_audio_paths, parse_paste_text
 from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.ui.genre_dialog import GenreDialog
 from nonvisualaudio.ui.genre_editor_dialog import GenreEditorDialog
+from nonvisualaudio.ui.project_prompt import should_offer_project_mode
 from nonvisualaudio.ui.results_dialog import ResultsDialog
 from nonvisualaudio.ui.sections_dialog import SectionsDialog, section_label
 from nonvisualaudio.ui.worker import start_analysis
@@ -100,6 +101,11 @@ class MainWindow(wx.Frame):
         # choice and accidentally leaving it on after a single-file
         # workflow would silently change every later analysis.
         self._project_mode: bool = False
+        # One-time "use project mode?" nudge: set after the prompt was
+        # answered (either way) or after the user switched project mode
+        # on manually; cleared together with the target list so a fresh
+        # batch of files can trigger the question again.
+        self._project_prompt_dismissed: bool = False
 
         panel = wx.Panel(self)
         root = wx.BoxSizer(wx.VERTICAL)
@@ -628,6 +634,7 @@ class MainWindow(wx.Frame):
             log.info("no audio files found in %d input path(s)", len(paths))
             return
         existing = set(self._target_paths)
+        previous_count = len(self._target_paths)
         added = 0
         for p in expanded:
             if p in existing:
@@ -641,6 +648,7 @@ class MainWindow(wx.Frame):
         log.info("added %d target(s); total now %d", added, len(self._target_paths))
         self._refresh_targets_view()
         self._update_analyze_state()
+        self._maybe_offer_project_mode(previous_count)
 
     # ------------------------------------------------------------------ #
     # Clipboard helpers
@@ -738,6 +746,9 @@ class MainWindow(wx.Frame):
 
     def _on_clear_targets(self, event: wx.Event) -> None:
         self._target_paths.clear()
+        # A fresh filling of the list may ask the project-mode question
+        # again — "analyze separately" only applied to the cleared batch.
+        self._project_prompt_dismissed = False
         log.info("targets cleared")
         self._refresh_targets_view()
         self._update_analyze_state()
@@ -843,7 +854,59 @@ class MainWindow(wx.Frame):
 
     def _on_toggle_project(self, event: wx.Event) -> None:
         self._project_mode = bool(self.project_check.GetValue())
+        if self._project_mode:
+            # Switching project mode on manually answers the question the
+            # multi-file prompt would ask, so never bring it up for this
+            # filling of the list — even if the mode is toggled off again.
+            self._project_prompt_dismissed = True
         log.info("project mode toggled: %s (not persisted)", self._project_mode)
+
+    def _maybe_offer_project_mode(self, previous_count: int) -> None:
+        """Offer project mode once when an add crosses the threshold.
+
+        Called after every successful target add with the list size from
+        before the add. Fires only while project mode is off and only on
+        the operation that pushes the list past the threshold; answering
+        either way (or enabling the mode manually) keeps the prompt quiet
+        until the target list is cleared and refilled.
+        """
+        count = len(self._target_paths)
+        if not should_offer_project_mode(
+            previous_count,
+            count,
+            self._project_mode,
+            self._project_prompt_dismissed,
+        ):
+            return
+        self._project_prompt_dismissed = True
+        log.info("project prompt shown (%d targets)", count)
+        if self._ask_use_project_mode(count):
+            self._project_mode = True
+            self.project_check.SetValue(True)
+            log.info("project prompt: user chose project mode")
+        else:
+            log.info("project prompt: user chose separate analysis")
+
+    def _ask_use_project_mode(self, count: int) -> bool:
+        """Show the modal project-mode question; True means "as project".
+
+        Deliberately no Cancel option: the files are already in the list
+        at this point, the answer only decides the project-mode toggle.
+        """
+        dlg = wx.MessageDialog(
+            self,
+            t("ui.project_prompt.body", count=count),
+            t("ui.project_prompt.title"),
+            style=wx.YES_NO | wx.YES_DEFAULT | wx.ICON_QUESTION,
+        )
+        try:
+            dlg.SetYesNoLabels(
+                t("ui.project_prompt.btn.project"),
+                t("ui.project_prompt.btn.separate"),
+            )
+            return dlg.ShowModal() == wx.ID_YES
+        finally:
+            dlg.Destroy()
 
     def _derive_project_name(self) -> str | None:
         """Pick a sensible project name from the input list.

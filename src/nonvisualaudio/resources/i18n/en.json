@@ -83,6 +83,10 @@
   "ui.hint.project_mode": "When enabled, all selected files are treated as one continuous project. Loudness, dynamics, and frequency balance are measured across the whole set as if it were a single file, and a cross-track consistency block is added. In project mode the clipping display behaves differently than in single-file analysis: the timestamp of the loudest true peak is omitted, because the measurement runs across the combined project timeline and cannot be tied to a single file.",
   "ui.project_mode.single_file.title": "Project mode with only one file",
   "ui.project_mode.single_file.body": "Project mode combines several tracks into a single analysis, but only one file is in the list — there is nothing to combine.\n\nYes: switch project mode off and run a normal single-file analysis (recommended).\nNo: keep project mode on and run a one-track project anyway.\nCancel: go back and add more files first.",
+  "ui.project_prompt.title": "Use Project Mode?",
+  "ui.project_prompt.body": "You added {count} files. Analyze them as one continuous project or separately?",
+  "ui.project_prompt.btn.project": "Analyze as Project",
+  "ui.project_prompt.btn.separate": "Analyze Separately",
 
   "ui.placeholder.no_files": "No audio files selected. Click Add Audio Files to choose one or more.",
   "ui.placeholder.no_genres": "No genre / profile selected. Standalone analysis will be used. Click Choose Genre / Profile to add one or more.",

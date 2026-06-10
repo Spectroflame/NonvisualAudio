@@ -83,6 +83,10 @@
   "ui.hint.project_mode": "Wenn aktiviert, werden alle gewählten Dateien als ein durchgängiges Projekt behandelt. Lautheit, Dynamik und Frequenzbalance werden über die gesamte Sammlung gemessen, als wäre es eine einzige Datei. Zusätzlich wird ein Block zur Track-Konsistenz angehängt. Im Projektmodus verhält sich die Übersteuerungsanzeige anders als bei der Einzeldatei-Analyse: Der Zeitstempel der lautesten True-Peak-Spitze entfällt, weil die Messung über die zusammengefügte Projekt-Zeitachse läuft und sich keiner einzelnen Datei zuordnen lässt.",
   "ui.project_mode.single_file.title": "Projekt-Modus mit nur einer Datei",
   "ui.project_mode.single_file.body": "Im Projekt-Modus werden mehrere Tracks zu einer einzigen Analyse zusammengefasst — in der Liste liegt aber nur eine Datei, da gibt es nichts zu kombinieren.\n\nJa: Projekt-Modus ausschalten und normale Einzeldatei-Analyse starten (empfohlen).\nNein: Projekt-Modus an lassen und die Datei als Ein-Track-Projekt analysieren.\nAbbrechen: zurück, um zuerst mehr Dateien hinzuzufügen.",
+  "ui.project_prompt.title": "Projektmodus verwenden?",
+  "ui.project_prompt.body": "Du hast {count} Dateien hinzugefügt. Sollen sie als ein zusammenhängendes Projekt analysiert werden oder einzeln?",
+  "ui.project_prompt.btn.project": "Als Projekt analysieren",
+  "ui.project_prompt.btn.separate": "Einzeln analysieren",
 
   "ui.placeholder.no_files": "Keine Audio-Dateien ausgewählt. „Audio-Dateien hinzufügen“ öffnet die Auswahl.",
   "ui.placeholder.no_genres": "Kein Genre / Profil ausgewählt. Analyse läuft ohne Vergleich. „Genre / Profil wählen“ fügt welche hinzu.",

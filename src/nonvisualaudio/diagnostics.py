@@ -1,9 +1,9 @@
 """Build a diagnostic report for support requests.
 
 Pure logic, no wx — so it stays unit-testable. The report bundles system
-information with the contents of the rotating log files. Because those files
-are written through the redacting formatter, the report contains no full
-paths and no user name unless verbose logging was enabled when the lines were
+information with the current session's log file. Because that file is
+written through the redacting formatter, the report contains no full paths
+and no user name unless verbose logging was enabled when the lines were
 written.
 """
 
@@ -27,22 +27,14 @@ log = logging.getLogger("nonvisualaudio.diagnostics")
 
 
 def _log_files() -> list[Path]:
-    """Return existing log files oldest-first: rotated backups, then current.
+    """Return the current session's log file, if it exists.
 
-    Rotation names backups ``nonvisualaudio.log.1`` (newest) … ``.N`` (oldest),
-    so a reverse name sort yields oldest-first; the live file goes last.
+    Since 2.2 the log is rewritten on every app start, so the report
+    deliberately includes only ``nonvisualaudio.log``: exactly one session,
+    never stale history from older runs or versions.
     """
-    log_dir = user_log_dir()
-    current = log_dir / LOG_FILENAME
-    try:
-        backups = sorted(
-            log_dir.glob(LOG_FILENAME + ".*"),
-            key=lambda p: p.name,
-            reverse=True,
-        )
-    except OSError:
-        backups = []
-    return [p for p in [*backups, current] if p.is_file()]
+    current = user_log_dir() / LOG_FILENAME
+    return [current] if current.is_file() else []
 
 
 def system_info() -> str:
@@ -99,7 +91,7 @@ def default_report_path() -> Path:
 
     Keeping the report next to ``nonvisualaudio.log`` means the user has one
     obvious place to look for everything support-related, and the "Open Log
-    Folder" button reveals both the rotating log and the freshly written
+    Folder" button reveals both the session log and the freshly written
     report side by side.
     """
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

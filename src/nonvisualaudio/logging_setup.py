@@ -1,9 +1,11 @@
-"""Central logging configuration: a rotating file log plus path redaction.
+"""Central logging configuration: a per-session file log plus path redaction.
 
 Every module already logs through ``logging.getLogger("nonvisualaudio.*")``.
-``app._configure_logging`` wires a stderr handler; this module adds a rotating
-file handler on top so support cases can be diagnosed after the fact, even in
-a bundled app where stderr is invisible to the user.
+``app._configure_logging`` wires a stderr handler; this module adds a file
+handler on top so support cases can be diagnosed after the fact, even in
+a bundled app where stderr is invisible to the user. The file is rewritten
+on every app start, so it only ever holds the current session — old sessions
+and old versions can never leak into a diagnostic report.
 
 Privacy: by default the file log is *redacted* — the user's home directory is
 collapsed to ``~`` and any other absolute path is reduced to its final
@@ -15,7 +17,6 @@ the choice persists in ``preferences.json``.
 from __future__ import annotations
 
 import logging
-import logging.handlers
 import os
 import platform
 import re
@@ -28,8 +29,6 @@ from nonvisualaudio.paths import user_log_dir
 log = logging.getLogger("nonvisualaudio.logging")
 
 LOG_FILENAME = "nonvisualaudio.log"
-_MAX_BYTES = 1_000_000
-_BACKUP_COUNT = 4
 
 # Toggled at runtime by set_verbose(); read by the RedactingFormatter when it
 # formats a record. Past records already written to disk are never rewritten.
@@ -139,8 +138,34 @@ def _load_verbose_pref() -> bool:
         return False
 
 
+def _remove_stale_rotation_backups(log_dir: Path) -> None:
+    """Delete leftover ``nonvisualaudio.log.N`` backups from older versions.
+
+    Releases before 2.2 rotated the log; those backups would otherwise sit
+    in the log folder forever and could be attached to support mails by
+    hand. Best effort — a backup that cannot be removed never blocks
+    startup.
+    """
+    try:
+        stale_files = list(log_dir.glob(LOG_FILENAME + ".*"))
+    except OSError:
+        return
+    for stale in stale_files:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
 def init_file_logging() -> Path | None:
-    """Attach a rotating file handler to the root logger.
+    """Attach the per-session file handler to the root logger.
+
+    The file is opened with ``mode="w"``, so every app start begins a fresh
+    log: ``nonvisualaudio.log`` only ever contains the current session, and
+    the diagnostic report cannot drag old sessions or versions along.
+
+    Calling this again replaces the previous file handler instead of
+    stacking a second one, so no line is ever written twice.
 
     Returns the log file path, or ``None`` if the file could not be opened
     (e.g. no write permission) — the app still starts with stderr logging.
@@ -150,21 +175,24 @@ def init_file_logging() -> Path | None:
     root level so the file handler can receive ``INFO`` records.
     """
     set_verbose(_load_verbose_pref())
+    root = logging.getLogger()
+    # Close the old handler before the new one truncates the file, so its
+    # handle is released first (matters on Windows).
+    for existing in list(root.handlers):
+        if getattr(existing, "_nva_file_log", False):
+            root.removeHandler(existing)
+            existing.close()
     try:
         log_dir = user_log_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
+        _remove_stale_rotation_backups(log_dir)
         log_path = log_dir / LOG_FILENAME
-        handler = logging.handlers.RotatingFileHandler(
-            log_path,
-            maxBytes=_MAX_BYTES,
-            backupCount=_BACKUP_COUNT,
-            encoding="utf-8",
-            delay=True,
-        )
+        handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
     except OSError as exc:
         print(f"NonvisualAudio: could not open log file: {exc}", file=sys.stderr)
         return None
 
+    handler._nva_file_log = True  # marker for the replace-don't-stack pass
     handler.setLevel(logging.INFO)
     handler.setFormatter(
         RedactingFormatter(

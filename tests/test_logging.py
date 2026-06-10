@@ -121,6 +121,103 @@ def test_redacting_formatter_scrubs_path_passed_as_arg() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# init_file_logging — fresh log per session, no handler stacking
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture()
+def _restore_root_logger():
+    """Snapshot the root logger and undo whatever init_file_logging added."""
+    root = logging.getLogger()
+    before = list(root.handlers)
+    level = root.level
+    yield
+    for handler in list(root.handlers):
+        if handler not in before:
+            root.removeHandler(handler)
+            handler.close()
+    root.setLevel(level)
+
+
+@pytest.fixture()
+def _log_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _restore_root_logger
+) -> Path:
+    """Point file logging at a temp dir with the verbose preference off."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    monkeypatch.setattr(logging_setup, "user_log_dir", lambda: log_dir)
+    monkeypatch.setattr(logging_setup, "_load_verbose_pref", lambda: False)
+    return log_dir
+
+
+def test_init_file_logging_discards_previous_sessions(_log_dir: Path) -> None:
+    log_file = _log_dir / logging_setup.LOG_FILENAME
+    log_file.write_text(
+        "2026-05-02 10:00:00 INFO nonvisualaudio: NonvisualAudio 2.0.4 started\n",
+        encoding="utf-8",
+    )
+
+    assert logging_setup.init_file_logging() == log_file
+    logging.getLogger("nonvisualaudio").info("fresh session line")
+
+    content = log_file.read_text(encoding="utf-8")
+    assert "2.0.4" not in content
+    assert "fresh session line" in content
+
+
+def test_init_file_logging_removes_stale_rotation_backups(_log_dir: Path) -> None:
+    backup = _log_dir / (logging_setup.LOG_FILENAME + ".1")
+    backup.write_text("old rotated session\n", encoding="utf-8")
+
+    logging_setup.init_file_logging()
+    assert not backup.exists()
+
+
+def test_init_file_logging_twice_does_not_stack_handlers(_log_dir: Path) -> None:
+    logging_setup.init_file_logging()
+    logging_setup.init_file_logging()
+
+    file_handlers = [
+        h
+        for h in logging.getLogger().handlers
+        if getattr(h, "_nva_file_log", False)
+    ]
+    assert len(file_handlers) == 1
+
+    logging.getLogger("nonvisualaudio").info("logged exactly once")
+    content = (_log_dir / logging_setup.LOG_FILENAME).read_text(encoding="utf-8")
+    assert content.count("logged exactly once") == 1
+
+
+def test_init_file_logging_keeps_redaction(_log_dir: Path) -> None:
+    logging_setup.init_file_logging()
+    logging.getLogger("nonvisualaudio").info(
+        "decoding %s", "/srv/audio/take/clip.wav"
+    )
+
+    content = (_log_dir / logging_setup.LOG_FILENAME).read_text(encoding="utf-8")
+    assert "/srv/audio/take" not in content
+    assert "clip.wav" in content
+
+
+def test_init_file_logging_survives_unwritable_log_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _restore_root_logger
+) -> None:
+    # A file where the log directory should be makes mkdir fail with
+    # NotADirectoryError; the app must fall back to stderr, not crash.
+    blocker = tmp_path / "blocked"
+    blocker.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setattr(logging_setup, "user_log_dir", lambda: blocker / "logs")
+    monkeypatch.setattr(logging_setup, "_load_verbose_pref", lambda: False)
+
+    assert logging_setup.init_file_logging() is None
+    assert not any(
+        getattr(h, "_nva_file_log", False) for h in logging.getLogger().handlers
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Diagnostic report
 # --------------------------------------------------------------------------- #
 
@@ -139,6 +236,25 @@ def test_build_report_includes_system_info_and_logs(
     assert "NonvisualAudio diagnostic report" in report
     assert "NonvisualAudio version" in report
     assert "hello from the log" in report
+
+
+def test_build_report_ignores_old_rotation_backups(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / logging_setup.LOG_FILENAME).write_text(
+        "current session line\n", encoding="utf-8"
+    )
+    (log_dir / (logging_setup.LOG_FILENAME + ".1")).write_text(
+        "old session from 2.0.4\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(diagnostics, "user_log_dir", lambda: log_dir)
+
+    report = diagnostics.build_report()
+    assert "current session line" in report
+    assert "old session from 2.0.4" not in report
+    assert logging_setup.LOG_FILENAME + ".1" not in report
 
 
 def test_build_report_without_any_logs(

@@ -36,7 +36,7 @@ def _configure_logging() -> None:
     )
     if debug:
         logging.getLogger("nonvisualaudio").info("Debug logging enabled (NVA_DEBUG=1).")
-    # Add the rotating file log on top of the stderr handler so support
+    # Add the per-session file log on top of the stderr handler so support
     # cases can be diagnosed after the fact — stderr is invisible to the
     # user in a bundled app. The stderr handler keeps its own threshold.
     logging_setup.init_file_logging()

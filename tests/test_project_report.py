@@ -1,12 +1,6 @@
 """Tests for project-mode report rendering and helpers."""
 
-import numpy as np
-
-from nonvisualaudio.analysis.project import (
-    ProjectResult,
-    _concatenate_decoded,
-    _resample_mono,
-)
+from nonvisualaudio.analysis.project import ProjectResult
 from nonvisualaudio.analysis.result import (
     AnalysisResult,
     BandEnergies,
@@ -15,7 +9,6 @@ from nonvisualaudio.analysis.result import (
     LoudnessMetrics,
     SpectrumMetrics,
 )
-from nonvisualaudio.audio.decoder import DecodedAudio
 from nonvisualaudio.reporting.builder import ReportSections
 from nonvisualaudio.reporting.project_report import (
     build_project_report as _build_project_report_doc,
@@ -329,44 +322,6 @@ def test_single_file_mode_still_uses_file_wording():
     # file appears balanced...".
     assert "the file" in text.lower()
     assert "the project" not in text.lower()
-
-
-def test_resample_mono_keeps_length_proportional():
-    src = np.linspace(-1.0, 1.0, 480, dtype=np.float32)  # 10 ms at 48k
-    out = _resample_mono(src, 48000, 96000)
-    assert out.dtype == np.float32
-    # 2x upsample → ~2x samples (polyphase may differ by a few).
-    assert abs(len(out) - 960) <= 4
-
-
-def test_resample_mono_is_no_op_for_matching_rates():
-    src = np.linspace(-1.0, 1.0, 100, dtype=np.float32)
-    out = _resample_mono(src, 48000, 48000)
-    assert np.array_equal(src, out)
-
-
-def test_concatenate_decoded_uses_max_sample_rate():
-    a = DecodedAudio(
-        samples=np.zeros(48000, dtype=np.float32),
-        sample_rate=48000,
-        channels=1,
-        bit_depth=16,
-        duration_seconds=1.0,
-        filename="a.wav",
-    )
-    b = DecodedAudio(
-        samples=np.zeros(96000, dtype=np.float32),
-        sample_rate=96000,
-        channels=1,
-        bit_depth=16,
-        duration_seconds=1.0,
-        filename="b.wav",
-    )
-    combined, rate = _concatenate_decoded([a, b])
-    assert rate == 96000
-    # 48k → 96k upsample of 48000 samples ≈ 96000 samples; plus the
-    # 96000 native samples → ~192000 total.
-    assert abs(len(combined) - 192000) <= 8
 
 
 def test_project_report_forwards_material_to_inner_sections():

@@ -8,46 +8,52 @@ the user wants two things:
 2. Cross-track consistency information — which tracks deviate from the
    project's overall character.
 
-This module produces both. Per-file analysis still runs (we need the
-individual numbers for the consistency report), and a "combined"
-:class:`AnalysisResult` is synthesised by:
-
-- Running ffmpeg's ``ebur128`` filter over the *concatenation* of all
-  inputs, so EBU R128 integrated loudness, true peak, and LRA are
-  measured exactly as if the user had bounced the project to one file.
-- Resampling each decoded track to a common sample rate, concatenating
-  them in numpy, and feeding the result to the existing dynamics and
-  spectrum analysers. This is RAM-bounded but stays purely in-process.
+This module produces both. Per-file analysis runs through the same
+streaming pass the single-file pipeline uses, and a "combined"
+:class:`AnalysisResult` is synthesised by one extra ffmpeg pass over the
+*concatenation* of all inputs: ffmpeg's ``concat`` filter joins the
+tracks into one logical stream, ``asplit`` fans it out into the
+``ebur128`` filter (EBU R128 integrated loudness, true peak and LRA,
+exactly as if the user had bounced the project to one file) and into an
+f32le PCM pipe that feeds the Phase 1 streamers chunk by chunk. Peak RAM
+for the combined pass is one pipe chunk plus the streamers' accumulators
+— the 2.1 implementation concatenated every decoded track in numpy and
+kept all of them alive at once, which scaled linearly with project
+length.
 """
 
 from __future__ import annotations
 
 import logging
-import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-import numpy as np
-
 from nonvisualaudio.analysis import memory
-from nonvisualaudio.analysis.dynamics import compute_dynamics
+from nonvisualaudio.analysis.dynamics import DynamicsStreamer
 from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128_summary
-from nonvisualaudio.analysis.loudness import measure_loudness
 from nonvisualaudio.analysis.memory import (
     ConfirmMemoryCb,
     RamCheckCancelled,
 )
+from nonvisualaudio.analysis.pipeline import analyze_streaming
 from nonvisualaudio.analysis.result import (
     AnalysisResult,
+    DynamicsMetrics,
     FileInfo,
     LoudnessMetrics,
+    SpectrumMetrics,
+    StereoMetrics,
 )
-from nonvisualaudio.analysis.spectrum import compute_spectrum
-from nonvisualaudio.analysis.stereo import compute_stereo
-from nonvisualaudio.audio.decoder import DecodedAudio, decode, decode_and_measure
-from nonvisualaudio.audio.ffmpeg_runner import FFmpegError, find_ffmpeg, run
+from nonvisualaudio.analysis.spectrum import SpectrumStreamer
+from nonvisualaudio.analysis.stereo import StereoStreamer
+from nonvisualaudio.audio.decoder import PcmChunkRouter, StreamingSinks
+from nonvisualaudio.audio.ffmpeg_runner import (
+    FFmpegError,
+    find_ffmpeg,
+    run_split_streams_streaming,
+)
 from nonvisualaudio.cancellation import Cancellation
 from nonvisualaudio.errors import LoudnessMeasurementError
 from nonvisualaudio.localization import t
@@ -77,99 +83,52 @@ class ProjectResult:
 
 
 # --------------------------------------------------------------------------- #
-# Sample-domain helpers
+# Combined streaming pass
 # --------------------------------------------------------------------------- #
 
 
-def _resample_mono(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
-    """Resample a mono float32 buffer to ``dst_rate`` using rational ratios.
-
-    scipy.signal.resample_poly is already a project dependency (used by
-    the spectrum analyser). It runs an anti-aliased polyphase filter,
-    which avoids the spectral mirroring you would get from a raw FFT
-    resampler when the rates differ widely.
-    """
-    if src_rate == dst_rate or samples.size == 0:
-        return samples.astype(np.float32, copy=False)
-    g = math.gcd(src_rate, dst_rate)
-    up = dst_rate // g
-    down = src_rate // g
-    # Local import keeps the module import-cheap when project mode is unused.
-    from scipy import signal as scipy_signal
-
-    out = scipy_signal.resample_poly(samples.astype(np.float64), up, down)
-    return out.astype(np.float32, copy=False)
-
-
-def _concatenate_decoded(decoded: list[DecodedAudio]) -> tuple[np.ndarray, int]:
-    """Resample every track to the project's common rate and concatenate.
-
-    The common rate is the highest sample rate among the inputs, so we
-    don't accidentally band-limit a 96 kHz track down to 44.1 kHz when
-    one of the inputs happens to be at 44.1.
-    """
-    if not decoded:
-        return np.zeros(0, dtype=np.float32), 0
-    target_rate = max(d.sample_rate for d in decoded)
-    parts: list[np.ndarray] = []
-    for d in decoded:
-        parts.append(_resample_mono(d.samples, d.sample_rate, target_rate))
-    return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32), target_rate
-
-
-def _concatenate_decoded_stereo(
-    decoded: list[DecodedAudio], target_rate: int
-) -> np.ndarray | None:
-    """Concatenate two-channel buffers, resampling each side independently.
-
-    Returns ``None`` when not every track carries a stereo buffer — a
-    mixed mono/stereo project has no meaningful combined stereo image,
-    and the report builder must say so rather than pretend otherwise.
-    """
-    if not decoded or any(d.stereo_samples is None for d in decoded):
-        return None
-    parts: list[np.ndarray] = []
-    for d in decoded:
-        stereo = d.stereo_samples
-        assert stereo is not None  # narrowed by the check above
-        if d.sample_rate == target_rate:
-            parts.append(stereo.astype(np.float32, copy=False))
-            continue
-        left = _resample_mono(stereo[:, 0], d.sample_rate, target_rate)
-        right = _resample_mono(stereo[:, 1], d.sample_rate, target_rate)
-        # Resamplers can return arrays whose lengths differ by 1 sample
-        # for odd polyphase ratios — clip to the shorter length so the
-        # column-stack stays consistent.
-        n = min(left.size, right.size)
-        parts.append(np.column_stack((left[:n], right[:n])).astype(np.float32, copy=False))
-    return np.concatenate(parts, axis=0)
-
-
-# --------------------------------------------------------------------------- #
-# FFmpeg concat-loudness
-# --------------------------------------------------------------------------- #
-
-
-def _measure_loudness_combined(
+def _measure_combined_streaming(
     paths: list[Path],
     project_label: str,
+    target_rate: int,
+    decode_channels: int,
+    total_duration: float,
+    on_progress: Callable[[int], None] | None = None,
     cancel: Cancellation | None = None,
-) -> LoudnessMetrics:
-    """Run ebur128 over the concatenation of every input file.
+) -> tuple[LoudnessMetrics, DynamicsMetrics, SpectrumMetrics, StereoMetrics]:
+    """Measure the whole project in one ffmpeg pass over the concatenation.
 
-    Uses ffmpeg's ``concat`` filter inside ``-filter_complex`` so the
-    different inputs are joined into one logical stream before the
-    ebur128 filter sees them. The filter automatically resamples
-    inputs to a common rate, so files with mismatched sample rates or
-    channel counts still produce a single, exact loudness reading.
+    The filter graph joins all inputs with ``concat`` and splits the
+    result: one branch runs ``ebur128`` (the same graph the previous
+    loudness-only concat pass used, so the R128 numbers are unchanged),
+    the other leaves ffmpeg as f32le PCM on stdout — resampled to
+    ``target_rate`` and mixed down to ``decode_channels`` channels by
+    the output options — and is routed chunk-wise into the Phase 1
+    streamers. ``decode_channels`` must be 2 only when *every* track is
+    stereo; a mixed mono/stereo project has no meaningful combined
+    stereo image, and passing 1 keeps the stereo streamer unfed so it
+    finalizes to the is_stereo=False sentinel.
 
-    Falls back to the single-file ``measure_loudness`` for one-element
-    inputs to keep the simple case cheap.
+    ``on_progress`` — if given — receives 0..100 derived from the
+    ebur128 ``t:`` markers against ``total_duration``.
     """
     if not paths:
         raise ValueError("at least one path required")
-    if len(paths) == 1:
-        return measure_loudness(paths[0], cancel=cancel)
+
+    dynamics_streamer = DynamicsStreamer(target_rate)
+    spectrum_streamer = SpectrumStreamer(target_rate)
+    stereo_streamer = StereoStreamer(target_rate)
+
+    def _feed_mono(chunk) -> None:  # noqa: ANN001 — np.ndarray, hot path
+        dynamics_streamer.feed(chunk)
+        spectrum_streamer.feed(chunk)
+
+    sinks = StreamingSinks(
+        feed_mono=_feed_mono,
+        feed_stereo_optional=(
+            stereo_streamer.feed if decode_channels == 2 else None
+        ),
+    )
 
     n = len(paths)
     inputs: list[str] = []
@@ -177,8 +136,8 @@ def _measure_loudness_combined(
         inputs.extend(["-i", str(p)])
     chain_inputs = "".join(f"[{i}:a]" for i in range(n))
     filter_graph = (
-        f"{chain_inputs}concat=n={n}:v=0:a=1[concat];"
-        "[concat]ebur128=peak=true:metadata=1:framelog=info[ana]"
+        f"{chain_inputs}concat=n={n}:v=0:a=1,asplit=2[pcm][ana];"
+        "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]"
     )
     args = [
         find_ffmpeg(),
@@ -188,17 +147,51 @@ def _measure_loudness_combined(
         *inputs,
         "-filter_complex",
         filter_graph,
-        "-map",
-        "[ana]",
-        "-f",
-        "null",
+        "-map", "[pcm]",
+        "-f", "f32le",
+        "-acodec", "pcm_f32le",
+        "-ac", str(decode_channels),
+        "-ar", str(target_rate),
+        "pipe:1",
+        "-map", "[loud]",
+        "-f", "null",
         "-",
     ]
+
+    # Live progress from the ebur128 ``t:`` markers, fired on the stderr
+    # reader thread — keep the callback cheap.
+    progress_state = {"last_pct": -1}
+
+    def _on_line(raw_line: bytes) -> None:
+        if on_progress is None or total_duration <= 0:
+            return
+        text = raw_line.decode("utf-8", errors="replace")
+        from nonvisualaudio.analysis.loudness import _RE_FRAME_T
+
+        m = _RE_FRAME_T.search(text)
+        if m is None:
+            return
+        try:
+            t_sec = float(m.group(1))
+        except ValueError:
+            return
+        pct = int(100.0 * min(1.0, max(0.0, t_sec / total_duration)))
+        if pct == progress_state["last_pct"]:
+            return
+        progress_state["last_pct"] = pct
+        on_progress(pct)
+
     # The combined scan is roughly the sum of the individual scans;
     # 30 minutes of audio at realtime ≈ 30s of ffmpeg work, so the
     # 1200-second budget covers very long projects with margin.
     try:
-        proc = run(args, timeout=1200.0, cancel=cancel)
+        stderr_text = run_split_streams_streaming(
+            args,
+            timeout=1200.0,
+            stdout_chunk_handler=PcmChunkRouter(sinks, decode_channels),
+            stderr_line_callback=_on_line,
+            cancel=cancel,
+        )
     except FFmpegError as exc:
         raw = str(exc)
         if raw.startswith("timeout:"):
@@ -212,8 +205,14 @@ def _measure_loudness_combined(
             body=t("error.loudness.generic.body"),
             hint=t("error.loudness.generic.hint"),
         ) from exc
-    stderr = proc.stderr.decode("utf-8", errors="replace")
-    return _parse_ebur128_summary(stderr, project_label)
+
+    loudness = _parse_ebur128_summary(stderr_text, project_label)
+    return (
+        loudness,
+        dynamics_streamer.finalize(),
+        spectrum_streamer.finalize(),
+        stereo_streamer.finalize(),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -237,15 +236,14 @@ def analyze_project(
 ) -> ProjectResult:
     """Run a project-mode analysis over ``paths``.
 
-    Each file is decoded once. From the decoded samples we get the
-    per-file dynamics and spectrum and the combined buffer for the
-    whole-project dynamics/spectrum. Loudness is measured with
-    ffmpeg — once per file plus one extra concatenation pass.
+    Each file goes through the streaming single-file pass (decode,
+    loudness, dynamics, spectrum, stereo — one read, chunk-fed). The
+    combined measurement is one additional ffmpeg pass over the
+    concatenation of all files; no decoded track is ever held in RAM.
 
     ``confirm_memory_cb`` — if supplied — is consulted before any file
-    is decoded. The estimate covers the worst case where every track
-    plus the concatenated buffer is held in RAM at the same time; a
-    ``False`` answer aborts the run with :class:`RamCheckCancelled`.
+    is decoded; a ``False`` answer aborts the run with
+    :class:`RamCheckCancelled`.
     """
     if not paths:
         raise ValueError("project analysis needs at least one file")
@@ -278,7 +276,6 @@ def analyze_project(
     rss_start = memory.peak_rss_bytes()
     n = len(paths)
     file_results: list[AnalysisResult] = []
-    decoded_tracks: list[DecodedAudio] = []
     # Per-file pass takes 0..70 % of the project span; combined work
     # gets the remaining 70..100 %.
     per_file_span = 70.0 / n
@@ -292,56 +289,87 @@ def analyze_project(
         _scaled(int(slice_start), f"{prefix}: {t('pipeline.decoding')}")
 
         def _on_decode_progress(inner_pct: int, stage_key: str, *, _start=slice_start, _prefix=prefix) -> None:
-            label = (
-                t("pipeline.loudness") if stage_key == "loudness" else t("pipeline.decoding")
-            )
-            # Decode + loudness occupy 0..80% of this file's slice.
-            _scaled(int(_start + per_file_span * inner_pct * 0.008), f"{_prefix}: {label}")
+            # Same split the single-file pipeline uses: the soundfile
+            # path reports two sequential 0..100 streams ("decoding",
+            # then "loudness") that share this file's slice half/half;
+            # the combined ffmpeg pass reports one stream that covers
+            # the whole slice. Keeps the bar monotonic.
+            clamped = max(0, min(100, inner_pct))
+            if stage_key == "loudness":
+                frac = 0.5 + clamped / 200.0
+                stage_label = t("pipeline.loudness")
+            elif stage_key == "decoding":
+                frac = clamped / 200.0
+                stage_label = t("pipeline.decoding")
+            else:  # "combined"
+                frac = clamped / 100.0
+                stage_label = t("pipeline.decoding")
+            _scaled(int(_start + per_file_span * frac), f"{_prefix}: {stage_label}")
 
-        decoded, loud = decode_and_measure(
-            raw, on_progress=_on_decode_progress, cancel=cancel
+        result = analyze_streaming(
+            raw, on_decode_progress=_on_decode_progress, cancel=cancel
         )
-        decoded_tracks.append(decoded)
-        # Sequential per-track analyses, ordered to match pipeline.analyze.
-        # We cannot free decoded.stereo_samples here (the combined stereo
-        # pass at the end of the project still needs every track's stereo
-        # buffer), but running the three analysers serially still keeps a
-        # single float64 temporary live at a time rather than three.
-        _scaled(int(slice_start + per_file_span * 0.80), f"{prefix}: {t('pipeline.stereo')}")
-        stereo = compute_stereo(decoded.stereo_samples, decoded.sample_rate)
-        _scaled(int(slice_start + per_file_span * 0.87), f"{prefix}: {t('pipeline.dynamics')}")
-        dyn = compute_dynamics(decoded.samples, decoded.sample_rate)
-        _scaled(int(slice_start + per_file_span * 0.94), f"{prefix}: {t('pipeline.spectrum')}")
-        spec = compute_spectrum(decoded.samples, decoded.sample_rate)
-        file_results.append(
-            AnalysisResult(
-                file_info=FileInfo(
-                    filename=decoded.filename,
-                    duration_seconds=decoded.duration_seconds,
-                    sample_rate=decoded.sample_rate,
-                    channels=decoded.channels,
-                    bit_depth=decoded.bit_depth,
-                ),
-                loudness=loud,
-                dynamics=dyn,
-                spectrum=spec,
-                stereo=stereo,
-            )
-        )
+        file_results.append(result)
         log.info(
             "project track %d/%d analyzed: %s I=%.1f LUFS",
             i + 1,
             n,
-            decoded.filename,
-            loud.integrated_lufs,
+            result.file_info.filename,
+            result.loudness.integrated_lufs,
         )
 
     if cancel is not None:
         cancel.raise_if_cancelled()
-    _scaled(72, t("project.combining_loudness"))
-    combined_loudness = _measure_loudness_combined(
-        [Path(p) for p in paths], label, cancel=cancel
+
+    total_duration = sum(fr.file_info.duration_seconds for fr in file_results)
+    # The common rate is the highest sample rate among the inputs, so we
+    # don't accidentally band-limit a 96 kHz track down to 44.1 kHz when
+    # one of the inputs happens to be at 44.1.
+    target_rate = max(fr.file_info.sample_rate for fr in file_results)
+    channel_counts = {fr.file_info.channels for fr in file_results}
+    project_channels = (
+        next(iter(channel_counts)) if len(channel_counts) == 1 else 0
     )
+    combined_file_info = FileInfo(
+        filename=label,
+        duration_seconds=total_duration,
+        sample_rate=target_rate,
+        channels=project_channels,
+        bit_depth=None,
+    )
+
+    if n == 1:
+        # One track: the "combined" project is the track itself. The
+        # per-file pass already measured everything, so a second ffmpeg
+        # pass would reproduce the same numbers from the same samples.
+        combined = replace(file_results[0], file_info=combined_file_info)
+    else:
+        _scaled(72, t("project.combined_pass"))
+
+        def _on_combined_progress(pct: int) -> None:
+            _scaled(72 + int(pct * 0.26), t("project.combined_pass"))
+
+        combined_loudness, combined_dynamics, combined_spectrum, combined_stereo = (
+            _measure_combined_streaming(
+                [Path(p) for p in paths],
+                label,
+                target_rate=target_rate,
+                # A combined stereo image only exists when every track
+                # is stereo; otherwise decode mono and let the stereo
+                # streamer finalize to its is_stereo=False sentinel.
+                decode_channels=2 if channel_counts == {2} else 1,
+                total_duration=total_duration,
+                on_progress=_on_combined_progress,
+                cancel=cancel,
+            )
+        )
+        combined = AnalysisResult(
+            file_info=combined_file_info,
+            loudness=combined_loudness,
+            dynamics=combined_dynamics,
+            spectrum=combined_spectrum,
+            stereo=combined_stereo,
+        )
 
     # True-peak provenance for project mode. The ffmpeg concat pass
     # reports a project-wide true peak, but its timeline maps to nothing
@@ -356,47 +384,15 @@ def analyze_project(
             file_results, key=lambda fr: fr.loudness.true_peak_dbtp
         )
         if loudest.loudness.true_peak_time_seconds is not None:
-            combined_loudness = replace(
-                combined_loudness,
-                true_peak_dbtp=loudest.loudness.true_peak_dbtp,
-                true_peak_time_seconds=loudest.loudness.true_peak_time_seconds,
-                true_peak_track_filename=loudest.file_info.filename,
+            combined = replace(
+                combined,
+                loudness=replace(
+                    combined.loudness,
+                    true_peak_dbtp=loudest.loudness.true_peak_dbtp,
+                    true_peak_time_seconds=loudest.loudness.true_peak_time_seconds,
+                    true_peak_track_filename=loudest.file_info.filename,
+                ),
             )
-
-    if cancel is not None:
-        cancel.raise_if_cancelled()
-    _scaled(85, t("project.combining_samples"))
-    combined_samples, target_rate = _concatenate_decoded(decoded_tracks)
-
-    _scaled(90, t("project.combining_dynamics"))
-    combined_dynamics = compute_dynamics(combined_samples, target_rate)
-
-    _scaled(95, t("project.combining_spectrum"))
-    combined_spectrum = compute_spectrum(combined_samples, target_rate)
-
-    _scaled(98, t("project.combining_stereo"))
-    combined_stereo_samples = _concatenate_decoded_stereo(decoded_tracks, target_rate)
-    combined_stereo = compute_stereo(combined_stereo_samples, target_rate)
-
-    total_duration = sum(d.duration_seconds for d in decoded_tracks)
-    channel_counts = {d.channels for d in decoded_tracks}
-    project_channels = (
-        next(iter(channel_counts)) if len(channel_counts) == 1 else 0
-    )
-
-    combined = AnalysisResult(
-        file_info=FileInfo(
-            filename=label,
-            duration_seconds=total_duration,
-            sample_rate=target_rate,
-            channels=project_channels,
-            bit_depth=None,
-        ),
-        loudness=combined_loudness,
-        dynamics=combined_dynamics,
-        spectrum=combined_spectrum,
-        stereo=combined_stereo,
-    )
 
     _scaled(100, t("project.done"))
     elapsed = time.perf_counter() - t_start
@@ -411,7 +407,7 @@ def analyze_project(
         "wall time %s, peak RAM Δ %s (peak %s)",
         n,
         total_duration,
-        combined_loudness.integrated_lufs,
+        combined.loudness.integrated_lufs,
         memory.format_seconds(elapsed),
         memory.format_bytes(rss_delta) if rss_delta is not None else "?",
         memory.format_bytes(rss_end),

@@ -657,11 +657,7 @@
   "project.default_name": "Project",
   "project.reference_default_name": "Reference Project",
   "project.file_label": "Track {index} of {total}",
-  "project.combining_loudness": "Combining loudness across all tracks",
-  "project.combining_samples": "Combining samples for whole-project analysis",
-  "project.combining_dynamics": "Computing project dynamics",
-  "project.combining_spectrum": "Computing project spectrum",
-  "project.combining_stereo": "Analyzing project stereo image",
+  "project.combined_pass": "Measuring the whole project across all tracks",
   "project.done": "Project analysis done",
 
   "worker.error.project_failed.title": "Project analysis could not finish",

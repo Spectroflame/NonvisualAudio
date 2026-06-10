@@ -209,7 +209,9 @@ def test_pipeline_analyze_raises_cancelled_after_decode(monkeypatch) -> None:
     # Fake decode so the test needs no audio file; the post-decode cancel
     # check fires before the return value is ever inspected.
     monkeypatch.setattr(
-        pipeline, "decode_and_measure", lambda *a, **k: (object(), object())
+        pipeline,
+        "decode_and_measure_streaming",
+        lambda *a, **k: (object(), object()),
     )
     with pytest.raises(CancelledError):
         pipeline.analyze("does-not-matter.wav", cancel=c)
@@ -222,11 +224,11 @@ def test_analyze_project_raises_before_first_file(monkeypatch) -> None:
     c.cancel()
     calls = {"n": 0}
 
-    def _decode(*_a, **_k):
+    def _analyze(*_a, **_k):
         calls["n"] += 1
-        return (object(), object())
+        return object()
 
-    monkeypatch.setattr(project, "decode_and_measure", _decode)
+    monkeypatch.setattr(project, "analyze_streaming", _analyze)
     with pytest.raises(CancelledError):
         project.analyze_project(["a.wav", "b.wav"], cancel=c)
     # Cancel is checked at the top of the file loop, so nothing decodes.

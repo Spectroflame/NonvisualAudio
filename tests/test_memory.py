@@ -153,7 +153,13 @@ def _write_short_wav(path: Path, *, duration_s: float, sr: int = 48000) -> None:
     sf.write(str(path), samples, sr, subtype="PCM_16")
 
 
-def test_estimate_file_bytes_scales_with_duration(tmp_path: Path) -> None:
+def test_estimate_file_bytes_is_flat_in_duration(tmp_path: Path) -> None:
+    """Streaming analysis: the estimate must not scale with file length.
+
+    A 4× longer file only grows the estimate by the tiny per-hour
+    accumulator term — for sub-minute test files that rounds to a few
+    kB on top of the flat base.
+    """
     short = tmp_path / "short.wav"
     long_ = tmp_path / "long.wav"
     _write_short_wav(short, duration_s=0.5)
@@ -161,33 +167,39 @@ def test_estimate_file_bytes_scales_with_duration(tmp_path: Path) -> None:
 
     short_estimate = estimate_file_bytes(short)
     long_estimate = estimate_file_bytes(long_)
-    # The estimator is roughly proportional to decoded length; allow
-    # generous slack because the overhead factor is integer-rounded.
-    assert long_estimate > short_estimate
-    assert long_estimate >= short_estimate * 3
+    assert short_estimate >= memory.STREAMING_BASE_BYTES
+    assert long_estimate >= short_estimate
+    # The whole point of the streaming rewrite: no proportional growth.
+    assert long_estimate < memory.STREAMING_BASE_BYTES + memory.STREAMING_BYTES_PER_HOUR
 
 
-def test_estimate_file_bytes_falls_back_to_file_size(tmp_path: Path) -> None:
-    """If probing returns no metadata, fall back to a file-size heuristic."""
+def test_estimate_file_bytes_unprobeable_input_uses_base(tmp_path: Path) -> None:
+    """If probing returns no metadata, report the flat streaming base.
+
+    An unprobeable file still streams chunk by chunk, so its peak RAM
+    is no different from a probeable one of unknown duration.
+    """
     bogus = tmp_path / "garbage.bin"
-    payload = b"\x00" * 1024
-    bogus.write_bytes(payload)
-    # No probe will succeed (it's not real audio); the fallback uses
-    # file size × 4. Allow zero in case ffmpeg silently accepts the
-    # garbage on this platform.
-    estimate = estimate_file_bytes(bogus)
-    assert estimate == 0 or estimate == len(payload) * 4
+    bogus.write_bytes(b"\x00" * 1024)
+    assert estimate_file_bytes(bogus) == memory.STREAMING_BASE_BYTES
 
 
-def test_estimate_project_bytes_sums_files(tmp_path: Path) -> None:
+def test_estimate_project_bytes_is_one_pass_not_a_sum(tmp_path: Path) -> None:
+    """Project mode runs sequential streaming passes, not parallel buffers.
+
+    The combined pass spans the total duration, so the estimate is one
+    streaming working set over the summed duration — far below the sum
+    of 2.1-style per-track decode buffers.
+    """
     a = tmp_path / "a.wav"
     b = tmp_path / "b.wav"
     _write_short_wav(a, duration_s=0.5)
     _write_short_wav(b, duration_s=0.5)
-    single = estimate_file_bytes(a, overhead=1.0)
+    single = estimate_file_bytes(a)
     total = estimate_project_bytes([a, b])
-    # Two equal files should land at roughly 2 × single × PROJECT_OVERHEAD.
-    assert total >= 2 * single * (memory.PROJECT_OVERHEAD - 1)
+    assert total >= memory.STREAMING_BASE_BYTES
+    # One pass over 1 s of audio, not 2 × (base + per-file term).
+    assert total < 2 * single
 
 
 # --------------------------------------------------------------------------- #
@@ -262,10 +274,10 @@ def test_pipeline_skips_callback_for_small_files(
     class _StopHere(Exception):
         pass
 
-    def _fake_decode(path, on_progress=None, cancel=None):  # noqa: ANN001
+    def _fake_decode(path, sinks=None, on_progress=None, sinks_factory=None, cancel=None):  # noqa: ANN001
         raise _StopHere()
 
-    monkeypatch.setattr(pipeline, "decode_and_measure", _fake_decode)
+    monkeypatch.setattr(pipeline, "decode_and_measure_streaming", _fake_decode)
     with pytest.raises(_StopHere):
         pipeline.analyze(wav, confirm_memory_cb=cb)
     assert calls["n"] == 0
@@ -298,10 +310,10 @@ def test_pipeline_invokes_callback_only_when_concerning(
     class _StopHere(Exception):
         pass
 
-    def _fake_decode(path, on_progress=None, cancel=None):  # noqa: ANN001
+    def _fake_decode(path, sinks=None, on_progress=None, sinks_factory=None, cancel=None):  # noqa: ANN001
         raise _StopHere()
 
-    monkeypatch.setattr(pipeline, "decode_and_measure", _fake_decode)
+    monkeypatch.setattr(pipeline, "decode_and_measure_streaming", _fake_decode)
     with pytest.raises(_StopHere):
         pipeline.analyze(wav, confirm_memory_cb=cb)
     assert len(calls) == 1

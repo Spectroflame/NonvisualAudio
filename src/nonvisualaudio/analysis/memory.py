@@ -1,9 +1,12 @@
 """Estimate analysis RAM needs and ask the user before risky analyses.
 
-Long audio files decode to large mono float32 arrays — one hour at 48 kHz
-is roughly 660 MB before any analysis allocates further temporary buffers.
-On modest systems that can be enough to push the process into swap or, on
-true low-RAM machines, hit the OOM killer mid-analysis.
+Since 2.2 the analysis pipeline is streaming end to end: the decoder
+hands each PCM chunk to the analyser accumulators and releases it, so
+peak RAM no longer scales with the decoded file size. What remains is a
+small, mostly duration-independent working set (see the constants
+below). The 2.1 batch pipeline needed 5-6× the decoded buffer — about
+4 GB per stereo hour at 48 kHz — which is what this guard was built to
+warn about.
 
 This module:
 
@@ -12,9 +15,12 @@ This module:
 - exposes a callback hook the worker uses to ask the user before going
   ahead.
 
-The estimator is intentionally conservative. We never want to wave through
-a file the OS would then kill, so the overhead factors err on the high
-side; a "you may proceed" answer should always survive in practice.
+With streaming estimates the warning gate effectively never fires on a
+healthy system — that is the intended outcome of the RAM hardening, not
+a gap. The gate machinery stays in place as a safety net: it still
+catches genuinely starved machines (hundreds of MB free), and any
+future analysis stage that re-introduces a duration-dependent buffer
+only has to raise the estimate to get the warning back.
 """
 
 from __future__ import annotations
@@ -35,39 +41,25 @@ log = logging.getLogger("nonvisualaudio.memory")
 # Tuning constants
 # --------------------------------------------------------------------------- #
 
-# Each decoded sample is stored as float32 = 4 bytes per channel.
-BYTES_PER_SAMPLE = 4
-
-# Multipliers applied to the mono float32 buffer size (duration × sr × 4).
-# Calibrated empirically against full-pipeline RSS-delta measurements on
-# 30-minute and 60-minute stereo MP3 inputs: both consistently land at
-# ≈10× mono size, dominated by dynamics' float64 conversion and scipy
-# Welch's FFT working set. The chunked stereo analyser (see
-# ``nonvisualaudio.analysis.stereo``) used to be the worst offender at
-# ~19×; now it stays in a few hundred MB regardless of input length.
+# Fixed working set of one streaming pass, independent of file length:
 #
-#   - decoded mono buffer                                              (1×)
-#   - decoded stereo buffer next to the mono mixdown (stereo input)    (2×)
-#   - dynamics: float64 copy (2×) plus a transient temp (2×)           (4×)
-#   - scipy welch + numpy allocator overhead                           (~2×)
+#   - one decoder chunk in flight (1 MiB ffmpeg pipe chunk, or one
+#     ~1-second soundfile block — ≈1.5 MiB float32 at 192 kHz stereo),
+#   - its float64 promotions inside the three streamers (a few ×),
+#   - the streamers' carries (≤3 s dynamics block + ≤4096-sample
+#     spectrum segment + ≤0.1 s stereo block, all float64),
+#   - numpy allocator slack on top.
 #
-# Mono and stereo share most of the analysis cost; stereo just keeps the
-# second channel alive a bit longer (until the stereo analyser releases
-# it via the pipeline-side ``replace(..., stereo_samples=None)`` hand-off).
-SINGLE_FILE_OVERHEAD_MONO = 5
-SINGLE_FILE_OVERHEAD_STEREO = 6
+# Measured peaks sit well under 16 MiB; 64 MiB keeps the published
+# number conservative without ever looking scary in the dialog.
+STREAMING_BASE_BYTES = 64 * 1024 * 1024
 
-# Used when channel count cannot be probed: pick the conservative branch
-# so unknown inputs do not slip past the warning gate.
-SINGLE_FILE_OVERHEAD = SINGLE_FILE_OVERHEAD_STEREO
-
-# Project mode keeps every per-track buffer AND the concatenated buffer
-# alive at the same time, then runs sequential analyses on the combined
-# stereo buffer. The combined buffer alone is roughly the sum of the
-# per-track buffers; the stereo analyser on top now adds only a few
-# hundred MB thanks to chunked processing. ``PROJECT_OVERHEAD`` is
-# applied to the sum of decoded buffers, which already counts stereo.
-PROJECT_OVERHEAD = 8
+# The only duration-dependent state: the per-block reduction arrays the
+# dynamics streamer (one float64 per 3 s) and the stereo streamer (two
+# float64 per 0.1 s) accumulate for their finalize percentiles. That is
+# ≈0.6 MB per audio hour; 4 MB/h leaves room for list-of-chunks
+# overhead and keeps the estimate monotonic in duration.
+STREAMING_BYTES_PER_HOUR = 4 * 1024 * 1024
 
 # Warning gate (see ``MemoryEstimate.is_concerning``). We require *both*
 # signals to look tight before bothering the user:
@@ -246,70 +238,42 @@ def _probe_audio_info(path: Path) -> tuple[float, int, int] | None:
     return None
 
 
-def _decoded_bytes_for(duration: float, sample_rate: int, channels: int) -> int:
-    """Bytes the persistent decoded buffers occupy after decoding.
+def _streaming_estimate(duration_seconds: float) -> int:
+    """Peak working set of one streaming pass over ``duration_seconds``."""
+    hours = max(0.0, duration_seconds) / 3600.0
+    return STREAMING_BASE_BYTES + int(hours * STREAMING_BYTES_PER_HOUR)
 
-    Mono input: one mono float32 buffer. Stereo input: a mono mixdown
-    AND the original stereo buffer (the stereo-image analyser needs
-    the latter). Anything we don't recognise falls back to the stereo
-    layout so the estimate stays conservative.
+
+def estimate_file_bytes(path: str | Path) -> int:
+    """Estimate peak RAM during the streaming analysis of one file.
+
+    The streaming pipeline never materialises the decoded file, so the
+    estimate is a flat base plus a small per-hour accumulator term —
+    duration only matters through the latter. When the probe fails we
+    return the base alone: an unprobeable file still streams chunk by
+    chunk, so its peak is no different.
     """
-    mono = int(duration * sample_rate * BYTES_PER_SAMPLE)
-    if mono <= 0:
-        return 0
-    # Mono → 1×; stereo (or unknown) → 1 mono mixdown + 2 stereo channels.
-    return mono * (1 if channels == 1 else 3)
-
-
-def estimate_file_bytes(
-    path: str | Path, overhead: float | None = None
-) -> int:
-    """Estimate peak RAM during analysis of one file.
-
-    Default (``overhead=None``) returns the peak working set across
-    decode + sequential measurements, picking the mono or stereo
-    multiplier based on the probed channel count. Pass an explicit
-    ``overhead`` to scale the bare decoded-buffer size by your own
-    factor — the project-mode estimator uses this for per-track sums.
-
-    Falls back to ``file_size × 4`` when metadata can't be probed:
-    very rough, but better than reporting zero on weird inputs.
-    """
-    p = Path(path)
-    probed = _probe_audio_info(p)
-    if probed is not None:
-        duration, sample_rate, channels = probed
-        mono = int(duration * sample_rate * BYTES_PER_SAMPLE)
-        if mono <= 0:
-            return 0
-        if overhead is not None:
-            decoded = _decoded_bytes_for(duration, sample_rate, channels)
-            return decoded * max(int(round(overhead)), 1)
-        multiplier = (
-            SINGLE_FILE_OVERHEAD_MONO
-            if channels == 1
-            else SINGLE_FILE_OVERHEAD_STEREO
-        )
-        return mono * multiplier
-    try:
-        return p.stat().st_size * 4
-    except OSError:
-        return 0
+    probed = _probe_audio_info(Path(path))
+    if probed is None:
+        return _streaming_estimate(0.0)
+    duration, _sample_rate, _channels = probed
+    return _streaming_estimate(duration)
 
 
 def estimate_project_bytes(paths: list[str] | list[str | Path]) -> int:
     """Estimate peak RAM for a project-mode analysis over ``paths``.
 
-    Every decoded track stays alive while the concatenated buffer is
-    being built; the combined dynamics, spectrum, and stereo passes
-    then add more transient float64 copies on top. ``PROJECT_OVERHEAD``
-    is applied to the sum of the per-track decoded buffers, which
-    already includes the stereo channels for stereo tracks.
+    Tracks are analysed sequentially (each one a streaming pass) and
+    the combined measurement is one more streaming pass over the
+    concatenation, so the peak is a single pass whose accumulators span
+    the total project duration — not a sum of per-track buffers.
     """
-    decoded_bytes = 0
+    total_seconds = 0.0
     for raw in paths:
-        decoded_bytes += estimate_file_bytes(raw, overhead=1.0)
-    return decoded_bytes * max(int(round(PROJECT_OVERHEAD)), 1)
+        probed = _probe_audio_info(Path(raw))
+        if probed is not None:
+            total_seconds += probed[0]
+    return _streaming_estimate(total_seconds)
 
 
 def build_estimate(label: str, estimated_bytes: int) -> MemoryEstimate:

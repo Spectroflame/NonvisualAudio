@@ -134,7 +134,10 @@ Resonanzliste) ist in allen Modi identisch; nur die Deutung wechselt.
 
 - Der Batch-Pfad, der die ganze Datei als float64-Puffer
   materialisiert (scipy.signal.welch über den Vollpuffer) — V3 ist
-  von Anfang an streaming-first.
+  von Anfang an streaming-first. (Seit 2.2 nutzt auch die Python-App
+  produktiv nur noch den Streaming-Pfad — Single-File wie Projekt-
+  Modus; der Batch-Pfad existiert dort nur noch als Referenz für die
+  Äquivalenztests.)
 - Die Dict-Merge-Eigenheiten des User-Override-Systems (Key-Ersetzen
   auf Listenebene, Legacy-String-Felder neben {en,de}-Dicts) — V3
   kann ein sauberes, versioniertes Schema definieren, solange die

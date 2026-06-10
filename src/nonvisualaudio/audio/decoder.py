@@ -26,7 +26,7 @@ from nonvisualaudio.audio.ffmpeg_runner import (
     run,
     run_split_streams_streaming,
 )
-from nonvisualaudio.cancellation import Cancellation
+from nonvisualaudio.cancellation import Cancellation, CancelledError
 from nonvisualaudio.errors import AudioDecodeError, MissingFFmpegError
 from nonvisualaudio.localization import t
 
@@ -570,6 +570,52 @@ class StreamingSinks:
     feed_stereo_optional: Callable[[np.ndarray], None] | None = None
 
 
+# Factory variant of :class:`StreamingSinks`: called exactly once with
+# ``(sample_rate, channels)`` as soon as the decoder knows the stream
+# parameters and before the first chunk is fed. This lets callers build
+# their Phase 1 streamer instances with the *actual* sample rate instead
+# of probing the file a second time themselves.
+SinksFactory = Callable[[int, int], "StreamingSinks"]
+
+
+class PcmChunkRouter:
+    """Route raw f32le PCM bytes from an ffmpeg pipe into :class:`StreamingSinks`.
+
+    The pipe hands us arbitrary byte chunks, so a frame (one float32 per
+    channel) can straddle a chunk boundary; the router keeps the sub-frame
+    leftover between calls and re-prefixes it so every numpy view is
+    frame-aligned. Stereo streams are forwarded to the stereo sink (when
+    present) and mixed down inline for the mono sink — the exact behaviour
+    the batch decoder implements for fully-materialised buffers.
+    """
+
+    def __init__(self, sinks: StreamingSinks, decode_channels: int) -> None:
+        self._sinks = sinks
+        self._channels = decode_channels
+        self._frame_bytes = decode_channels * 4
+        self._leftover = b""
+        self._do_stereo = (
+            decode_channels == 2 and sinks.feed_stereo_optional is not None
+        )
+
+    def __call__(self, chunk: bytes) -> None:
+        data = self._leftover + chunk if self._leftover else chunk
+        usable_bytes = (len(data) // self._frame_bytes) * self._frame_bytes
+        self._leftover = data[usable_bytes:]
+        if usable_bytes == 0:
+            return
+        arr = np.frombuffer(data, dtype=np.float32, count=usable_bytes // 4)
+        if self._channels == 2:
+            stereo_arr = arr.reshape(-1, 2)
+            if self._do_stereo:
+                feed_stereo = self._sinks.feed_stereo_optional
+                assert feed_stereo is not None  # narrowed by _do_stereo
+                feed_stereo(stereo_arr)
+            self._sinks.feed_mono(stereo_arr.mean(axis=1, dtype=np.float32))
+        else:
+            self._sinks.feed_mono(arr)
+
+
 @dataclass(frozen=True)
 class StreamingDecodeInfo:
     """Metadata returned from a streaming decode.
@@ -597,8 +643,10 @@ _SF_STREAM_BLOCKSIZE_FALLBACK = 65536
 
 def _try_streaming_soundfile(
     p: Path,
-    sinks: StreamingSinks,
+    sinks: StreamingSinks | None,
     on_progress: DecodeProgressCb | None,
+    sinks_factory: SinksFactory | None = None,
+    cancel: Cancellation | None = None,
 ) -> tuple[StreamingDecodeInfo, LoudnessMetrics] | None:
     """Streaming counterpart of :func:`_try_soundfile`.
 
@@ -608,6 +656,11 @@ def _try_streaming_soundfile(
     read failure raises :class:`AudioDecodeError` rather than rewinding
     silently, because the sinks have already received partial data and
     cannot be made to forget it.
+
+    When ``sinks`` is ``None``, ``sinks_factory`` is called with the
+    probed ``(sample_rate, channels)`` right before the first block is
+    read. ``cancel`` is polled between blocks, so a cancellation lands
+    within one block (~1 second of audio) instead of after the file.
     """
     try:
         import soundfile as sf
@@ -642,6 +695,9 @@ def _try_streaming_soundfile(
     # Block size: ~1 second of audio, with the floor described above.
     blocksize = max(int(sample_rate), _SF_STREAM_BLOCKSIZE_FALLBACK)
 
+    if sinks is None:
+        assert sinks_factory is not None  # enforced by the entry point
+        sinks = sinks_factory(sample_rate, channels)
     feed_stereo = sinks.feed_stereo_optional
     do_stereo = feed_stereo is not None and channels == 2
 
@@ -654,6 +710,8 @@ def _try_streaming_soundfile(
             dtype="float32",
             always_2d=True,
         ):
+            if cancel is not None:
+                cancel.raise_if_cancelled()
             if block.size == 0:
                 continue
             if do_stereo:
@@ -686,6 +744,10 @@ def _try_streaming_soundfile(
                 if pct != last_pct:
                     last_pct = pct
                     on_progress(pct, "decoding")
+    except CancelledError:
+        # A cancel inside the block loop is a clean user action, not a
+        # decode failure — let the worker's cancellation handling see it.
+        raise
     except Exception as exc:  # noqa: BLE001 — surface as user-facing decode error
         # We already fed partial data to the sinks; falling back to
         # ffmpeg here would double-feed the same audio. Surface as a
@@ -707,7 +769,7 @@ def _try_streaming_soundfile(
         else (lambda pct: on_progress(pct, "loudness"))
     )
     loudness = measure_loudness(
-        p, on_progress=loud_progress, duration_seconds=duration
+        p, on_progress=loud_progress, duration_seconds=duration, cancel=cancel
     )
 
     return (
@@ -729,6 +791,7 @@ def _ffmpeg_decode_with_loudness_streaming(
     duration: float,
     sinks: StreamingSinks,
     on_progress: DecodeProgressCb | None,
+    cancel: Cancellation | None = None,
 ) -> tuple[StreamingDecodeInfo, LoudnessMetrics]:
     """Streaming combined-pass twin of :func:`_ffmpeg_decode_with_loudness`.
 
@@ -743,8 +806,6 @@ def _ffmpeg_decode_with_loudness_streaming(
     from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128
 
     decode_channels = 2 if channels == 2 else 1
-    feed_stereo = sinks.feed_stereo_optional
-    do_stereo = decode_channels == 2 and feed_stereo is not None
     args = [
         find_ffmpeg(),
         "-hide_banner",
@@ -790,35 +851,13 @@ def _ffmpeg_decode_with_loudness_streaming(
         progress_state["last_pct"] = pct
         on_progress(pct, "combined")
 
-    frame_bytes = decode_channels * 4
-    # The leftover sits in a single-key dict so the nested closure can
-    # mutate it without a nonlocal binding fight with the outer scope.
-    leftover: dict[str, bytes] = {"buf": b""}
-
-    def _on_chunk(chunk: bytes) -> None:
-        prev = leftover["buf"]
-        data = prev + chunk if prev else chunk
-        usable_bytes = (len(data) // frame_bytes) * frame_bytes
-        leftover["buf"] = data[usable_bytes:]
-        if usable_bytes == 0:
-            return
-        arr = np.frombuffer(data, dtype=np.float32, count=usable_bytes // 4)
-        if decode_channels == 2:
-            stereo_arr = arr.reshape(-1, 2)
-            if do_stereo:
-                assert feed_stereo is not None  # narrowed by do_stereo
-                feed_stereo(stereo_arr)
-            mono_arr = stereo_arr.mean(axis=1, dtype=np.float32)
-            sinks.feed_mono(mono_arr)
-        else:
-            sinks.feed_mono(arr)
-
     try:
         stderr_text = run_split_streams_streaming(
             args,
             timeout=1200.0,
-            stdout_chunk_handler=_on_chunk,
+            stdout_chunk_handler=PcmChunkRouter(sinks, decode_channels),
             stderr_line_callback=_on_line,
+            cancel=cancel,
         )
     except FFmpegError as exc:
         raise _ffmpeg_error_to_user_error(exc, path) from exc
@@ -838,8 +877,10 @@ def _ffmpeg_decode_with_loudness_streaming(
 
 def decode_and_measure_streaming(
     path: str | Path,
-    sinks: StreamingSinks,
+    sinks: StreamingSinks | None = None,
     on_progress: DecodeProgressCb | None = None,
+    sinks_factory: SinksFactory | None = None,
+    cancel: Cancellation | None = None,
 ) -> tuple[StreamingDecodeInfo, LoudnessMetrics]:
     """Streaming twin of :func:`decode_and_measure`.
 
@@ -850,27 +891,49 @@ def decode_and_measure_streaming(
     ``None``). The returned :class:`StreamingDecodeInfo` carries only
     the file's metadata — the samples are already inside the sinks.
 
+    Exactly one of ``sinks`` / ``sinks_factory`` must be given. The
+    factory form exists for callers that need the stream's sample rate
+    to construct their sinks (the Phase 1 streamer classes take it as a
+    constructor argument): it is invoked once with ``(sample_rate,
+    channels)`` as soon as the decoder has probed the stream and before
+    the first chunk is fed. ``channels`` is the source's channel count
+    as probed — ``0`` when the probe could not tell, in which case the
+    decode falls back to a mono mixdown and the stereo sink stays unfed.
+
+    ``cancel`` — if supplied — is polled between decoded blocks, so a
+    cancellation takes effect mid-file instead of after the decode.
+
     Format coverage matches :func:`decode_and_measure`: soundfile
     handles WAV / AIFF / FLAC / OGG natively, everything else routes
     through the combined ffmpeg pass. The legacy :func:`decode_and_measure`
     is left untouched as the non-streaming fallback for callers that
     still need a complete :class:`DecodedAudio`.
     """
+    if (sinks is None) == (sinks_factory is None):
+        raise ValueError(
+            "decode_and_measure_streaming needs exactly one of "
+            "sinks / sinks_factory"
+        )
     p = _validate_file(path)
-    sf_result = _try_streaming_soundfile(p, sinks, on_progress)
+    sf_result = _try_streaming_soundfile(
+        p, sinks, on_progress, sinks_factory=sinks_factory, cancel=cancel
+    )
     if sf_result is not None:
         return sf_result
 
-    sample_rate, channels, duration = _probe_via_ffmpeg(p)
+    sample_rate, channels, duration = _probe_via_ffmpeg(p, cancel=cancel)
     if sample_rate == 0:
         log.warning(
             "ffmpeg did not report a sample rate for %s; defaulting to 48000",
             p.name,
         )
         sample_rate = 48000
+    if sinks is None:
+        assert sinks_factory is not None  # checked at the top
+        sinks = sinks_factory(sample_rate, channels)
     try:
         return _ffmpeg_decode_with_loudness_streaming(
-            p, sample_rate, channels, duration, sinks, on_progress
+            p, sample_rate, channels, duration, sinks, on_progress, cancel=cancel
         )
     except MissingFFmpegError:
         raise

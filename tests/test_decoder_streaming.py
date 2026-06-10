@@ -607,3 +607,66 @@ def test_streaming_at_44100_sample_rate_matches_batch(tmp_path: Path) -> None:
     assert info.sample_rate == sr
     assert np.array_equal(rec.assemble_mono(), batch_decoded.samples)
     assert loud == batch_loud
+
+
+# --------------------------------------------------------------------------- #
+# sinks_factory + cancel plumbing (added with the Phase 3 pipeline rewrite)
+# --------------------------------------------------------------------------- #
+
+
+def test_streaming_sinks_factory_gets_probed_params(tmp_path: Path) -> None:
+    """The factory must be called exactly once, with the stream's real
+    (sample_rate, channels), before any chunk is fed — and the chunks it
+    then receives must match the batch decoder's PCM bit-for-bit."""
+    wav = tmp_path / "stereo.wav"
+    stereo_round, mono_round = _write_wav_stereo(wav, SR, 1.5)
+
+    factory_calls: list[tuple[int, int]] = []
+    rec = _RecordingSink()
+
+    def _factory(sample_rate: int, channels: int) -> StreamingSinks:
+        factory_calls.append((sample_rate, channels))
+        assert not rec.mono_chunks, "factory must run before the first chunk"
+        return StreamingSinks(
+            feed_mono=rec.feed_mono, feed_stereo_optional=rec.feed_stereo
+        )
+
+    info, _loud = decode_and_measure_streaming(wav, sinks_factory=_factory)
+    assert factory_calls == [(SR, 2)]
+    assert info.channels == 2
+    assert np.array_equal(rec.assemble_mono(), mono_round)
+    assert np.array_equal(rec.assemble_stereo(), stereo_round)
+
+
+def test_streaming_requires_exactly_one_sinks_argument(tmp_path: Path) -> None:
+    wav = tmp_path / "mono.wav"
+    _write_wav_mono(wav, SR, 0.25)
+    rec = _RecordingSink()
+    sinks = StreamingSinks(feed_mono=rec.feed_mono)
+
+    with pytest.raises(ValueError):
+        decode_and_measure_streaming(wav)
+    with pytest.raises(ValueError):
+        decode_and_measure_streaming(
+            wav,
+            sinks,
+            sinks_factory=lambda sr, ch: sinks,
+        )
+
+
+def test_streaming_cancel_aborts_before_feeding(tmp_path: Path) -> None:
+    """A pre-set cancel token must abort inside the block loop, before
+    any PCM reaches the sinks, and surface as CancelledError — never as
+    a decode error."""
+    from nonvisualaudio.cancellation import Cancellation, CancelledError
+
+    wav = tmp_path / "mono.wav"
+    _write_wav_mono(wav, SR, 1.0)
+    c = Cancellation()
+    c.cancel()
+    rec = _RecordingSink()
+    sinks = StreamingSinks(feed_mono=rec.feed_mono)
+
+    with pytest.raises(CancelledError):
+        decode_and_measure_streaming(wav, sinks, cancel=c)
+    assert rec.mono_chunks == []

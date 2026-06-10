@@ -59,6 +59,10 @@ def _assert_bands_match(streamed, batch, *, abs_tol: float = 0.01):
         "mid_db",
         "presence_db",
         "air_db",
+        "bass_low_db",
+        "bass_high_db",
+        "air_low_db",
+        "air_high_db",
     ):
         assert getattr(streamed.bands, field) == pytest.approx(
             getattr(batch.bands, field), abs=abs_tol

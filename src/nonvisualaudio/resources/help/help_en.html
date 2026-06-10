@@ -70,7 +70,7 @@
       <li><a href="#stereo">Stereo image (correlation, mono, width)</a></li>
     </ol>
   </li>
-  <li><a href="#genres">Genre profiles</a></li>
+  <li><a href="#genres">Genre and analysis profiles</a></li>
   <li><a href="#reference">Reference comparison</a></li>
   <li><a href="#sections">Choosing report sections</a></li>
   <li><a href="#project">Project mode for albums and audio dramas</a></li>
@@ -103,8 +103,9 @@
 <ol>
   <li>Press <kbd>Add Audio Files...</kbd> or drag files/folders onto the
       window, or paste copied files with <kbd>Cmd+V</kbd> / <kbd>Ctrl+V</kbd>.</li>
-  <li>Optionally pick one or more genres under <kbd>Choose Genres...</kbd>
-      so the report includes a comparison.</li>
+  <li>Optionally pick one or more genres or analysis profiles under
+      <kbd>Choose Genre / Profile...</kbd> so the report includes a
+      comparison.</li>
   <li>Optionally pick a reference audio file via <kbd>Choose Reference File...</kbd>
       for an A-versus-B comparison.</li>
   <li>Press <kbd>Analyze</kbd> (or <kbd>Cmd+R</kbd> / <kbd>Ctrl+R</kbd>).</li>
@@ -127,11 +128,11 @@
     queued for analysis. Each file gets its own section in the
     resulting report. <kbd>Clear Files</kbd> empties the list.
   </dd>
-  <dt>Selected genres</dt>
+  <dt>Selected genres / profiles</dt>
   <dd>
-    Shows which genre profiles the report will compare against.
-    Press <kbd>Choose Genres...</kbd> to open the picker; you can
-    select any number at once.
+    Shows which genre or profile references the report will compare
+    against. Press <kbd>Choose Genre / Profile...</kbd> to open the
+    picker; you can select any number at once.
   </dd>
   <dt>Reference</dt>
   <dd>
@@ -393,22 +394,44 @@
 </section>
 
 <section id="genres">
-<h2>6. Genre profiles</h2>
+<h2>6. Genre and analysis profiles</h2>
 <p>
-  NonvisualAudio ships with 42 genre profiles across 13 categories
-  (audio drama, podcast, spoken word, pop, rock, rap and hip hop,
-  R&amp;B and soul, reggae, jazz, folk and country, electronic,
-  classical, film and cinema). Each profile carries a typical
+  NonvisualAudio ships with 43 profiles across 14 categories
+  (audio drama, podcast, spoken word, speech, pop, rock, rap and hip
+  hop, R&amp;B and soul, reggae, jazz, folk and country, electronic,
+  classical, film and cinema). Most profiles carry a typical
   loudness target (LUFS), a typical loudness range window (LU low
   to LU high), and a short description of the genre's tonal
   character.
 </p>
 <p>
-  Pick one or more genres before analyzing. For each selected genre,
-  the report will include a "Comparison to ..." section that tells
-  you whether the file is louder or quieter than the genre's
-  typical target and whether its dynamics are within the typical
-  range.
+  Pick one or more profiles before analyzing. For each selected
+  profile, the report will include a "Comparison to ..." section
+  that tells you whether the file is louder or quieter than the
+  genre's typical target and whether its dynamics are within the
+  typical range.
+</p>
+<h3>Analysis profile "Raw speech recording"</h3>
+<p>
+  The <em>Raw speech recording</em> profile (category Speech) is
+  meant for unedited speech — voice memos, interviews, raw
+  voiceover, podcast or audiobook source tracks. It deliberately
+  carries no loudness target, because loudness on raw material is
+  set later during editing or mastering. When it is selected, the
+  report interprets the frequency balance with speech in mind: a
+  low sub bass counts as normal and is not phrased as a flaw;
+  instead the report watches for boominess, mud, intelligibility,
+  sharp S sounds, and openness — each phrased with caution.
+</p>
+<h3>Analyzing without a profile</h3>
+<p>
+  Analyzing without any genre or profile selection always stays
+  possible. The report then still states all the technical facts
+  (loudest band, band distances, total spread, resonances) but
+  keeps the interpretation neutral and cautious, with no
+  music- or speech-specific judgements. Without a profile,
+  recommendations come only from robust findings such as true-peak
+  headroom or clear narrow resonances.
 </p>
 <h3>Editing genre profiles</h3>
 <p>
@@ -426,7 +449,7 @@
   At the top of the editor, the <kbd>Show:</kbd> popup menu narrows
   the list to <em>All</em>, <em>Built-in</em>, <em>User</em>, or
   <em>Modified</em> entries — handy for finding the few profiles
-  you've added or tweaked among the 42 shipped ones.
+  you've added or tweaked among the 43 shipped ones.
 </p>
 <p>
   <kbd>Delete</kbd> is only available for <code>user</code> entries.

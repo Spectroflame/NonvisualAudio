@@ -59,28 +59,37 @@ def build_genre_comparison(
     level: int = 3,
 ) -> Section:
     lines: list[str] = []
-    label = t("report.comp.typical_prefix", name=genre.display_name.lower())
-    lines.append(_lufs_diff_sentence(
-        target.loudness.integrated_lufs, genre.target_lufs, label,
-        project=project,
-    ))
-
-    lra = target.loudness.loudness_range_lu
-    lra_s = fmt_signed(lra)
-    low_i = int(genre.lra_low)
-    high_i = int(genre.lra_high)
-    if lra < genre.lra_low:
-        lines.append(
-            t("report.comp.lra_narrow", lra=lra_s, low=low_i, high=high_i)
-        )
-    elif lra > genre.lra_high:
-        lines.append(
-            t("report.comp.lra_wide", lra=lra_s, low=low_i, high=high_i)
-        )
+    # Profiles describing raw, not-yet-mastered material carry no
+    # loudness target (explicit null in genres.json). Comparing such a
+    # take against a fixed LUFS number would be misleading, so the
+    # loudness and LRA sentences are replaced by one neutral statement.
+    # Heading and notes stay, keeping screen-reader navigation stable.
+    if genre.target_lufs is not None:
+        label = t("report.comp.typical_prefix", name=genre.display_name.lower())
+        lines.append(_lufs_diff_sentence(
+            target.loudness.integrated_lufs, genre.target_lufs, label,
+            project=project,
+        ))
     else:
-        lines.append(
-            t("report.comp.lra_within", lra=lra_s, low=low_i, high=high_i)
-        )
+        lines.append(t("report.comp.no_loudness_target"))
+
+    if genre.lra_low is not None and genre.lra_high is not None:
+        lra = target.loudness.loudness_range_lu
+        lra_s = fmt_signed(lra)
+        low_i = int(genre.lra_low)
+        high_i = int(genre.lra_high)
+        if lra < genre.lra_low:
+            lines.append(
+                t("report.comp.lra_narrow", lra=lra_s, low=low_i, high=high_i)
+            )
+        elif lra > genre.lra_high:
+            lines.append(
+                t("report.comp.lra_wide", lra=lra_s, low=low_i, high=high_i)
+            )
+        else:
+            lines.append(
+                t("report.comp.lra_within", lra=lra_s, low=low_i, high=high_i)
+            )
 
     lines.append(t("report.comp.genre_notes", notes=genre.notes))
     return Section(

@@ -28,6 +28,16 @@ BAND_EDGES: tuple[tuple[str, float, float], ...] = (
     ("air", 6000.0, 20000.0),
 )
 
+# Internal refinements of the public bands above. They feed the
+# speech-aware report interpretation only and are never reported as
+# bands of their own.
+SUBBAND_EDGES: tuple[tuple[str, float, float], ...] = (
+    ("bass_low", 80.0, 150.0),
+    ("bass_high", 150.0, 250.0),
+    ("air_low", 6000.0, 10000.0),
+    ("air_high", 10000.0, 20000.0),
+)
+
 PEAK_PROMINENCE_DB = 4.0
 # Reference smoothing spans ~1/3 octave on a log-frequency axis; at the bottom
 # of the analysis range that means roughly ±5 bins, at the top many more.
@@ -154,15 +164,7 @@ def _find_peaks_db(freqs: np.ndarray, psd: np.ndarray) -> tuple[SpectralPeak, ..
 
 def compute_spectrum(samples: np.ndarray, sample_rate: int) -> SpectrumMetrics:
     if samples.size == 0 or sample_rate <= 0:
-        empty = BandEnergies(
-            sub_db=SILENCE_FLOOR_DB,
-            bass_db=SILENCE_FLOOR_DB,
-            low_mid_db=SILENCE_FLOOR_DB,
-            mid_db=SILENCE_FLOOR_DB,
-            presence_db=SILENCE_FLOOR_DB,
-            air_db=SILENCE_FLOOR_DB,
-        )
-        return SpectrumMetrics(bands=empty, peaks=())
+        return _silent_spectrum()
 
     nperseg = 4096 if samples.size >= 4096 else samples.size
     # Welch runs many independent FFTs; pocketfft can parallelise them
@@ -182,21 +184,7 @@ def compute_spectrum(samples: np.ndarray, sample_rate: int) -> SpectrumMetrics:
             detrend=False,
         )
 
-    band_values: dict[str, float] = {}
-    for name, lo, hi in BAND_EDGES:
-        hi_clamped = min(hi, float(freqs[-1]))
-        band_values[name] = round(_band_energy_db(freqs, psd, lo, hi_clamped), 2)
-
-    bands = BandEnergies(
-        sub_db=band_values["sub"],
-        bass_db=band_values["bass"],
-        low_mid_db=band_values["low_mid"],
-        mid_db=band_values["mid"],
-        presence_db=band_values["presence"],
-        air_db=band_values["air"],
-    )
-    peaks = _find_peaks_db(freqs, psd)
-    return SpectrumMetrics(bands=bands, peaks=peaks)
+    return _spectrum_from_psd(freqs, psd)
 
 
 # --------------------------------------------------------------------------- #
@@ -221,6 +209,10 @@ def _silent_spectrum() -> SpectrumMetrics:
             mid_db=SILENCE_FLOOR_DB,
             presence_db=SILENCE_FLOOR_DB,
             air_db=SILENCE_FLOOR_DB,
+            bass_low_db=SILENCE_FLOOR_DB,
+            bass_high_db=SILENCE_FLOOR_DB,
+            air_low_db=SILENCE_FLOOR_DB,
+            air_high_db=SILENCE_FLOOR_DB,
         ),
         peaks=(),
     )
@@ -231,7 +223,7 @@ def _spectrum_from_psd(
 ) -> SpectrumMetrics:
     """Final post-processing — bands + peaks — shared by both paths."""
     band_values: dict[str, float] = {}
-    for name, lo, hi in BAND_EDGES:
+    for name, lo, hi in BAND_EDGES + SUBBAND_EDGES:
         hi_clamped = min(hi, float(freqs[-1]))
         band_values[name] = round(_band_energy_db(freqs, psd, lo, hi_clamped), 2)
     bands = BandEnergies(
@@ -241,6 +233,10 @@ def _spectrum_from_psd(
         mid_db=band_values["mid"],
         presence_db=band_values["presence"],
         air_db=band_values["air"],
+        bass_low_db=band_values["bass_low"],
+        bass_high_db=band_values["bass_high"],
+        air_low_db=band_values["air_low"],
+        air_high_db=band_values["air_high"],
     )
     peaks = _find_peaks_db(freqs, psd)
     return SpectrumMetrics(bands=bands, peaks=peaks)

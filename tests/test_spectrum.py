@@ -48,6 +48,54 @@ def test_empty_input_returns_silent_bands():
     s = compute_spectrum(np.zeros(0, dtype=np.float32), 48000)
     assert s.peaks == ()
     assert s.bands.mid_db <= -100.0
+    # The internal sub-bands carry the silence sentinel too, not None.
+    assert s.bands.bass_low_db <= -100.0
+    assert s.bands.air_high_db <= -100.0
+
+
+def test_100hz_sine_lands_in_bass_low_subband():
+    x = _sine(100.0)
+    s = compute_spectrum(x, 48000)
+    b = s.bands
+    assert b.bass_low_db is not None and b.bass_high_db is not None
+    # 100 Hz sits in 80-150; that sub-band must clearly beat its sibling.
+    assert b.bass_low_db > b.bass_high_db + 10.0
+    # And the sub-band cannot be louder than its parent band 80-250.
+    assert b.bass_low_db <= b.bass_db + 0.05
+
+
+def test_8khz_sine_lands_in_air_low_subband():
+    x = _sine(8000.0)
+    s = compute_spectrum(x, 48000)
+    b = s.bands
+    assert b.air_low_db is not None and b.air_high_db is not None
+    assert b.air_low_db > b.air_high_db + 10.0
+    assert b.air_low_db <= b.air_db + 0.05
+
+
+def test_12khz_sine_lands_in_air_high_subband():
+    x = _sine(12000.0)
+    s = compute_spectrum(x, 48000)
+    b = s.bands
+    assert b.air_high_db is not None and b.air_low_db is not None
+    assert b.air_high_db > b.air_low_db + 10.0
+
+
+def test_subbands_default_to_none_for_legacy_construction():
+    # Legacy fixtures construct BandEnergies without sub-band values;
+    # the dataclass must keep accepting that.
+    from nonvisualaudio.analysis.result import BandEnergies
+
+    b = BandEnergies(
+        sub_db=-30.0,
+        bass_db=-20.0,
+        low_mid_db=-10.0,
+        mid_db=-5.0,
+        presence_db=-15.0,
+        air_db=-25.0,
+    )
+    assert b.bass_low_db is None
+    assert b.air_high_db is None
 
 
 def test_pink_noise_has_no_phantom_low_edge_peak():

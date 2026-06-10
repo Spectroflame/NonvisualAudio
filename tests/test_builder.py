@@ -4,6 +4,7 @@ from nonvisualaudio.analysis.result import (
     DynamicsMetrics,
     FileInfo,
     LoudnessMetrics,
+    SpectralPeak,
     SpectrumMetrics,
     StereoMetrics,
 )
@@ -445,3 +446,232 @@ def test_recommendations_fallback_when_nothing_to_fix():
     # "nothing to do" was the noise the user explicitly asked us to drop.
     assert "Possible Action Options" not in report
     assert "No specific corrective actions" in report
+
+
+# --------------------------------------------------------------------------- #
+# Material context: neutral mode (no profile selected)
+# --------------------------------------------------------------------------- #
+
+def _speech_like_bands(**overrides) -> BandEnergies:
+    """Band fixture modeled on the real-world speech take that motivated
+    the 2.2 rework: midrange loudest, low mids close behind, presence
+    recessed, sub bass nearly absent."""
+    defaults = dict(
+        sub_db=-45.9,
+        bass_db=-12.0,
+        low_mid_db=-4.9,
+        mid_db=0.0,
+        presence_db=-11.3,
+        air_db=-8.2,
+        bass_low_db=-13.0,
+        bass_high_db=-11.0,
+        air_low_db=-9.0,
+        air_high_db=-20.0,
+    )
+    defaults.update(overrides)
+    return BandEnergies(**defaults)
+
+
+def test_neutral_mode_keeps_factual_lines():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
+    )
+    report = build_report(result, material="neutral")
+    assert "The loudest band in this file is the midrange" in report
+    assert "dB quieter" in report
+    assert "Total spread between loudest" in report
+
+
+def test_neutral_mode_has_no_dramatic_verdict():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
+    )
+    report = build_report(result, material="neutral")
+    # No "clearly X-heavy ... louder than the sub bass" judgement.
+    assert "-heavy tonal balance" not in report
+    assert "louder than the sub bass" not in report
+    # The cautious phrasing takes its place.
+    assert "with the energy concentrated in the midrange region" in report
+
+
+def test_neutral_mode_adds_cautious_notes_with_material_disclaimer():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
+    )
+    report = build_report(result, material="neutral")
+    assert "The sub bass level is very low." in report
+    assert "Depending on the material, this can be intentional." in report
+
+
+def test_neutral_mode_suppresses_music_band_recommendations():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
+    )
+    report = build_report(result, material="neutral")
+    assert "The very low end is almost absent" not in report
+    assert "shelf around 2 dB above 8 kHz" not in report
+    assert "If this is music" not in report
+
+
+def test_neutral_mode_gives_no_profile_hint():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
+    )
+    report = build_report(result, material="neutral")
+    for phrase in ("profile", "Profile", "genre", "Genre"):
+        assert phrase not in report
+
+
+def test_neutral_mode_keeps_robust_recommendations():
+    loud = LoudnessMetrics(
+        integrated_lufs=-21.4,
+        short_term_max_lufs=-14.2,
+        true_peak_dbtp=-0.3,
+        loudness_range_lu=8.7,
+    )
+    result = _make_result(
+        loudness=loud,
+        spectrum=SpectrumMetrics(
+            bands=_speech_like_bands(),
+            peaks=(SpectralPeak(frequency_hz=1100.0, prominence_db=6.0),),
+        ),
+    )
+    report = build_report(result, material="neutral")
+    # True-peak ceiling and narrow-resonance EQ tips are robust findings
+    # and must survive in neutral mode.
+    assert "minus 1 dBTP" in report
+    assert "1.1 kHz" in report
+
+
+def test_neutral_mode_flat_spectrum_emits_no_interpretation():
+    flat = BandEnergies(
+        sub_db=-10.0,
+        bass_db=-10.5,
+        low_mid_db=-9.5,
+        mid_db=-10.0,
+        presence_db=-10.2,
+        air_db=-9.8,
+    )
+    result = _make_result(spectrum=SpectrumMetrics(bands=flat, peaks=()))
+    report = build_report(result, material="neutral")
+    assert "Depending on the material" not in report
+    assert "flat, even tonal balance" in report
+
+
+def test_music_mode_default_is_unchanged_by_material_param():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
+    )
+    assert build_report(result) == build_report(result, material="music")
+
+
+# --------------------------------------------------------------------------- #
+# Material context: speech mode
+# --------------------------------------------------------------------------- #
+
+def test_speech_mode_announces_speech_reading():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
+    )
+    report = build_report(result, material="speech")
+    assert "Reading this as a speech recording" in report
+
+
+def test_speech_mode_does_not_flag_low_sub_bass():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
+    )
+    report = build_report(result, material="speech")
+    # Low sub bass is normal for speech: no music recommendation, no
+    # "very low" finding, no dramatic verdict naming the sub bass.
+    assert "The very low end is almost absent" not in report
+    assert "The sub bass level is very low." not in report
+    assert "louder than the sub bass" not in report
+
+
+def test_speech_mode_flags_strong_sub_bass_as_possible_rumble():
+    bands = _speech_like_bands(sub_db=-5.0)
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    report = build_report(result, material="speech")
+    assert "rumble, handling noise or plosives" in report
+    assert "high pass filter around 80 to 100 Hz" in report
+
+
+def test_speech_mode_flags_boxiness_when_low_mids_dominate():
+    # low_mid only 1 dB under mid → inside the "near mid" boxiness window.
+    bands = _speech_like_bands(low_mid_db=-1.0)
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    report = build_report(result, material="speech")
+    assert "can sound muddy or boxy" in report
+    assert "250 to 500 Hz region is one possible starting point" in report
+
+
+def test_speech_mode_flags_sibilance_region():
+    bands = _speech_like_bands(air_low_db=-4.0)
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    report = build_report(result, material="speech")
+    assert "can point to sharp S sounds" in report
+    assert "de-esser" in report
+
+
+def test_speech_mode_mentions_reduced_openness_cautiously():
+    bands = _speech_like_bands(air_high_db=-40.0)
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    report = build_report(result, material="speech")
+    assert "10 to 20 kHz region is very restrained" in report
+    assert "judge with caution" in report
+
+
+def test_speech_mode_merges_recessed_presence_with_narrow_peak():
+    # Presence recessed overall (-11.3 dB below mid) AND a narrow peak
+    # at 2.6 kHz inside it: the report must explain both in one combined
+    # sentence instead of two contradicting ones.
+    result = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=_speech_like_bands(),
+            peaks=(SpectralPeak(frequency_hz=2600.0, prominence_db=5.5),),
+        )
+    )
+    report = build_report(result, material="speech")
+    assert (
+        "The presence region is restrained overall, but contains one "
+        "narrow standout at 2.6 kHz." in report
+    )
+    # The standalone "restrained presence" sentence must not also appear.
+    assert "presence region (2 to 6 kHz) is restrained overall" not in report
+
+
+def test_speech_mode_tolerates_missing_subband_values():
+    # Legacy fixtures carry no sub-band measurements. Speech mode must
+    # not crash and must simply skip the sub-band findings.
+    bands = _speech_like_bands(
+        bass_low_db=None, bass_high_db=None, air_low_db=None, air_high_db=None
+    )
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    report = build_report(result, material="speech")
+    assert "Reading this as a speech recording" in report
+    assert "80 to 150 Hz" not in report
+    assert "6 to 10 kHz" not in report
+
+
+def test_speech_mode_suppresses_music_band_recommendations():
+    bands = _speech_like_bands(sub_db=-2.0)  # would trigger sub_dominant in music
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    report = build_report(result, material="speech")
+    assert "The sub bass is dominant" not in report
+    assert "shelf around 2 dB above 8 kHz" not in report
+
+
+def test_neutral_and_speech_reports_contain_no_markdown_symbols():
+    result = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=_speech_like_bands(),
+            peaks=(SpectralPeak(frequency_hz=2600.0, prominence_db=5.5),),
+        )
+    )
+    for material in ("neutral", "speech"):
+        report = build_report(result, material=material)
+        for bad in ("*", "#", "`", "_"):
+            assert bad not in report, (
+                f"markdown symbol {bad!r} leaked into {material} report"
+            )

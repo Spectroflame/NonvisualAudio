@@ -70,7 +70,7 @@
       <li><a href="#stereo">Stereobild (Korrelation, Mono, Breite)</a></li>
     </ol>
   </li>
-  <li><a href="#genres">Genre-Profile</a></li>
+  <li><a href="#genres">Genre- und Analyseprofile</a></li>
   <li><a href="#referenz">Vergleich mit Referenz</a></li>
   <li><a href="#sektionen">Report-Abschnitte wählen</a></li>
   <li><a href="#projekt">Projekt-Modus für Alben und Hörspiele</a></li>
@@ -104,8 +104,9 @@
   <li><kbd>Audio-Dateien hinzufügen...</kbd> drücken, oder Dateien bzw.
       Ordner aufs Fenster ziehen, oder kopierte Dateien mit
       <kbd>Cmd+V</kbd> / <kbd>Strg+V</kbd> einfügen.</li>
-  <li>Optional: Unter <kbd>Genres wählen...</kbd> ein oder mehrere
-      Genres auswählen, damit der Report einen Vergleich enthält.</li>
+  <li>Optional: Unter <kbd>Genre / Profil wählen...</kbd> ein oder
+      mehrere Genres oder Analyseprofile auswählen, damit der Report
+      einen Vergleich enthält.</li>
   <li>Optional: Über <kbd>Referenz-Datei wählen...</kbd> eine zweite
       Audio-Datei für einen A/B-Vergleich auswählen.</li>
   <li><kbd>Analysieren</kbd> drücken (oder <kbd>Cmd+R</kbd> /
@@ -131,11 +132,11 @@
     Abschnitt im späteren Report. <kbd>Dateiliste leeren</kbd>
     räumt die Liste auf.
   </dd>
-  <dt>Ausgewählte Genres</dt>
+  <dt>Ausgewählte Genres / Profile</dt>
   <dd>
-    Zeigt, mit welchen Genre-Profilen der Report vergleichen soll.
-    <kbd>Genres wählen...</kbd> öffnet den Auswahl-Dialog; beliebig
-    viele Genres sind gleichzeitig möglich.
+    Zeigt, mit welchen Genre- oder Profil-Referenzen der Report
+    vergleichen soll. <kbd>Genre / Profil wählen...</kbd> öffnet den
+    Auswahl-Dialog; beliebig viele Einträge sind gleichzeitig möglich.
   </dd>
   <dt>Referenz</dt>
   <dd>
@@ -408,21 +409,44 @@
 </section>
 
 <section id="genres">
-<h2>6. Genre-Profile</h2>
+<h2>6. Genre- und Analyseprofile</h2>
 <p>
-  NonvisualAudio liefert 42 Genre-Profile in 13 Kategorien mit
-  (Hörspiel, Podcast, Wort, Pop, Rock, Rap und Hip-Hop, R&amp;B und
+  NonvisualAudio liefert 43 Profile in 14 Kategorien mit (Hörspiel,
+  Podcast, Wort, Sprache, Pop, Rock, Rap und Hip-Hop, R&amp;B und
   Soul, Reggae, Jazz, Folk und Country, Elektronik, Klassik, Film
-  und Kino). Jedes Profil trägt ein typisches Lautheits-Ziel
+  und Kino). Die meisten Profile tragen ein typisches Lautheits-Ziel
   (LUFS), ein typisches Fenster für den Lautheitsbereich (LU unten
   bis LU oben) und eine kurze Beschreibung des Klangcharakters.
 </p>
 <p>
-  Vor der Analyse ein oder mehrere Genres auswählen. Für jedes
-  ausgewählte Genre enthält der Report einen Abschnitt
+  Vor der Analyse ein oder mehrere Profile auswählen. Für jedes
+  ausgewählte Profil enthält der Report einen Abschnitt
   „Vergleich mit ..." — dort steht, ob die Datei lauter oder leiser
   als das typische Ziel des Genres ist und ob ihre Dynamik im
   typischen Bereich liegt.
+</p>
+<h3>Analyseprofil „Rohe Sprachaufnahme"</h3>
+<p>
+  Das Profil <em>Rohe Sprachaufnahme</em> (Kategorie Sprache) ist für
+  unbearbeitete Sprachaufnahmen gedacht — etwa Sprachmemos,
+  Interviews, Voiceover-Rohmaterial oder Podcast- und
+  Hörbuch-Rohspuren. Es trägt bewusst kein Lautheitsziel, weil die
+  Lautheit bei Rohmaterial erst im Schnitt oder Mastering festgelegt
+  wird. Ist es ausgewählt, deutet der Report die Frequenzbalance
+  sprachbezogen: Wenig Subbass gilt als normal und wird nicht als
+  Mangel formuliert; stattdessen achtet der Report auf Dröhnen,
+  Mumpf, Verständlichkeit, scharfe S-Laute und Offenheit — jeweils
+  vorsichtig formuliert.
+</p>
+<h3>Analyse ohne Profil</h3>
+<p>
+  Eine Analyse ganz ohne Genre- oder Profilauswahl bleibt jederzeit
+  möglich. Der Report nennt dann weiter alle technischen Fakten
+  (lautestes Band, Bandabstände, Gesamtspanne, Resonanzen),
+  formuliert die Einordnung aber neutral und vorsichtig, ohne
+  musik- oder sprachspezifische Urteile. Handlungsempfehlungen gibt
+  es ohne Profil nur aus robusten Befunden wie True-Peak-Reserve
+  oder klaren schmalen Resonanzen.
 </p>
 <h3>Genre-Profile bearbeiten</h3>
 <p>
@@ -441,7 +465,7 @@
   Oben im Editor sitzt das Filter-Einblendmenü <kbd>Anzeigen:</kbd>
   mit den Werten <em>Alle</em>, <em>Mitgeliefert</em>, <em>Eigen</em>
   und <em>Geändert</em>. So lassen sich z. B. alle eigenen Profile
-  auf einen Blick sehen, ohne durch die 42 mitgelieferten zu blättern.
+  auf einen Blick sehen, ohne durch die 43 mitgelieferten zu blättern.
 </p>
 <p>
   <kbd>Löschen</kbd> ist nur für <code>eigen</code>-Einträge möglich.

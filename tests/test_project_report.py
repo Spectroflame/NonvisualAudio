@@ -367,3 +367,33 @@ def test_concatenate_decoded_uses_max_sample_rate():
     # 48k → 96k upsample of 48000 samples ≈ 96000 samples; plus the
     # 96000 native samples → ~192000 total.
     assert abs(len(combined) - 192000) <= 8
+
+
+def test_project_report_forwards_material_to_inner_sections():
+    # A speech-leaning band balance: midrange loudest, sub bass nearly
+    # absent. In speech mode the inner frequency/overall sections must
+    # use the speech interpretation; in neutral mode the cautious one.
+    speechy = BandEnergies(
+        sub_db=-45.0,
+        bass_db=-12.0,
+        low_mid_db=-5.0,
+        mid_db=0.0,
+        presence_db=-11.0,
+        air_db=-9.0,
+    )
+    files = (
+        _make_file_result("a.wav", -20.0, 12.0, bands=speechy),
+        _make_file_result("b.wav", -21.0, 12.0, bands=speechy),
+    )
+    project = _make_project(files)
+
+    speech_report = build_project_report(project, material="speech")
+    assert "Reading this as a speech recording" in speech_report
+    assert "louder than the sub bass" not in speech_report
+
+    neutral_report = build_project_report(project, material="neutral")
+    assert "The sub bass level is very low." in neutral_report
+    assert "-heavy tonal balance" not in neutral_report
+
+    music_report = build_project_report(project)
+    assert "Reading this as a speech recording" not in music_report

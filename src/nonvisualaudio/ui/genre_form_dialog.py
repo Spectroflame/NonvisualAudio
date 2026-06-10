@@ -112,6 +112,13 @@ class GenreFormDialog(wx.Dialog):
         )
         self._is_edit = is_edit
         self._existing_key = existing_profile["key"] if is_edit else ""
+        # Keep the full raw dict around: _validate() builds the result
+        # by UPDATING a copy of it, so fields the form does not expose
+        # (e.g. ``material`` on the built-in speech profile) survive an
+        # edit round-trip instead of being silently dropped.
+        self._existing_raw: dict[str, Any] = (
+            dict(existing_profile) if is_edit else {}
+        )
         self._categories = list(available_categories)
 
         self._result_profile: dict[str, Any] | None = None
@@ -446,34 +453,47 @@ class GenreFormDialog(wx.Dialog):
                 raise _ValidationError(t("ui.genre_form.error.category_required"))
         category_key, new_category = self._resolve_category(category_text)
 
-        target_lufs = _parse_num(
+        # Loudness targets are optional: an empty field stores an
+        # explicit ``null`` ("this profile has no loudness target",
+        # e.g. for raw-recording profiles). LRA low/high must be
+        # filled as a pair or left empty as a pair.
+        target_lufs = _parse_opt_num(
             self.target_lufs_ctrl.GetValue(), t("ui.genre_form.field.target_lufs.name")
         )
-        lra_low = _parse_num(
+        lra_low = _parse_opt_num(
             self.lra_low_ctrl.GetValue(), t("ui.genre_form.field.lra_low.name")
         )
-        lra_high = _parse_num(
+        lra_high = _parse_opt_num(
             self.lra_high_ctrl.GetValue(), t("ui.genre_form.field.lra_high.name")
         )
-        if lra_low > lra_high:
-            raise _ValidationError(t("ui.genre_form.error.lra_order"))
-        if lra_low < 0 or lra_high < 0:
-            raise _ValidationError(t("ui.genre_form.error.lra_negative"))
+        if (lra_low is None) != (lra_high is None):
+            raise _ValidationError(t("ui.genre_form.error.lra_pair"))
+        if lra_low is not None and lra_high is not None:
+            if lra_low > lra_high:
+                raise _ValidationError(t("ui.genre_form.error.lra_order"))
+            if lra_low < 0 or lra_high < 0:
+                raise _ValidationError(t("ui.genre_form.error.lra_negative"))
 
         # Notes are optional; store what was entered. Empty strings are
         # fine — the localised_field() helper treats them as missing.
         notes_en = self.notes_en_ctrl.GetValue().strip()
         notes_de = self.notes_de_ctrl.GetValue().strip()
 
-        profile = {
-            "key": raw_key,
-            "category_key": category_key,
-            "display_name": {"en": display_name_en, "de": display_name_de},
-            "target_lufs": target_lufs,
-            "lra_low": lra_low,
-            "lra_high": lra_high,
-            "notes": {"en": notes_en, "de": notes_de},
-        }
+        # Start from the raw dict the dialog was opened with so fields
+        # the form does not expose (e.g. ``material``) pass through
+        # unchanged, then overwrite the editable keys.
+        profile = dict(self._existing_raw)
+        profile.update(
+            {
+                "key": raw_key,
+                "category_key": category_key,
+                "display_name": {"en": display_name_en, "de": display_name_de},
+                "target_lufs": target_lufs,
+                "lra_low": lra_low,
+                "lra_high": lra_high,
+                "notes": {"en": notes_en, "de": notes_de},
+            }
+        )
         return profile, new_category
 
     def _resolve_category(
@@ -544,6 +564,18 @@ def _parse_num(text: str, field: str) -> float:
     if not math.isfinite(value):
         raise _ValidationError(t("ui.genre_form.error.field_not_finite", field=field))
     return value
+
+
+def _parse_opt_num(text: str, field: str) -> float | None:
+    """Like :func:`_parse_num`, but an empty field means "no value".
+
+    Used for the loudness target fields, where an explicit ``None``
+    (stored as JSON ``null``) declares that the profile has no
+    loudness target at all.
+    """
+    if not text.strip():
+        return None
+    return _parse_num(text, field)
 
 
 def _fmt_num(value: Any) -> str:

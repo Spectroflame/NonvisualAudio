@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from nonvisualaudio.localization import DEFAULT_LANG, current_lang
 from nonvisualaudio.paths import user_genres_path
@@ -55,10 +55,45 @@ class GenreProfile:
     key: str
     display_name: str
     category: str  # human-readable category name (already resolved)
-    target_lufs: float
-    lra_low: float
-    lra_high: float
+    # Loudness targets are optional: a profile that describes raw,
+    # not-yet-mastered material (e.g. "Rohe Sprachaufnahme") has no
+    # meaningful loudness target and stores explicit ``null`` values.
+    # ``lra_low``/``lra_high`` are either both set or both ``None``.
+    target_lufs: float | None
+    lra_low: float | None
+    lra_high: float | None
     notes: str
+    # What kind of material this profile declares: ``"music"`` (default,
+    # the historic behaviour) or ``"speech"``. Selecting a speech
+    # profile switches the main report to the speech interpretation.
+    material: str = "music"
+
+
+MATERIAL_MUSIC = "music"
+MATERIAL_NEUTRAL = "neutral"
+MATERIAL_SPEECH = "speech"
+
+
+def material_context_for(keys: "Iterable[str] | None") -> str:
+    """Derive the report's material context from selected profile keys.
+
+    - no *resolved* profile selected (empty selection, or every key
+      points at a deleted profile) → ``"neutral"``: general technical
+      analysis without material-specific judgements.
+    - at least one resolved profile declares ``material == "speech"``
+      → ``"speech"``. A speech profile is a statement about the
+      material itself, so it wins over any additionally selected music
+      genres (those keep their comparison sections regardless).
+    - otherwise → ``"music"``: the historic report behaviour.
+    """
+    resolved = [
+        GENRES[k] for k in (keys or []) if k in GENRES
+    ]
+    if not resolved:
+        return MATERIAL_NEUTRAL
+    if any(p.material == MATERIAL_SPEECH for p in resolved):
+        return MATERIAL_SPEECH
+    return MATERIAL_MUSIC
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +168,21 @@ def _merge(
     return categories, profiles, user_profile_keys, user_category_keys
 
 
+def _opt_float(p: dict[str, Any], key: str) -> float | None:
+    """Read an optional numeric field.
+
+    An explicit ``null`` in the JSON means "this profile has no such
+    target" and maps to ``None``. A *missing* key keeps the historic
+    malformed-profile semantics: it raises ``KeyError`` so the entry is
+    skipped with a warning, exactly like before the field became
+    optional.
+    """
+    value = p[key]
+    if value is None:
+        return None
+    return float(value)
+
+
 def _build_profile_objects(
     categories: list[dict[str, Any]], profiles: list[dict[str, Any]]
 ) -> tuple[GenreProfile, ...]:
@@ -145,15 +195,20 @@ def _build_profile_objects(
         cat_key = p.get("category_key", "")
         category_name = category_name_by_key.get(cat_key, cat_key)
         try:
+            lra_low = _opt_float(p, "lra_low")
+            lra_high = _opt_float(p, "lra_high")
+            if (lra_low is None) != (lra_high is None):
+                raise ValueError("lra_low and lra_high must both be set or both null")
             objects.append(
                 GenreProfile(
                     key=p["key"],
                     display_name=_resolve_localised(p.get("display_name"), lang),
                     category=category_name,
-                    target_lufs=float(p["target_lufs"]),
-                    lra_low=float(p["lra_low"]),
-                    lra_high=float(p["lra_high"]),
+                    target_lufs=_opt_float(p, "target_lufs"),
+                    lra_low=lra_low,
+                    lra_high=lra_high,
                     notes=_resolve_localised(p.get("notes", ""), lang),
+                    material=str(p.get("material", "music")),
                 )
             )
         except (KeyError, ValueError, TypeError) as exc:

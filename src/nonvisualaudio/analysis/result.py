@@ -38,6 +38,15 @@ class BandEnergies:
     mid_db: float       # 500-2000 Hz
     presence_db: float  # 2000-6000 Hz
     air_db: float       # above 6000 Hz
+    # Internal sub-bands. They refine the public bands above for the
+    # speech-aware report interpretation but never appear as bands of
+    # their own in the report. ``None`` means "not measured" (legacy
+    # fixtures, deserialized results) — readers must fall back to the
+    # parent band.
+    bass_low_db: float | None = None    # 80-150 Hz
+    bass_high_db: float | None = None   # 150-250 Hz
+    air_low_db: float | None = None     # 6000-10000 Hz
+    air_high_db: float | None = None    # 10000-20000 Hz
 
 
 @dataclass(frozen=True)

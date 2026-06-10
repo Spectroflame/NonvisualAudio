@@ -135,6 +135,42 @@ SECTION_ORDER: tuple[str, ...] = (
 SILENT_BAND_THRESHOLD_DB = -90.0
 
 # --------------------------------------------------------------------------- #
+# Material context
+# --------------------------------------------------------------------------- #
+
+# What kind of material the report should assume. ``"music"`` is the
+# historic behaviour and stays the default so direct callers and old
+# tests keep their output. The UI layer always passes the value derived
+# from the selected profiles (``genre_profiles.material_context_for``):
+# ``"neutral"`` when nothing is selected, ``"speech"`` when a speech
+# profile is selected.
+MATERIAL_MUSIC = "music"
+MATERIAL_NEUTRAL = "neutral"
+MATERIAL_SPEECH = "speech"
+
+# Neutral-mode interpretation: only descriptive statements, derived from
+# robust findings, always closed with a "may be intentional" note.
+NEUTRAL_SUB_LOW_DB = -25.0
+# A spread of 8 dB marks a "clear tonal character" in the music wording;
+# the cautious modes reuse the same boundary for "energy concentrates".
+ENERGY_CONCENTRATION_SPREAD_DB = 8.0
+
+# Speech-mode interpretation thresholds, all relative to the midrange
+# band (500 Hz – 2 kHz) that anchors the speech body. First guesses,
+# pinned by synthetic tests — expect tuning with real material.
+SPEECH_SUB_HIGH_REL_DB = -10.0       # sub bass close to mid → rumble suspicion
+SPEECH_BASS_LOW_HIGH_REL_DB = -6.0   # 80-150 Hz close to mid → boomy/proximity
+SPEECH_BASS_LOW_THIN_REL_DB = -25.0  # 80-150 Hz far below mid → thin
+SPEECH_WARMTH_HIGH_REL_DB = -4.0     # 150-250 Hz close to mid → very warm/full
+SPEECH_WARMTH_LOW_REL_DB = -25.0     # 150-250 Hz far below mid → lean
+SPEECH_MUD_NEAR_MID_DB = 2.0         # 250-500 Hz within 2 dB of mid → boxy
+SPEECH_MUD_OVER_PRESENCE_DB = 3.0    # 250-500 Hz well above presence → boxy
+SPEECH_PRESENCE_LOW_REL_DB = -10.0   # presence well below mid → check clarity
+SPEECH_PRESENCE_HIGH_REL_DB = -3.0   # presence close to mid → harshness possible
+SPEECH_SIBILANCE_REL_DB = -8.0       # 6-10 kHz close to mid → sibilance
+SPEECH_AIR_LOW_REL_DB = -32.0        # 10-20 kHz far below mid → reduced openness
+
+# --------------------------------------------------------------------------- #
 # Band tables
 # --------------------------------------------------------------------------- #
 
@@ -410,8 +446,162 @@ def _ranked_bands(bands: BandEnergies) -> list[tuple[str, float, float, float, s
     return entries
 
 
+def _neutral_findings(bands: BandEnergies) -> list[str]:
+    """Cautious, material-agnostic observations for profile-free runs.
+
+    Only descriptive statements derived from robust numbers — no genre
+    or speech assumptions, no hint to pick a profile. Closed with a
+    "may be intentional" note whenever anything fired.
+    """
+    lines: list[str] = []
+    ranked = _ranked_bands(bands)
+    audible = [e for e in ranked if e[1] >= SILENT_BAND_THRESHOLD_DB]
+    if bands.sub_db < NEUTRAL_SUB_LOW_DB:
+        lines.append(t("report.freq.neutral.sub_low"))
+    if len(audible) >= 2:
+        spread = audible[0][1] - audible[-1][1]
+        if spread >= ENERGY_CONCENTRATION_SPREAD_DB:
+            lines.append(
+                t("report.freq.neutral.concentration", name=audible[0][0])
+            )
+    if lines:
+        lines.append(t("report.freq.neutral.material_note"))
+    return lines
+
+
+@dataclass(frozen=True)
+class _SpeechFinding:
+    """One speech-mode observation, tagged with the public band it
+    belongs to so a narrow peak inside the same band can be merged into
+    a combined "recessed overall, but narrow peak at X" sentence."""
+
+    line: str
+    band_lo_hz: float | None = None
+    band_hi_hz: float | None = None
+    band_key: str | None = None
+    recessed: bool = False
+
+
+def _speech_band_findings(bands: BandEnergies) -> list[_SpeechFinding]:
+    """Band observations for raw speech material.
+
+    All thresholds are relative to the midrange band (500 Hz – 2 kHz),
+    the anchor that carries the speech body. Sub-band values may be
+    ``None`` on legacy fixtures; those findings are skipped then. A low
+    sub bass is deliberately NOT a finding — that is normal for speech.
+    """
+    mid = bands.mid_db
+    findings: list[_SpeechFinding] = []
+
+    if bands.sub_db > mid + SPEECH_SUB_HIGH_REL_DB:
+        findings.append(
+            _SpeechFinding(line=t("report.freq.speech.sub_high"))
+        )
+
+    if bands.bass_low_db is not None:
+        if bands.bass_low_db > mid + SPEECH_BASS_LOW_HIGH_REL_DB:
+            findings.append(
+                _SpeechFinding(line=t("report.freq.speech.lowbass_boomy"))
+            )
+        elif bands.bass_low_db < mid + SPEECH_BASS_LOW_THIN_REL_DB:
+            findings.append(
+                _SpeechFinding(line=t("report.freq.speech.lowbass_thin"))
+            )
+
+    if bands.bass_high_db is not None:
+        if bands.bass_high_db > mid + SPEECH_WARMTH_HIGH_REL_DB:
+            findings.append(
+                _SpeechFinding(line=t("report.freq.speech.warmth_high"))
+            )
+        elif bands.bass_high_db < mid + SPEECH_WARMTH_LOW_REL_DB:
+            findings.append(
+                _SpeechFinding(line=t("report.freq.speech.warmth_low"))
+            )
+
+    if (
+        bands.low_mid_db >= mid - SPEECH_MUD_NEAR_MID_DB
+        or bands.low_mid_db > bands.presence_db + SPEECH_MUD_OVER_PRESENCE_DB
+    ):
+        findings.append(_SpeechFinding(line=t("report.freq.speech.mud")))
+
+    if bands.presence_db < mid + SPEECH_PRESENCE_LOW_REL_DB:
+        findings.append(
+            _SpeechFinding(
+                line=t("report.freq.speech.presence_low"),
+                band_lo_hz=2000.0,
+                band_hi_hz=6000.0,
+                band_key="presence",
+                recessed=True,
+            )
+        )
+    elif bands.presence_db > mid + SPEECH_PRESENCE_HIGH_REL_DB:
+        findings.append(
+            _SpeechFinding(line=t("report.freq.speech.presence_high"))
+        )
+
+    if (
+        bands.air_low_db is not None
+        and bands.air_low_db > mid + SPEECH_SIBILANCE_REL_DB
+    ):
+        findings.append(
+            _SpeechFinding(line=t("report.freq.speech.sibilance"))
+        )
+
+    if (
+        bands.air_high_db is not None
+        and bands.air_high_db < mid + SPEECH_AIR_LOW_REL_DB
+        and bands.air_high_db >= SILENT_BAND_THRESHOLD_DB
+    ):
+        findings.append(
+            _SpeechFinding(
+                line=t("report.freq.speech.air_note"),
+                band_lo_hz=10000.0,
+                band_hi_hz=20000.0,
+                band_key="air",
+                recessed=True,
+            )
+        )
+
+    return findings
+
+
+def _speech_lines(
+    bands: BandEnergies, peaks: tuple[SpectralPeak, ...]
+) -> list[str]:
+    """Render the speech interpretation block.
+
+    Broadband tonality and narrow resonances are kept apart: when a
+    band is recessed overall but contains a detected narrow peak, both
+    facts go into ONE combined sentence so the report explains the
+    broadband state and the outlier together.
+    """
+    lines = [t("report.freq.speech.body")]
+    for finding in _speech_band_findings(bands):
+        peak_inside = None
+        if finding.recessed and finding.band_lo_hz is not None:
+            for peak in sorted(peaks, key=lambda p: p.frequency_hz):
+                if finding.band_lo_hz <= peak.frequency_hz < finding.band_hi_hz:
+                    peak_inside = peak
+                    break
+        if peak_inside is not None:
+            lines.append(
+                t(
+                    "report.freq.speech.recessed_with_peak",
+                    name=_band_label(finding.band_key),
+                    hz=fmt_hz(peak_inside.frequency_hz),
+                )
+            )
+        else:
+            lines.append(finding.line)
+    return lines
+
+
 def _frequency_section(
-    spec: SpectrumMetrics, *, project: bool = False, level: int = 3
+    spec: SpectrumMetrics,
+    *,
+    material: str = MATERIAL_MUSIC,
+    project: bool = False,
+    level: int = 3,
 ) -> Section:
     lines: list[str] = []
     b = spec.bands
@@ -506,6 +696,18 @@ def _frequency_section(
                 )
             )
 
+    # Interpretation block. The factual lines above are identical in
+    # every material mode; only the reading of those numbers differs.
+    # Music mode appends nothing — that is the historic output.
+    if material == MATERIAL_NEUTRAL:
+        neutral_lines = _neutral_findings(b)
+        if neutral_lines:
+            lines.append("")
+            lines.extend(neutral_lines)
+    elif material == MATERIAL_SPEECH:
+        lines.append("")
+        lines.extend(_speech_lines(b, spec.peaks))
+
     # Always enumerate the detected spectral peaks with their exact
     # frequency and prominence, so the user gets actionable numbers
     # instead of vague range descriptions.
@@ -540,7 +742,9 @@ def _frequency_section(
     )
 
 
-def _tonal_balance_phrase(bands: BandEnergies) -> str:
+def _tonal_balance_phrase(
+    bands: BandEnergies, material: str = MATERIAL_MUSIC
+) -> str:
     """Summarize tonal balance in one everyday-language sentence fragment."""
     ranked = _ranked_bands(bands)
     loudest_name = ranked[0][0]
@@ -551,6 +755,18 @@ def _tonal_balance_phrase(bands: BandEnergies) -> str:
     # may or may not notice; 8 dB or more is a clear tonal character.
     if spread < 3.0:
         return t("report.tonal.flat")
+
+    # Without a profile (and for speech material) a loud-band-vs-quiet-
+    # band gap is not a verdict: a speech take with hardly any sub bass
+    # is perfectly normal. State where the energy sits, name no culprit,
+    # and skip the "clearly X-heavy" judgement entirely.
+    if material in (MATERIAL_NEUTRAL, MATERIAL_SPEECH):
+        return t(
+            "report.tonal.cautious",
+            name=loudest_name,
+            spread=fmt_decimal(spread),
+        )
+
     if spread < 8.0:
         return t(
             "report.tonal.mild_lean",
@@ -567,7 +783,11 @@ def _tonal_balance_phrase(bands: BandEnergies) -> str:
 
 
 def _overall_section(
-    result: AnalysisResult, *, project: bool = False, level: int = 3
+    result: AnalysisResult,
+    *,
+    material: str = MATERIAL_MUSIC,
+    project: bool = False,
+    level: int = 3,
 ) -> Section:
     parts: list[str] = []
     loud = result.loudness
@@ -589,7 +809,7 @@ def _overall_section(
         verdict_key = "report.overall.moderate"
     parts.append(t_subject(verdict_key, project=project))
 
-    parts.append(_tonal_balance_phrase(bands))
+    parts.append(_tonal_balance_phrase(bands, material))
 
     return Section(
         level=level,
@@ -724,7 +944,11 @@ def _peak_fix_recommendation(peak: SpectralPeak) -> str:
 
 
 def _recommendations_section(
-    result: AnalysisResult, *, project: bool = False, level: int = 3
+    result: AnalysisResult,
+    *,
+    material: str = MATERIAL_MUSIC,
+    project: bool = False,
+    level: int = 3,
 ) -> Section:
     recs: list[str] = []
 
@@ -742,12 +966,34 @@ def _recommendations_section(
         recs.append(_peak_fix_recommendation(peak))
 
     b = result.spectrum.bands
-    if b.air_db < -22.0:
-        recs.append(t("report.rec.air_boost"))
-    if b.sub_db < -25.0:
-        recs.append(t("report.rec.sub_absent"))
-    if b.sub_db > -6.0:
-        recs.append(t("report.rec.sub_dominant"))
+    if material == MATERIAL_MUSIC:
+        # These three assume mastered music ("the very low end is almost
+        # absent" is no problem at all on a speech take). Without a
+        # profile we must not guess the material, so they stay
+        # music-only.
+        if b.air_db < -22.0:
+            recs.append(t("report.rec.air_boost"))
+        if b.sub_db < -25.0:
+            recs.append(t("report.rec.sub_absent"))
+        if b.sub_db > -6.0:
+            recs.append(t("report.rec.sub_dominant"))
+    elif material == MATERIAL_SPEECH:
+        # Speech recommendations mirror the speech findings in the
+        # frequency section — same thresholds, so report text and
+        # action options never contradict each other.
+        mid = b.mid_db
+        if b.sub_db > mid + SPEECH_SUB_HIGH_REL_DB:
+            recs.append(t("report.rec.speech.rumble"))
+        if (
+            b.low_mid_db >= mid - SPEECH_MUD_NEAR_MID_DB
+            or b.low_mid_db > b.presence_db + SPEECH_MUD_OVER_PRESENCE_DB
+        ):
+            recs.append(t("report.rec.speech.mud"))
+        if (
+            b.air_low_db is not None
+            and b.air_low_db > mid + SPEECH_SIBILANCE_REL_DB
+        ):
+            recs.append(t("report.rec.speech.sibilance"))
 
     stereo = result.stereo
     if stereo.is_stereo:
@@ -798,6 +1044,7 @@ def build_report(
     sections: ReportSections | None = None,
     project: bool = False,
     *,
+    material: str = MATERIAL_MUSIC,
     title: str | None = None,
     title_level: int = 1,
     section_level: int = 2,
@@ -807,6 +1054,15 @@ def build_report(
     ``extra_sections`` are :class:`Section` objects appended after
     Overall Assessment and before Recommendations, used for Genre or
     Reference comparison output.
+
+    ``material`` selects how the frequency balance is interpreted:
+    ``"music"`` (default — the historic wording, kept for direct
+    callers and old tests), ``"neutral"`` (no profile selected:
+    technical facts plus cautious, material-agnostic notes), or
+    ``"speech"`` (a speech profile is selected: speech-aware band
+    interpretation, no music-style sub-bass judgements). The UI layer
+    derives this via ``genre_profiles.material_context_for`` and always
+    passes it explicitly.
 
     ``sections`` controls which top-level blocks are rendered. Default is
     every section, which preserves the historical behaviour. When the
@@ -858,10 +1114,19 @@ def build_report(
         )
     if selected.frequency:
         out.append(
-            _frequency_section(result.spectrum, project=project, level=section_level)
+            _frequency_section(
+                result.spectrum,
+                material=material,
+                project=project,
+                level=section_level,
+            )
         )
     if selected.overall:
-        out.append(_overall_section(result, project=project, level=section_level))
+        out.append(
+            _overall_section(
+                result, material=material, project=project, level=section_level
+            )
+        )
     if selected.comparison and extra_sections:
         out.extend(s for s in extra_sections if s is not None)
     if selected.stereo:
@@ -875,6 +1140,8 @@ def build_report(
         )
     if selected.recommendations:
         out.append(
-            _recommendations_section(result, project=project, level=section_level)
+            _recommendations_section(
+                result, material=material, project=project, level=section_level
+            )
         )
     return ReportDoc(sections=tuple(out))

@@ -82,3 +82,18 @@ def test_normalise_number_field_preserves_non_numeric_text():
     assert normalise_number_field("abc") == "abc"
     assert normalise_number_field("") == ""
     assert normalise_number_field("3.5.5") == "3.5.5"
+
+
+def test_parse_opt_num_empty_means_none():
+    from nonvisualaudio.ui.genre_form_dialog import _parse_opt_num
+
+    assert _parse_opt_num("", "X") is None
+    assert _parse_opt_num("   ", "X") is None
+
+
+def test_parse_opt_num_parses_like_parse_num():
+    from nonvisualaudio.ui.genre_form_dialog import _parse_opt_num
+
+    assert _parse_opt_num("-14,0", "X") == -14.0
+    with pytest.raises(_ValidationError):
+        _parse_opt_num("abc", "X")

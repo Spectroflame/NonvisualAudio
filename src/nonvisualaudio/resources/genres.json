@@ -4,6 +4,7 @@
     {"key": "audio_drama",   "display_name": {"en": "Audio Drama",        "de": "Hörspiel"}},
     {"key": "podcast",       "display_name": {"en": "Podcast",            "de": "Podcast"}},
     {"key": "spoken_word",   "display_name": {"en": "Spoken Word",        "de": "Wort"}},
+    {"key": "speech",        "display_name": {"en": "Speech",             "de": "Sprache"}},
     {"key": "pop",           "display_name": {"en": "Pop",                "de": "Pop"}},
     {"key": "rock",          "display_name": {"en": "Rock",               "de": "Rock"}},
     {"key": "rap_hip_hop",   "display_name": {"en": "Rap and Hip Hop",    "de": "Rap und Hip-Hop"}},
@@ -131,6 +132,20 @@
       "notes": {
         "en": "clear instructional voice, calm dynamics, broadcast compliant",
         "de": "klare Lehrstimme, ruhige Dynamik, rundfunkkonform"
+      }
+    },
+    {
+      "key": "speech_raw_recording",
+      "category_key": "speech",
+      "material": "speech",
+      "display_name": {
+        "en": "Raw speech recording",
+        "de": "Rohe Sprachaufnahme"
+      },
+      "target_lufs": null, "lra_low": null, "lra_high": null,
+      "notes": {
+        "en": "unedited speech such as voice memos, interviews, raw voiceover, podcast or audiobook source tracks. Loudness is set later in editing, so there is no fixed loudness target here. Low sub bass is normal for speech",
+        "de": "unbearbeitete Sprache wie Sprachmemos, Interviews, Voiceover-Rohmaterial, Podcast- oder Hörbuch-Rohspuren. Die Lautheit wird erst im Schnitt festgelegt, deshalb gibt es hier kein festes Lautheitsziel. Wenig Subbass ist bei Sprache normal"
       }
     },
     {

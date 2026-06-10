@@ -78,3 +78,24 @@ def test_reference_comparison_addresses_project_when_target_is_project():
     # project (target) instead of "the target".
     assert "the project" in text.lower()
     assert "the target" not in text.lower()
+
+
+def test_genre_comparison_with_null_targets_skips_loudness_sentences():
+    result = _make_result()
+    profile = GENRES["speech_raw_recording"]
+    text = _flat(build_genre_comparison(result, profile))
+    # No LUFS or LRA judgement against a number that does not exist.
+    assert "LUFS" not in text
+    assert "loudness range" not in text.lower()
+    # The neutral no-target statement takes their place.
+    assert "Raw recordings have no fixed loudness target." in text
+    # Heading and notes survive, so screen-reader navigation stays intact.
+    assert "COMPARISON TO" in text
+    assert "Typical tonal character" in text
+
+
+def test_genre_comparison_with_numeric_targets_is_unchanged():
+    result = _make_result()
+    text = _flat(build_genre_comparison(result, GENRES["podcast_conversation"]))
+    assert "LUFS" in text
+    assert "Raw recordings have no fixed loudness target." not in text

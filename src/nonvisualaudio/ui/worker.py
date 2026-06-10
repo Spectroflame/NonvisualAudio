@@ -418,6 +418,7 @@ class AnalysisWorker:
                     result,
                     extra_sections=extras,
                     sections=self._sections,
+                    material=genre_profiles.material_context_for(self._genre_keys),
                     title=title,
                     title_level=per_file_title_level,
                     section_level=per_file_section_level,
@@ -622,6 +623,7 @@ class AnalysisWorker:
                 project,
                 extra_sections=extras,
                 sections=self._sections,
+                material=genre_profiles.material_context_for(self._genre_keys),
             )
         except Exception as exc:  # noqa: BLE001 — defensive boundary
             log.exception("project report builder crashed")

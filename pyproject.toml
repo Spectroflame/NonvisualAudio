@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nonvisualaudio"
-version = "2.1.1"
+version = "2.2.0"
 description = "Accessible audio analyzer for blind and low-vision audio professionals."
 readme = "README.md"
 requires-python = ">=3.11"

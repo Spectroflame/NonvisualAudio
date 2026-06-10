@@ -575,6 +575,10 @@ def test_speech_mode_announces_speech_reading():
     )
     report = build_report(result, material="speech")
     assert "Reading this as a speech recording" in report
+    # Deliberately cautious wording: the midrange concentration is
+    # described, not judged ("carries the body" was too assertive).
+    assert "the energy concentrates in the midrange" in report
+    assert "This shapes the character of the voice." in report
 
 
 def test_speech_mode_does_not_flag_low_sub_bass():

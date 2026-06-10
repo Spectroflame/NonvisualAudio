@@ -510,7 +510,7 @@
   "report.freq.neutral.concentration": "The energy is strongly concentrated in the {name} region.",
   "report.freq.neutral.material_note": "Depending on the material, this can be intentional.",
 
-  "report.freq.speech.body": "Reading this as a speech recording: the midrange (500 Hz to 2 kHz) carries the body of the voice.",
+  "report.freq.speech.body": "Reading this as a speech recording: the energy concentrates in the midrange (500 Hz to 2 kHz). This shapes the character of the voice.",
   "report.freq.speech.sub_high": "The sub bass is unusually strong for a speech recording. This can point to rumble, handling noise or plosives. Listen to an affected passage to check.",
   "report.freq.speech.lowbass_boomy": "The 80 to 150 Hz region is emphasized. The voice can sound boomy or proximity-heavy.",
   "report.freq.speech.lowbass_thin": "The 80 to 150 Hz region is very restrained. The voice can sound thin. Depending on microphone and distance, this can be intentional.",

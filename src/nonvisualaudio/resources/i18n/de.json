@@ -510,7 +510,7 @@
   "report.freq.neutral.concentration": "Die Energie konzentriert sich stark im {name}-Bereich.",
   "report.freq.neutral.material_note": "Das kann je nach Material gewollt sein.",
 
-  "report.freq.speech.body": "Einordnung als Sprachaufnahme: Der Mittenbereich (500 Hz bis 2 kHz) trägt den Sprachkörper.",
+  "report.freq.speech.body": "Einordnung als Sprachaufnahme: Die Energie konzentriert sich im Mittenbereich (500 Hz bis 2 kHz). Das prägt den Stimmcharakter.",
   "report.freq.speech.sub_high": "Der Subbass ist für eine Sprachaufnahme ungewöhnlich stark. Das kann auf Rumpeln, Griffgeräusche oder Plosivlaute hindeuten. Eine betroffene Stelle gezielt anhören.",
   "report.freq.speech.lowbass_boomy": "Der Bereich 80 bis 150 Hz ist betont. Die Stimme kann dröhnend oder nahbesprechungslastig wirken.",
   "report.freq.speech.lowbass_thin": "Der Bereich 80 bis 150 Hz ist sehr zurückhaltend. Die Stimme kann dünn wirken. Das kann je nach Mikrofon und Abstand gewollt sein.",

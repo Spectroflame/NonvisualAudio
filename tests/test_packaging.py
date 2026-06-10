@@ -157,7 +157,7 @@ def test_only_release_job_grants_write() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_pyproject_version_is_2_1_1() -> None:
+def test_pyproject_version_is_2_2_0() -> None:
     with (ROOT / "pyproject.toml").open("rb") as fh:
         data = tomllib.load(fh)
-    assert data["project"]["version"] == "2.1.1"
+    assert data["project"]["version"] == "2.2.0"

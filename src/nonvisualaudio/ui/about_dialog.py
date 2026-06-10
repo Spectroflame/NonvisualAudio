@@ -18,7 +18,7 @@ import webbrowser
 
 import wx
 
-from nonvisualaudio import __version__
+from nonvisualaudio import __version__, diagnostics
 from nonvisualaudio.localization import t
 from nonvisualaudio.ui import a11y, theme
 from nonvisualaudio.ui.diagnostics_dialog import save_report
@@ -129,6 +129,17 @@ class AboutDialog(wx.Dialog):
         self.diagnostics_btn.Bind(wx.EVT_BUTTON, self._on_save_diagnostics)
         button_row.Add(self.diagnostics_btn, flag=wx.LEFT, border=8)
 
+        # Same label/strings as in the diagnostics dialog so both entry
+        # points sound identical to a screen-reader user.
+        self.folder_btn = wx.Button(self, label=t("ui.diagnostics.btn.folder"))
+        a11y.set_a11y(
+            self.folder_btn,
+            t("ui.diagnostics.folder_name"),
+            t("ui.diagnostics.folder_hint"),
+        )
+        self.folder_btn.Bind(wx.EVT_BUTTON, self._on_open_log_folder)
+        button_row.Add(self.folder_btn, flag=wx.LEFT, border=8)
+
         button_row.AddStretchSpacer(1)
 
         self.close_btn = wx.Button(self, wx.ID_CLOSE, label=t("ui.btn.close"))
@@ -150,7 +161,12 @@ class AboutDialog(wx.Dialog):
         )
 
         self.SetSizer(root)
-        self.SetInitialSize(wx.Size(580, 440))
+        # The five-button row is wider than the old 580 px default once the
+        # long German labels are in play; size the dialog to the real row
+        # width so the rightmost buttons cannot overlap at the edge.
+        fit_width = root.ComputeFittingWindowSize(self).width
+        self.SetInitialSize(wx.Size(max(580, fit_width), 440))
+        self.SetMinSize(wx.Size(max(580, fit_width), 360))
         self.CentreOnParent()
 
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char)
@@ -198,6 +214,16 @@ class AboutDialog(wx.Dialog):
         # naming the file. Same code path as the Help menu's "Save Report"
         # button so the two entry points stay in lockstep.
         save_report(self)
+
+    def _on_open_log_folder(self, _event: wx.CommandEvent) -> None:
+        if diagnostics.open_log_folder():
+            return
+        wx.MessageBox(
+            t("ui.diagnostics.folder_failed.body"),
+            t("ui.diagnostics.folder_failed.title"),
+            style=wx.OK | wx.ICON_WARNING,
+            parent=self,
+        )
 
 
 def show_about(parent: wx.Window | None) -> None:

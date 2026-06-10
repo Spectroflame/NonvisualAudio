@@ -322,7 +322,7 @@
   "ui.diagnostics.close_name": "Close diagnostics dialog",
   "ui.diagnostics.close_hint": "Close this window and return to the main NonvisualAudio window.",
   "ui.diagnostics.save_ok.title": "Diagnostic report generated",
-  "ui.diagnostics.save_ok.body": "The diagnostic report was placed as {filename} in the log folder. Use 'Open Log Folder' to find it and attach it to your support request.",
+  "ui.diagnostics.save_ok.body": "The diagnostic report was placed as {filename} in the log folder. Do you want to open the log folder now to attach the report to your support request?",
   "ui.diagnostics.save_failed.title": "Could not generate diagnostic report",
   "ui.diagnostics.save_failed.body": "NonvisualAudio could not write the diagnostic report into the log folder. Check that the folder is writable and try again.",
   "ui.diagnostics.folder_failed.title": "Could not open folder",

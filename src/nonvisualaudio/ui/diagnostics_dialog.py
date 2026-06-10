@@ -164,12 +164,22 @@ def save_report(parent: wx.Window | None) -> bool:
         )
         return False
     log.info("diagnostic report saved")
-    wx.MessageBox(
+    # Offer to open the log folder right away: the report's whole point is
+    # to be attached to a support mail, and hunting for the folder
+    # afterwards is the hard part for a screen-reader user.
+    choice = wx.MessageBox(
         t("ui.diagnostics.save_ok.body", filename=target.name),
         t("ui.diagnostics.save_ok.title"),
-        style=wx.OK | wx.ICON_INFORMATION,
+        style=wx.YES_NO | wx.ICON_INFORMATION,
         parent=parent,
     )
+    if choice == wx.YES and not diagnostics.open_log_folder():
+        wx.MessageBox(
+            t("ui.diagnostics.folder_failed.body"),
+            t("ui.diagnostics.folder_failed.title"),
+            style=wx.OK | wx.ICON_WARNING,
+            parent=parent,
+        )
     return True
 
 

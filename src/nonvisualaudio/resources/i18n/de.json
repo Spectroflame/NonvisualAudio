@@ -322,7 +322,7 @@
   "ui.diagnostics.close_name": "Diagnosedialog schließen",
   "ui.diagnostics.close_hint": "Schließt dieses Fenster und bringt dich zurück zum NonvisualAudio-Hauptfenster.",
   "ui.diagnostics.save_ok.title": "Diagnosebericht erzeugt",
-  "ui.diagnostics.save_ok.body": "Der Diagnosebericht wurde als {filename} im Protokollordner abgelegt. Mit „Protokollordner öffnen\" findest du ihn und kannst ihn deiner Supportanfrage anhängen.",
+  "ui.diagnostics.save_ok.body": "Der Diagnosebericht wurde als {filename} im Protokollordner abgelegt. Möchtest du den Protokollordner jetzt öffnen, um den Bericht deiner Supportanfrage anzuhängen?",
   "ui.diagnostics.save_failed.title": "Diagnosebericht konnte nicht erzeugt werden",
   "ui.diagnostics.save_failed.body": "NonvisualAudio konnte den Diagnosebericht nicht in den Protokollordner schreiben. Prüfe, ob der Ordner beschreibbar ist, und versuche es erneut.",
   "ui.diagnostics.folder_failed.title": "Ordner konnte nicht geöffnet werden",

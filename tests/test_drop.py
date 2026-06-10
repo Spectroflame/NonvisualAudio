@@ -201,3 +201,24 @@ def test_parse_file_uri_windows():
 def test_parse_mixed_formats():
     text = "file:///home/u/a.wav\n/home/u/b.mp3\n"
     assert parse_paste_text(text) == ["/home/u/a.wav", "/home/u/b.mp3"]
+
+
+def test_expand_survives_overlong_clipboard_text(tmp_path: Path):
+    # Regression: the startup clipboard scan feeds arbitrary copied
+    # text through expand_audio_paths. A long prose paragraph is one
+    # giant "filename" component that exceeds the OS limit (~255
+    # bytes), and the is_file() stat used to escape as
+    # OSError: [Errno 63] File name too long.
+    overlong = "ein sehr langer kopierter Fliesstext " * 20
+    assert expand_audio_paths([overlong]) == []
+
+    # Garbage next to a real file must not take the real file down.
+    real = tmp_path / "take.wav"
+    real.write_bytes(b"x")
+    assert expand_audio_paths([overlong, str(real)]) == [str(real)]
+
+
+def test_expand_survives_null_byte_in_path():
+    # An embedded null byte makes os.stat raise ValueError instead of
+    # OSError; both must degrade to "not a file", not a traceback.
+    assert expand_audio_paths(["bad\x00path.wav"]) == []

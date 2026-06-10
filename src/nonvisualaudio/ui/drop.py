@@ -95,13 +95,25 @@ def expand_audio_paths(paths: Iterable[str]) -> list[str]:
             # keeps the original behaviour when the path does not exist
             # (strict=False is the default).
             path = path.resolve()
-        except OSError:
+        except (OSError, ValueError):
             continue
-        if path.is_file():
+        # The stat calls below can raise on input that was never a real
+        # path to begin with — the startup clipboard scan feeds whatever
+        # text the user happens to have copied through here, so an
+        # overlong "filename" (OSError: File name too long) or an
+        # embedded null byte (ValueError) must degrade to "not a file",
+        # not to a traceback.
+        try:
+            is_file = path.is_file()
+            is_dir = False if is_file else path.is_dir()
+        except (OSError, ValueError):
+            log.debug("expand_audio_paths: cannot stat %.120r", raw)
+            continue
+        if is_file:
             if _has_supported_ext(path) and not _is_filesystem_metadata(path.name):
                 _add(path)
             continue
-        if path.is_dir():
+        if is_dir:
             # Sorted walk: os.walk alone does not order file names on
             # all platforms, and we want identical output across runs.
             # Prune hidden directories (``.Spotlight-V100``, ``.Trashes``

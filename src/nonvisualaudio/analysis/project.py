@@ -93,6 +93,7 @@ def _measure_combined_streaming(
     target_rate: int,
     decode_channels: int,
     total_duration: float,
+    mixed_input_channels: list[int] | None = None,
     on_progress: Callable[[int], None] | None = None,
     cancel: Cancellation | None = None,
 ) -> tuple[LoudnessMetrics, DynamicsMetrics, SpectrumMetrics, StereoMetrics]:
@@ -108,6 +109,19 @@ def _measure_combined_streaming(
     stereo; a mixed mono/stereo project has no meaningful combined
     stereo image, and passing 1 keeps the stereo streamer unfed so it
     finalizes to the is_stereo=False sentinel.
+
+    ``mixed_input_channels`` — the per-input channel counts, supplied
+    only for a *mixed* mono/stereo project. Without it, ffmpeg's
+    ``concat`` filter silently converts every input to the FIRST
+    input's channel layout using swresample's default coefficients
+    (stereo→mono is 0.707·(L+R), not the (L+R)/2 the app's decoder
+    uses everywhere else), which made the combined numbers depend on
+    track order and ran the dynamics/spectrum feed up to +3.01 dB hot
+    for stereo tracks. With the channel counts known, every mono input
+    is upmixed explicitly to L=R dual mono before the concat — the
+    "virtual bounce" a DAW produces for a centre-panned mono track at
+    0 dB pan law — and the PCM branch takes the explicit (L+R)/2 mean,
+    matching the single-file decoder convention exactly.
 
     ``on_progress`` — if given — receives 0..100 derived from the
     ebur128 ``t:`` markers against ``total_duration``.
@@ -134,11 +148,34 @@ def _measure_combined_streaming(
     inputs: list[str] = []
     for p in paths:
         inputs.extend(["-i", str(p)])
-    chain_inputs = "".join(f"[{i}:a]" for i in range(n))
-    filter_graph = (
-        f"{chain_inputs}concat=n={n}:v=0:a=1,asplit=2[pcm][ana];"
-        "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]"
-    )
+    if mixed_input_channels is not None:
+        # Mixed mono/stereo: normalise every input to stereo BEFORE the
+        # concat so no implicit layout conversion happens, then take the
+        # explicit (L+R)/2 mean on the PCM branch. ebur128 measures the
+        # same L=R virtual bounce.
+        prefilters: list[str] = []
+        chain_parts: list[str] = []
+        for i, ch in enumerate(mixed_input_channels):
+            if ch == 1:
+                prefilters.append(f"[{i}:a]pan=stereo|c0=c0|c1=c0[u{i}]")
+                chain_parts.append(f"[u{i}]")
+            else:
+                chain_parts.append(f"[{i}:a]")
+        filter_graph = ";".join(
+            prefilters
+            + [
+                f"{''.join(chain_parts)}concat=n={n}:v=0:a=1,"
+                "asplit=2[pcm0][ana]",
+                "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]",
+                "[pcm0]pan=mono|c0=0.5*c0+0.5*c1[pcm]",
+            ]
+        )
+    else:
+        chain_inputs = "".join(f"[{i}:a]" for i in range(n))
+        filter_graph = (
+            f"{chain_inputs}concat=n={n}:v=0:a=1,asplit=2[pcm][ana];"
+            "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]"
+        )
     args = [
         find_ffmpeg(),
         "-hide_banner",
@@ -358,6 +395,16 @@ def analyze_project(
                 # is stereo; otherwise decode mono and let the stereo
                 # streamer finalize to its is_stereo=False sentinel.
                 decode_channels=2 if channel_counts == {2} else 1,
+                # Strictly mono+stereo mixes get the explicit virtual
+                # stereo bounce (see _measure_combined_streaming); any
+                # other layout mix (e.g. a 5.1 source) keeps the legacy
+                # implicit conversion, which the pan expressions above
+                # do not cover.
+                mixed_input_channels=(
+                    [fr.file_info.channels for fr in file_results]
+                    if channel_counts == {1, 2}
+                    else None
+                ),
                 total_duration=total_duration,
                 on_progress=_on_combined_progress,
                 cancel=cancel,

@@ -191,6 +191,230 @@ def test_single_file_project_reuses_per_track_result(tmp_path: Path) -> None:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Combined mixed-rate / mixed-channel project vs numeric reference
+# --------------------------------------------------------------------------- #
+
+
+def _bandlimited_noise(n: int, sr: int, seed: int, sigma: float) -> np.ndarray:
+    """Deterministic Gaussian noise band-limited to 16 kHz, RMS = sigma.
+
+    The 16 kHz ceiling keeps all signal energy well inside the passband
+    of both resamplers involved in the mixed-rate test (ffmpeg's
+    swresample in the combined pass, scipy's polyphase in the
+    reference), so the comparison measures the pipeline, not the
+    resamplers' transition bands near the 44.1 kHz Nyquist.
+    """
+    rng = np.random.default_rng(seed)
+    x = rng.standard_normal(n)
+    spec = np.fft.rfft(x)
+    freqs = np.fft.rfftfreq(n, d=1.0 / sr)
+    spec[freqs > 16000.0] = 0.0
+    x = np.fft.irfft(spec, n=n)
+    return x / np.sqrt(np.mean(x * x)) * sigma
+
+
+def _mixed_tone(n: int, sr: int, freq: float, amp: float) -> np.ndarray:
+    t = np.arange(n) / sr
+    return amp * np.sin(2.0 * np.pi * freq * t)
+
+
+def _resample_48k(x: np.ndarray, sr: int) -> np.ndarray:
+    """Reference resampler: 44.1 kHz → 48 kHz is the rational 160/147."""
+    from scipy.signal import resample_poly
+
+    if sr == SR:
+        return x.astype(np.float64)
+    assert sr == 44100
+    return resample_poly(x.astype(np.float64), 160, 147, axis=0)
+
+
+def test_mixed_rate_mono_stereo_project_matches_reference(tmp_path: Path) -> None:
+    """Three tracks — stereo 48 k, mono 44.1 k, stereo 44.1 k — and a full
+    numeric comparison of the combined result against an independently
+    built reference (scipy resampling + the batch analysers + a bounced
+    loudness measurement).
+
+    Semantics under test: the combined pass treats the project as a
+    virtual stereo bounce — mono tracks become L=R dual mono (a DAW's
+    centre-panned mono track at 0 dB pan law), stereo tracks pass
+    through, and the mono feed for dynamics/spectrum is the (L+R)/2
+    mean, identical to the single-file decoder convention and to the
+    2.1 numpy concat implementation.
+
+    Every track carries 16 kHz-band-limited noise plus two tones, so all
+    six public bands and all four 2.2 sub-bands hold real signal energy
+    and the resampler comparison is meaningful everywhere. Tolerances:
+    the observed ffmpeg-vs-scipy deltas on this material are ≤0.01 dB
+    across every compared field; the tolerances below sit 5–10× above
+    that for cross-version headroom while staying well inside the 0.1 dB
+    the report displays.
+    """
+    # Track A — stereo, 48 kHz, 2.5 s. Correlated bed + centred tones at
+    # 220 Hz (bass) and 2500 Hz (presence).
+    n_a = int(2.5 * SR)
+    common = _bandlimited_noise(n_a, SR, seed=101, sigma=0.04)
+    diff = _bandlimited_noise(n_a, SR, seed=102, sigma=0.010)
+    tones_a = _mixed_tone(n_a, SR, 220.0, 0.12) + _mixed_tone(n_a, SR, 2500.0, 0.08)
+    a_samples = np.column_stack(
+        (common + diff + tones_a, common - diff + tones_a)
+    ).astype(np.float32)
+
+    # Track B — mono, 44.1 kHz, 1.5 s. Tones at 440 Hz (low-mid) and
+    # 5000 Hz (presence).
+    n_b = int(1.5 * 44100)
+    b_samples = (
+        _bandlimited_noise(n_b, 44100, seed=201, sigma=0.03)
+        + _mixed_tone(n_b, 44100, 440.0, 0.10)
+        + _mixed_tone(n_b, 44100, 5000.0, 0.07)
+    ).astype(np.float32)
+
+    # Track C — stereo, 44.1 kHz, 2.0 s. Loudest track by a clear margin
+    # (0.30 amplitude tone at 880 Hz) so the true-peak provenance is
+    # unambiguous; second tone at 1250 Hz (mid).
+    n_c = int(2.0 * 44100)
+    common_c = _bandlimited_noise(n_c, 44100, seed=301, sigma=0.05)
+    diff_c = _bandlimited_noise(n_c, 44100, seed=302, sigma=0.015)
+    tones_c = _mixed_tone(n_c, 44100, 880.0, 0.30) + _mixed_tone(n_c, 44100, 1250.0, 0.10)
+    c_samples = np.column_stack(
+        (common_c + diff_c + tones_c, common_c - diff_c + tones_c)
+    ).astype(np.float32)
+
+    import soundfile as sf
+
+    a = tmp_path / "a_stereo_48k.wav"
+    b = tmp_path / "b_mono_441k.wav"
+    c = tmp_path / "c_stereo_441k.wav"
+    # FLOAT subtype: the synthesised float32 values reach the decoders
+    # bit-exactly, so the reference below needs no quantisation step.
+    sf.write(str(a), a_samples, SR, subtype="FLOAT")
+    sf.write(str(b), b_samples, 44100, subtype="FLOAT")
+    sf.write(str(c), c_samples, 44100, subtype="FLOAT")
+
+    # ---- reference: mono mean-mixdown concat at 48 kHz ---------------- #
+    mono_concat = np.concatenate(
+        [
+            _resample_48k(a_samples.mean(axis=1, dtype=np.float64), SR),
+            _resample_48k(b_samples, 44100),
+            _resample_48k(c_samples.mean(axis=1, dtype=np.float64), 44100),
+        ]
+    ).astype(np.float32)
+    ref_dynamics = compute_dynamics(mono_concat, SR)
+    ref_spectrum = compute_spectrum(mono_concat, SR)
+
+    # ---- reference: loudness of the virtual stereo bounce ------------- #
+    # The mono track enters the bounce as L=R dual mono — the combined
+    # loudness therefore reads its section ~3 LU louder than the track
+    # measured alone, exactly like a DAW bounce at 0 dB pan law would.
+    stereo_concat = np.concatenate(
+        [
+            _resample_48k(a_samples, SR),
+            _resample_48k(np.column_stack((b_samples, b_samples)), 44100),
+            _resample_48k(c_samples, 44100),
+        ],
+        axis=0,
+    ).astype(np.float32)
+    bounce = tmp_path / "bounce.wav"
+    sf.write(str(bounce), stereo_concat, SR, subtype="FLOAT")
+    ref_loudness = measure_loudness(bounce)
+
+    project = analyze_project([a, b, c], project_name="Mischprojekt")
+    combined = project.combined
+
+    # ---- FileInfo ------------------------------------------------------ #
+    assert combined.file_info.sample_rate == SR  # highest input rate wins
+    # Mixed channel counts → the 0 sentinel, by design (no single number
+    # describes a mono+stereo project).
+    assert combined.file_info.channels == 0
+    assert combined.file_info.duration_seconds == pytest.approx(6.0, abs=0.05)
+
+    # ---- Dynamics ------------------------------------------------------ #
+    assert combined.dynamics.peak_db == pytest.approx(ref_dynamics.peak_db, abs=0.05)
+    assert combined.dynamics.rms_db == pytest.approx(ref_dynamics.rms_db, abs=0.05)
+    assert combined.dynamics.crest_factor_db == pytest.approx(
+        ref_dynamics.crest_factor_db, abs=0.05
+    )
+    assert combined.dynamics.dr_score == pytest.approx(ref_dynamics.dr_score, abs=0.1)
+
+    # ---- Spectrum: 6 public bands + the four 2.2 sub-bands ------------- #
+    for band in (
+        "sub_db", "bass_db", "low_mid_db", "mid_db", "presence_db", "air_db",
+        "bass_low_db", "bass_high_db", "air_low_db", "air_high_db",
+    ):
+        got = getattr(combined.spectrum.bands, band)
+        want = getattr(ref_spectrum.bands, band)
+        assert got is not None and want is not None, band
+        assert got == pytest.approx(want, abs=0.1), band
+
+    # ---- Spectral peaks: frequencies AND prominences ------------------- #
+    got_peaks = sorted(combined.spectrum.peaks, key=lambda p: p.frequency_hz)
+    ref_peaks = sorted(ref_spectrum.peaks, key=lambda p: p.frequency_hz)
+    assert len(got_peaks) == len(ref_peaks), (
+        f"peak count differs — got={[(p.frequency_hz, p.prominence_db) for p in got_peaks]} "
+        f"ref={[(p.frequency_hz, p.prominence_db) for p in ref_peaks]}"
+    )
+    for got_p, ref_p in zip(got_peaks, ref_peaks):
+        assert got_p.frequency_hz == pytest.approx(ref_p.frequency_hz, rel=0.01)
+        assert got_p.prominence_db == pytest.approx(ref_p.prominence_db, abs=0.2)
+
+    # ---- Stereo -------------------------------------------------------- #
+    # A mono track is present, so there is deliberately NO combined
+    # stereo image (is_stereo=False sentinel): a correlation between
+    # channels that are partly synthesised (L=R upmix) would be
+    # meaningless. mean/min_correlation, mono_drop_db and side_to_mid_db
+    # of the combined result are therefore NOT compared — but the
+    # per-track stereo metrics of both stereo tracks are, against the
+    # batch analyser on their own samples (no resampling involved).
+    assert combined.stereo.is_stereo is False
+    for idx, samples, rate in ((0, a_samples, SR), (2, c_samples, 44100)):
+        ref_stereo = compute_stereo(samples, rate)
+        got_stereo = project.files[idx].stereo
+        assert got_stereo.is_stereo is True
+        assert got_stereo.mean_correlation == pytest.approx(
+            ref_stereo.mean_correlation, abs=1e-6
+        )
+        assert got_stereo.min_correlation == pytest.approx(
+            ref_stereo.min_correlation, abs=1e-6
+        )
+        assert got_stereo.mono_drop_db == pytest.approx(
+            ref_stereo.mono_drop_db, abs=1e-6
+        )
+        assert got_stereo.side_to_mid_db == pytest.approx(
+            ref_stereo.side_to_mid_db, abs=1e-6
+        )
+    assert project.files[1].stereo.is_stereo is False
+
+    # ---- Loudness ------------------------------------------------------ #
+    assert combined.loudness.integrated_lufs == pytest.approx(
+        ref_loudness.integrated_lufs, abs=0.15
+    )
+    assert combined.loudness.short_term_max_lufs == pytest.approx(
+        ref_loudness.short_term_max_lufs, abs=0.15
+    )
+    assert combined.loudness.loudness_range_lu == pytest.approx(
+        ref_loudness.loudness_range_lu, abs=0.2
+    )
+    # True peak: provenance first (exactly the loudest per-track scan),
+    # numeric second (the bounce must agree within resampler headroom).
+    loudest = max(project.files, key=lambda fr: fr.loudness.true_peak_dbtp)
+    assert loudest.file_info.filename == c.name  # by construction
+    assert combined.loudness.true_peak_dbtp == loudest.loudness.true_peak_dbtp
+    assert combined.loudness.true_peak_dbtp == pytest.approx(
+        ref_loudness.true_peak_dbtp, abs=0.2
+    )
+    # The combined true-peak TIMESTAMP is track-local by design (it
+    # points into the owning track, where the user can actually jump
+    # to), so it is asserted against the per-track scan — comparing it
+    # to the bounce timeline would be wrong on purpose.
+    assert (
+        combined.loudness.true_peak_time_seconds
+        == loudest.loudness.true_peak_time_seconds
+    )
+    assert (
+        combined.loudness.true_peak_track_filename == loudest.file_info.filename
+    )
+
+
 def test_project_progress_is_monotonic_and_completes(tmp_path: Path) -> None:
     a = tmp_path / "a.wav"
     b = tmp_path / "b.wav"

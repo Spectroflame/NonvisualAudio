@@ -51,6 +51,45 @@ _ABS_PATH_RE = re.compile(
     r"[^\\/\s]+"
 )
 
+# Any C0 control byte (includes \t \n \r and ESC, the start of an ANSI
+# escape sequence), DEL, or a C1 control byte. Printable Unicode —
+# umlauts, CJK, ordinary spaces — sits outside these ranges and is never
+# touched. Used as a cheap guard so clean lines skip the per-character
+# rewrite entirely.
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _neutralize_control_chars(text: str) -> str:
+    """Replace control characters with visible, inert escapes.
+
+    A log line is one physical line. A filename — or any other logged
+    value — that carries a newline, carriage return, tab, ANSI escape, or
+    other C0/C1 control byte must not be able to forge a second,
+    fully-formed log line, nor drive a terminal that later renders the
+    log. ``\\n`` / ``\\r`` / ``\\t`` collapse to their two-character
+    backslash escapes; every other control code (ESC included, so an ANSI
+    sequence's leading byte becomes literal text, plus the C1 range)
+    becomes ``\\xHH``. Printable Unicode is returned unchanged, so umlauts
+    and spaces in a path stay readable.
+    """
+    if not text or not _CONTROL_CHAR_RE.search(text):
+        return text
+    out: list[str] = []
+    for ch in text:
+        if ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        else:
+            cp = ord(ch)
+            if cp < 0x20 or cp == 0x7F or 0x80 <= cp <= 0x9F:
+                out.append(f"\\x{cp:02x}")
+            else:
+                out.append(ch)
+    return "".join(out)
+
 
 # --------------------------------------------------------------------------- #
 # Verbose toggle
@@ -108,8 +147,9 @@ def path_for_log(path: str | Path) -> str:
     """
     text = str(path)
     if _verbose:
-        return text
-    return os.path.basename(text.rstrip("/\\")) or text
+        return _neutralize_control_chars(text)
+    basename = os.path.basename(text.rstrip("/\\")) or text
+    return _neutralize_control_chars(basename)
 
 
 class RedactingFormatter(logging.Formatter):
@@ -121,7 +161,25 @@ class RedactingFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        return redact(super().format(record))
+        # Neutralise control characters in the *interpolated message*
+        # before the base formatter runs, so a crafted value (a filename
+        # with an embedded newline, an ANSI escape, …) cannot forge an
+        # extra, fully-formed log line or drive a terminal. We scrub the
+        # message only — never the timestamp/level prefix the base
+        # formatter prepends, nor a multi-line traceback it appends, whose
+        # real newlines must survive for the diagnostics viewer to read
+        # them line by line. record.msg/args are restored afterwards so
+        # the shared record stays untouched for the stderr handler.
+        original_msg = record.msg
+        original_args = record.args
+        record.msg = _neutralize_control_chars(record.getMessage())
+        record.args = None
+        try:
+            rendered = super().format(record)
+        finally:
+            record.msg = original_msg
+            record.args = original_args
+        return redact(rendered)
 
 
 # --------------------------------------------------------------------------- #

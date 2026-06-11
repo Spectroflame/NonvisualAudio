@@ -121,6 +121,138 @@ def test_redacting_formatter_scrubs_path_passed_as_arg() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Control-character neutralisation (log-injection hardening, finding M-1)
+# --------------------------------------------------------------------------- #
+
+
+def _make_record(msg: str, args=None) -> logging.LogRecord:
+    return logging.LogRecord(
+        name="nonvisualaudio.test",
+        level=logging.INFO,
+        pathname="f",
+        lineno=1,
+        msg=msg,
+        args=args,
+        exc_info=None,
+    )
+
+
+def test_path_for_log_strips_newline_from_name() -> None:
+    # A filename with an embedded newline must not yield a real line break.
+    out = logging_setup.path_for_log(Path("/x/ev\nil.wav"))
+    assert "\n" not in out
+    assert "\\n" in out
+    assert "evil" not in out  # the two halves are joined by the escape, not split
+
+
+def test_path_for_log_neutralizes_tab_and_carriage_return() -> None:
+    out = logging_setup.path_for_log("/x/a\tb\rc.wav")
+    assert "\t" not in out
+    assert "\r" not in out
+    assert "\\t" in out
+    assert "\\r" in out
+
+
+def test_path_for_log_neutralizes_ansi_escape() -> None:
+    out = logging_setup.path_for_log("/x/\x1b[31mred\x1b[0m.wav")
+    assert "\x1b" not in out
+    assert "\\x1b" in out
+
+
+def test_path_for_log_verbose_also_neutralizes() -> None:
+    logging_setup.set_verbose(True)
+    out = logging_setup.path_for_log("/Music/ev\nil/Take 1.wav")
+    assert "\n" not in out
+    # Verbose keeps the full path otherwise — spaces and folders survive.
+    assert "Take 1.wav" in out
+    assert "/Music/" in out
+
+
+def test_path_for_log_keeps_umlauts_and_spaces() -> None:
+    assert (
+        logging_setup.path_for_log("/Volumes/Field Recordings/Lärm Tänze.wav")
+        == "Lärm Tänze.wav"
+    )
+
+
+def test_formatter_forged_line_stays_single_physical_line() -> None:
+    # The exact attack: a filename argument that embeds a complete,
+    # format-conformant ERROR line. After formatting there must be no
+    # second physical line and no second timestamped record.
+    formatter = logging_setup.RedactingFormatter(
+        fmt="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    forged = "take\n2026-06-10 12:00:00 ERROR nonvisualaudio: pwned"
+    record = _make_record("analyzed %s", (forged,))
+    out = formatter.format(record)
+    # One physical line only — the embedded newline is now an inert "\n".
+    assert "\n" not in out
+    assert "\\n" in out
+    assert "pwned" in out  # content is preserved, just inert
+    # The single rendered line is the genuine INFO record, never the
+    # forged ERROR one: its level field is INFO and the diagnostics
+    # classifier reads it as info, not error.
+    assert out.lstrip().split(" ", 3)[2] == "INFO"
+    assert diagnostics.severity_of_log_line(out) == "info"
+
+
+def test_formatter_neutralizes_ansi_in_message() -> None:
+    formatter = logging_setup.RedactingFormatter(fmt="%(message)s")
+    record = _make_record("name=%s", ("\x1b[2J\x1b[31mboom",))
+    out = formatter.format(record)
+    assert "\x1b" not in out
+    assert "boom" in out
+
+
+def test_formatter_preserves_traceback_newlines() -> None:
+    # Multi-line tracebacks must keep their real newlines so the
+    # diagnostics viewer can read them; only the message is scrubbed.
+    formatter = logging_setup.RedactingFormatter(fmt="%(message)s")
+    try:
+        raise ValueError("kaboom")
+    except ValueError:
+        import sys
+
+        record = logging.LogRecord(
+            name="nonvisualaudio.test",
+            level=logging.ERROR,
+            pathname="f",
+            lineno=1,
+            msg="failed",
+            args=None,
+            exc_info=sys.exc_info(),
+        )
+    out = formatter.format(record)
+    assert "Traceback (most recent call last)" in out
+    assert "\n" in out  # the traceback's own newlines survive
+
+
+def test_neutralize_helper_leaves_clean_text_unchanged() -> None:
+    clean = "decoded Lärm Tänze.wav in 1.2 s"
+    assert logging_setup._neutralize_control_chars(clean) is clean
+
+
+def test_log_viewer_severity_not_fooled_by_filename_fake_line() -> None:
+    # End-to-end: a forged "ERROR" line embedded in a filename, once it
+    # passes through the formatter, no longer starts a record the viewer's
+    # severity classifier would pick up — it is one inert INFO line.
+    formatter = logging_setup.RedactingFormatter(
+        fmt="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    forged = "clip\n2026-06-10 12:00:00 ERROR nonvisualaudio: faked"
+    record = _make_record("target analyzed: %s", (forged,))
+    rendered = formatter.format(record)
+    lines = rendered.split("\n")
+    assert len(lines) == 1
+    # No physical line is classified as an error by the viewer's matcher.
+    assert all(
+        diagnostics.severity_of_log_line(line) != "error" for line in lines
+    )
+
+
+# --------------------------------------------------------------------------- #
 # init_file_logging — fresh log per session, no handler stacking
 # --------------------------------------------------------------------------- #
 

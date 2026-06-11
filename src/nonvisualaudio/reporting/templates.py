@@ -24,7 +24,7 @@ import math
 from dataclasses import dataclass
 from typing import Iterable
 
-from nonvisualaudio.localization import decimal_sep, t
+from nonvisualaudio.localization import decimal_sep, t, t_subject
 
 
 def _localise_decimal(text: str) -> str:
@@ -116,6 +116,48 @@ def fmt_peak_time(seconds: float) -> str:
         secs_str = _localise_decimal(f"{round(seconds, 1):.1f}")
         return f"{secs_str} {t('templates.seconds')}"
     return fmt_duration(seconds)
+
+
+# Grammatical forms shipped per band in the catalogue. Sentences insert
+# whole inflected phrases instead of gluing "{name}-Bereich" together,
+# which produced broken German like "im untere Mitten-Bereich".
+#   .nom — subject phrase with article ("die Tiefmitten" / "the low mids")
+#   .loc — locative "in …" phrase ("in den Tiefmitten" / "in the low mids")
+#   .gen — genitive/of phrase ("der Tiefmitten" / "of the low mids")
+#   .adj — tonal-balance adjective ("tiefmittenlastigen" / "low-mid-heavy")
+_BAND_FORM_KEYS = ("nom", "loc", "gen", "adj")
+
+
+def band_forms(band_key: str) -> dict[str, str]:
+    """All grammatical variants of one band name as template kwargs.
+
+    ``Nom`` is the capitalised ``nom`` for sentence-initial use. Every
+    template rendered with these kwargs picks the placeholder its
+    language needs; unused ones are ignored by ``str.format``.
+    """
+    forms: dict[str, str] = {"name": t(f"report.band.{band_key}")}
+    for form in _BAND_FORM_KEYS:
+        forms[form] = t(f"report.band.{band_key}.{form}")
+    nom = forms["nom"]
+    forms["Nom"] = nom[:1].upper() + nom[1:]
+    return forms
+
+
+def band_is_plural(band_key: str) -> bool:
+    """Whether the band's localised name is grammatically plural."""
+    return t(f"report.band.{band_key}.number") == "plural"
+
+
+def t_band(key: str, band_key: str, /, *, project: bool = False, **fmt: object) -> str:
+    """Render a band-bearing sentence with correct verb agreement.
+
+    Plural band names ("die Tiefmitten") switch to the ``.plural``
+    sibling of ``key`` so the verb matches; ``project=True`` further
+    prefers the ``.project`` variant, mirroring :func:`t_subject`.
+    """
+    if band_is_plural(band_key):
+        key = f"{key}.plural"
+    return t_subject(key, project=project, **band_forms(band_key), **fmt)
 
 
 def heading_text(title: str, level: int = 3) -> str:

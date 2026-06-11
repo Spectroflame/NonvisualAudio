@@ -162,7 +162,7 @@ def test_silent_bands_collapse_into_a_single_line():
     freq = report.split("Frequency Balance")[1].split("\n\n")[0]
     # Sub bass, bass, presence, air are all silent.
     assert "Effectively silent (below -90 dB)" in freq
-    assert "sub bass" in freq
+    assert "sub-bass" in freq
     assert "bass" in freq
     assert "presence" in freq
     assert "air" in freq
@@ -193,7 +193,7 @@ def test_sine_tone_emits_single_band_dominant_sentence():
     )
     report = build_report(sine)
     freq = report.split("Frequency Balance")[1].split("\n\n")[0]
-    assert "The whole signal sits in midrange" in freq
+    assert "The whole signal sits in the midrange" in freq
     # No spread sentence in this degenerate case.
     assert "Total spread between" not in freq
 
@@ -239,7 +239,7 @@ def test_overall_assessment_mentions_the_actual_loudest_band_when_skewed():
     report = build_report(skewed)
     overall = report.split("Overall Assessment")[1].split("Possible Action Options")[0]
     assert "generally balanced" not in overall
-    assert "sub bass" in overall
+    assert "sub-bass" in overall
     assert "air" in overall
 
 
@@ -487,11 +487,11 @@ def test_neutral_mode_has_no_dramatic_verdict():
         spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
     )
     report = build_report(result, material="neutral")
-    # No "clearly X-heavy ... louder than the sub bass" judgement.
+    # No "clearly X-heavy ... louder than the sub-bass" judgement.
     assert "-heavy tonal balance" not in report
-    assert "louder than the sub bass" not in report
+    assert "louder than the sub-bass" not in report
     # The cautious phrasing takes its place.
-    assert "with the energy concentrated in the midrange region" in report
+    assert "with the energy concentrated in the midrange" in report
 
 
 def test_neutral_mode_adds_cautious_notes_with_material_disclaimer():
@@ -499,7 +499,7 @@ def test_neutral_mode_adds_cautious_notes_with_material_disclaimer():
         spectrum=SpectrumMetrics(bands=_speech_like_bands(), peaks=())
     )
     report = build_report(result, material="neutral")
-    assert "The sub bass level is very low." in report
+    assert "The sub-bass level is very low." in report
     assert "Depending on the material, this can be intentional." in report
 
 
@@ -682,8 +682,8 @@ def test_speech_mode_does_not_flag_low_sub_bass():
     # Low sub bass is normal for speech: no music recommendation, no
     # "very low" finding, no dramatic verdict naming the sub bass.
     assert "The very low end is almost absent" not in report
-    assert "The sub bass level is very low." not in report
-    assert "louder than the sub bass" not in report
+    assert "The sub-bass level is very low." not in report
+    assert "louder than the sub-bass" not in report
 
 
 def test_speech_mode_flags_strong_sub_bass_as_possible_rumble():
@@ -755,8 +755,81 @@ def test_speech_mode_suppresses_music_band_recommendations():
     bands = _speech_like_bands(sub_db=-2.0)  # would trigger sub_dominant in music
     result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
     report = build_report(result, material="speech")
-    assert "The sub bass is dominant" not in report
+    assert "The sub-bass is dominant" not in report
     assert "shelf around 2 dB above 8 kHz" not in report
+
+
+# --------------------------------------------------------------------------- #
+# Grammatically correct band names (DE: no "im untere Mitten-Bereich")
+# --------------------------------------------------------------------------- #
+
+def _low_mid_heavy_bands() -> BandEnergies:
+    """Low mids loudest by a wide margin so the concentration sentence
+    and the tonal-balance phrase both have to inflect a plural German
+    band name ("die Tiefmitten")."""
+    return BandEnergies(
+        sub_db=-40.0,
+        bass_db=-18.0,
+        low_mid_db=-2.0,
+        mid_db=-6.0,
+        presence_db=-16.0,
+        air_db=-20.0,
+    )
+
+
+def test_german_neutral_report_inflects_band_names():
+    from nonvisualaudio import localization
+
+    localization.load("de")
+    try:
+        result = _make_result(
+            spectrum=SpectrumMetrics(bands=_low_mid_heavy_bands(), peaks=())
+        )
+        report = build_report(result, material="neutral")
+        # The reported wart: a glued "im untere Mitten-Bereich".
+        assert "untere Mitten" not in report
+        assert "Mitten-Bereich" not in report
+        # Natural phrasing with the correct dative plural instead.
+        assert "Die Energie konzentriert sich stark in den Tiefmitten." in report
+        # Plural band names take a plural verb in the anchor sentence,
+        # and the frequency range survives untouched.
+        assert (
+            "Das lauteste Band der Datei sind die Tiefmitten (250 bis 500 Hz)."
+            in report
+        )
+        assert "Die Mitten (500 Hz bis 2 kHz) sind um" in report
+    finally:
+        localization.load("en")
+
+
+def test_german_speech_report_has_no_glued_band_compound():
+    from nonvisualaudio import localization
+
+    localization.load("de")
+    try:
+        result = _make_result(
+            spectrum=SpectrumMetrics(bands=_low_mid_heavy_bands(), peaks=())
+        )
+        report = build_report(result, material="speech")
+        assert "untere Mitten" not in report
+        assert "Mitten-Bereich" not in report
+        assert "Die Tiefmitten (250 bis 500 Hz)" in report
+    finally:
+        localization.load("en")
+
+
+def test_english_report_avoids_awkward_region_phrases():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_low_mid_heavy_bands(), peaks=())
+    )
+    report = build_report(result, material="neutral")
+    assert "low midrange" not in report
+    assert "midrange region" not in report
+    assert "range range" not in report
+    # Plural verb agreement plus the untouched frequency range.
+    assert "The loudest band in this file is the low mids (250 to 500 Hz)." in report
+    assert "The midrange (500 Hz to 2 kHz) is" in report
+    assert "The energy is strongly concentrated in the low mids." in report
 
 
 def test_neutral_and_speech_reports_contain_no_markdown_symbols():

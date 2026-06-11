@@ -25,6 +25,7 @@ from nonvisualaudio.localization import t, t_subject
 from nonvisualaudio.reporting.templates import (
     ReportDoc,
     Section,
+    band_forms,
     fmt_decimal,
     fmt_duration,
     fmt_peak_time,
@@ -32,6 +33,7 @@ from nonvisualaudio.reporting.templates import (
     fmt_signed,
     heading_text,
     paragraph,
+    t_band,
 )
 
 
@@ -399,7 +401,7 @@ def _band_range_str(low: float, high: float) -> str:
 
 
 def _describe_band_vs_loudest(
-    name: str,
+    band_key: str,
     range_str: str,
     delta_below_loudest_db: float,
     is_quietest: bool,
@@ -414,11 +416,11 @@ def _describe_band_vs_loudest(
     anchor.
     """
     if delta_below_loudest_db < 1.0:
-        line = t("report.freq.band_same_level", name=name, range=range_str)
+        line = t_band("report.freq.band_same_level", band_key, range=range_str)
     else:
-        line = t(
+        line = t_band(
             "report.freq.band_quieter",
-            name=name,
+            band_key,
             range=range_str,
             delta=fmt_decimal(delta_below_loudest_db),
         )
@@ -494,7 +496,7 @@ def _neutral_findings(bands: BandEnergies) -> list[str]:
         spread = audible[0][1] - audible[-1][1]
         if spread >= ENERGY_CONCENTRATION_SPREAD_DB:
             lines.append(
-                t("report.freq.neutral.concentration", name=audible[0][0])
+                t("report.freq.neutral.concentration", **band_forms(audible[0][4]))
             )
     if lines:
         lines.append(t("report.freq.neutral.material_note"))
@@ -617,9 +619,9 @@ def _speech_lines(
                     break
         if peak_inside is not None:
             lines.append(
-                t(
+                t_band(
                     "report.freq.speech.recessed_with_peak",
-                    name=_band_label(finding.band_key),
+                    finding.band_key,
                     hz=fmt_hz(peak_inside.frequency_hz),
                 )
             )
@@ -638,7 +640,7 @@ def _frequency_section(
     lines: list[str] = []
     b = spec.bands
     ranked = _ranked_bands(b)
-    loudest_name, loudest_db, loudest_lo, loudest_hi, _ = ranked[0]
+    loudest_name, loudest_db, loudest_lo, loudest_hi, loudest_key = ranked[0]
 
     # Split the non-loudest bands into "audible" and "silent" groups so a
     # pure-tone-style signal doesn't produce a wall of "120 dB quieter"
@@ -661,10 +663,10 @@ def _frequency_section(
     # can hear (the loudest part of the file) rather than an abstract
     # average.
     lines.append(
-        t_subject(
+        t_band(
             "report.freq.loudest_anchor",
+            loudest_key,
             project=project,
-            name=loudest_name,
             range=_band_range_str(loudest_lo, loudest_hi),
         )
     )
@@ -672,11 +674,11 @@ def _frequency_section(
     # (next-loudest first), so each row shows a small step down from
     # the one above. Walking in spectrum order instead makes the deltas
     # jump around, which is harder to follow when read aloud.
-    for name, value, lo, hi, _ in audible_others:
+    for name, value, lo, hi, key in audible_others:
         delta = loudest_db - value
         lines.append(
             _describe_band_vs_loudest(
-                name,
+                key,
                 _band_range_str(lo, hi),
                 delta,
                 is_quietest=(name == quietest_audible_name),
@@ -711,7 +713,7 @@ def _frequency_section(
     #     *audible* band; the silent ones already got their own line.
     if not audible_others:
         lines.append(
-            t("report.freq.single_band_dominant", name=loudest_name)
+            t("report.freq.single_band_dominant", **band_forms(loudest_key))
         )
     else:
         quietest_audible_db = audible_others[-1][1]
@@ -779,8 +781,8 @@ def _tonal_balance_phrase(
 ) -> str:
     """Summarize tonal balance in one everyday-language sentence fragment."""
     ranked = _ranked_bands(bands)
-    loudest_name = ranked[0][0]
-    quietest_name = ranked[-1][0]
+    loudest_key = ranked[0][4]
+    quietest_key = ranked[-1][4]
     spread = ranked[0][1] - ranked[-1][1]
 
     # Under 3 dB nobody would call this tilted; 3-8 dB is a mild lean you
@@ -795,22 +797,23 @@ def _tonal_balance_phrase(
     if material in (MATERIAL_NEUTRAL, MATERIAL_SPEECH):
         return t(
             "report.tonal.cautious",
-            name=loudest_name,
             spread=fmt_decimal(spread),
+            **band_forms(loudest_key),
         )
 
+    quietest_nom = band_forms(quietest_key)["nom"]
     if spread < 8.0:
         return t(
             "report.tonal.mild_lean",
-            name=loudest_name,
             spread=fmt_decimal(spread),
-            quietest=quietest_name,
+            quietest_nom=quietest_nom,
+            **band_forms(loudest_key),
         )
-    return t(
+    return t_band(
         "report.tonal.heavy",
-        name=loudest_name,
+        loudest_key,
         spread=fmt_decimal(spread),
-        quietest=quietest_name,
+        quietest_nom=quietest_nom,
     )
 
 

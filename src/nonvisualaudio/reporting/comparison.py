@@ -10,6 +10,7 @@ from nonvisualaudio.reporting.templates import (
     fmt_decimal,
     fmt_signed,
     heading_text,
+    t_band,
 )
 
 
@@ -102,16 +103,16 @@ def build_genre_comparison(
     )
 
 
-def _band_diff_sentence(name: str, a: float, b: float) -> str | None:
+def _band_diff_sentence(band_key: str, a: float, b: float) -> str | None:
     diff = a - b
     if abs(diff) < 2.0:
         return None
     direction = (
         t("report.ref.band.stronger") if diff > 0 else t("report.ref.band.weaker")
     )
-    return t(
+    return t_band(
         "report.ref.band_diff",
-        name=name,
+        band_key,
         diff=fmt_decimal(abs(diff)),
         direction=direction,
     )
@@ -212,7 +213,7 @@ def build_reference_comparison(
     )
     band_lines: list[str] = []
     for key, a, b in band_pairs:
-        s = _band_diff_sentence(t(f"report.band.{key}"), a, b)
+        s = _band_diff_sentence(key, a, b)
         if s:
             band_lines.append(s)
     if not band_lines:

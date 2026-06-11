@@ -344,10 +344,10 @@ def test_project_report_forwards_material_to_inner_sections():
 
     speech_report = build_project_report(project, material="speech")
     assert "Reading this as a speech recording" in speech_report
-    assert "louder than the sub bass" not in speech_report
+    assert "louder than the sub-bass" not in speech_report
 
     neutral_report = build_project_report(project, material="neutral")
-    assert "The sub bass level is very low." in neutral_report
+    assert "The sub-bass level is very low." in neutral_report
     assert "-heavy tonal balance" not in neutral_report
 
     music_report = build_project_report(project)

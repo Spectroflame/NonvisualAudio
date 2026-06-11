@@ -13,6 +13,7 @@ from nonvisualaudio.analysis.project import ProjectResult
 from nonvisualaudio.localization import t
 from nonvisualaudio.reporting.builder import (
     MATERIAL_MUSIC,
+    TONALITY_FULL_RANGE,
     ReportSections,
     build_report,
 )
@@ -127,6 +128,7 @@ def build_project_report(
     include_consistency: bool = True,
     *,
     material: str = MATERIAL_MUSIC,
+    tonality: str = TONALITY_FULL_RANGE,
 ) -> ReportDoc:
     """Render the full project-mode report as a structured :class:`ReportDoc`.
 
@@ -136,8 +138,9 @@ def build_project_report(
     the cross-track consistency block uses its own ``include_consistency``
     flag because it has no analogue in single-file mode.
 
-    ``material`` mirrors :func:`build_report`'s parameter and is passed
-    straight through to the inner combined report.
+    ``material`` and ``tonality`` mirror :func:`build_report`'s
+    parameters and are passed straight through to the inner combined
+    report.
     """
     selected = sections if sections is not None else ReportSections.all()
 
@@ -159,6 +162,7 @@ def build_project_report(
             sections=inner_sections,
             project=True,
             material=material,
+            tonality=tonality,
             title=None,
             section_level=2,
         )

@@ -150,6 +150,18 @@ MATERIAL_MUSIC = "music"
 MATERIAL_NEUTRAL = "neutral"
 MATERIAL_SPEECH = "speech"
 
+# How the overall verdict reads the tonal balance. ``"full_range"`` is
+# the historic music wording where a big loudest-vs-quietest gap is
+# called a clear tonal character. ``"speech"`` is declared by spoken-word
+# profiles (audio drama, audiobook, podcast): there, mids and lows
+# carrying most of the energy IS the expected shape, so the same
+# numbers get a calmer reading and the "clearly X-heavy" wording is
+# reserved for genuinely profile-atypical extremes. Mirrors
+# ``genre_profiles.TONALITY_*``; the UI derives the value via
+# ``genre_profiles.tonality_context_for``.
+TONALITY_FULL_RANGE = "full_range"
+TONALITY_SPEECH = "speech"
+
 # Verdict keys whose reference points (music mixes, streaming masters,
 # broadcast levels) only hold when a music profile is selected. Without
 # a profile — and with a speech profile — the report must not guess the
@@ -196,6 +208,21 @@ SPEECH_PRESENCE_LOW_REL_DB = -10.0   # presence well below mid → check clarity
 SPEECH_PRESENCE_HIGH_REL_DB = -3.0   # presence close to mid → harshness possible
 SPEECH_SIBILANCE_REL_DB = -8.0       # 6-10 kHz close to mid → sibilance
 SPEECH_AIR_LOW_REL_DB = -32.0        # 10-20 kHz far below mid → reduced openness
+
+# Spoken-word tonality (Overall Assessment wording only — no measurement
+# or band threshold depends on these). For audio drama / audiobook /
+# podcast profiles the verdict treats mids, low mids and bass as the
+# natural home of the energy and recessed top bands as unremarkable.
+# "Clearly X-heavy" survives only for shapes that are atypical even for
+# spoken material:
+_SPOKEN_TYPICAL_LOUDEST_KEYS = frozenset({"bass", "low_midrange", "midrange"})
+# bass or low mids this far ABOVE the midrange speech body reads as
+# boom/mud even with a music bed under the dialogue.
+SPOKEN_LOWS_OVER_MID_DB = 6.0
+# presence AND air at least this far below the mids → the "presence and
+# treble are more restrained" wording is factually backed; otherwise the
+# verdict just calls the balance unremarkable for the profile.
+SPOKEN_RESTRAINED_TOP_DB = 4.0
 
 # --------------------------------------------------------------------------- #
 # Band tables
@@ -776,8 +803,28 @@ def _frequency_section(
     )
 
 
+def _spoken_tonality_atypical(bands: BandEnergies) -> bool:
+    """True when the band shape is extreme even for spoken-word material.
+
+    Mids in front, lows close behind, top end clearly quieter — that is
+    the normal shape of an audio drama or audiobook mix and must not be
+    judged. Atypical means: a band outside the speech body is the
+    loudest one (sub bass booming, presence/air screaming), or the lows
+    sit well ABOVE the mids that carry the dialogue.
+    """
+    ranked = _ranked_bands(bands)
+    if ranked[0][4] not in _SPOKEN_TYPICAL_LOUDEST_KEYS:
+        return True
+    return (
+        max(bands.bass_db, bands.low_mid_db) - bands.mid_db
+        > SPOKEN_LOWS_OVER_MID_DB
+    )
+
+
 def _tonal_balance_phrase(
-    bands: BandEnergies, material: str = MATERIAL_MUSIC
+    bands: BandEnergies,
+    material: str = MATERIAL_MUSIC,
+    tonality: str = TONALITY_FULL_RANGE,
 ) -> str:
     """Summarize tonal balance in one everyday-language sentence fragment."""
     ranked = _ranked_bands(bands)
@@ -801,6 +848,21 @@ def _tonal_balance_phrase(
             **band_forms(loudest_key),
         )
 
+    # Spoken-word profile (audio drama, audiobook, podcast): the music
+    # wording below would call the normal speech shape "clearly
+    # mid-heavy" with a dramatic dB quote. As long as the shape is
+    # typical for the profile, describe it as such; the full numbers
+    # stay in the Frequency Balance section. Atypical extremes fall
+    # through to the clear music wording on purpose.
+    if tonality == TONALITY_SPEECH and not _spoken_tonality_atypical(bands):
+        top_restrained = (
+            bands.presence_db <= bands.mid_db - SPOKEN_RESTRAINED_TOP_DB
+            and bands.air_db <= bands.mid_db - SPOKEN_RESTRAINED_TOP_DB
+        )
+        if top_restrained:
+            return t("report.tonal.speech_centered")
+        return t("report.tonal.speech_plain")
+
     quietest_nom = band_forms(quietest_key)["nom"]
     if spread < 8.0:
         return t(
@@ -821,6 +883,7 @@ def _overall_section(
     result: AnalysisResult,
     *,
     material: str = MATERIAL_MUSIC,
+    tonality: str = TONALITY_FULL_RANGE,
     project: bool = False,
     level: int = 3,
 ) -> Section:
@@ -844,7 +907,20 @@ def _overall_section(
         verdict_key = "report.overall.moderate"
     parts.append(t_subject(_material_key(verdict_key, material), project=project))
 
-    parts.append(_tonal_balance_phrase(bands, material))
+    parts.append(_tonal_balance_phrase(bands, material, tonality))
+
+    # Spoken-word profiles get a short all-clear when the spectrum
+    # analysis found no narrow resonances either — for dialogue mixes
+    # that absence is the actual quality signal, not a flat band
+    # distribution. Kept to one calm fragment; the cautious modes
+    # (neutral / raw speech) stay without it on purpose.
+    if (
+        tonality == TONALITY_SPEECH
+        and material == MATERIAL_MUSIC
+        and not result.spectrum.peaks
+        and not _spoken_tonality_atypical(bands)
+    ):
+        parts.append(t("report.tonal.speech_no_resonances"))
 
     return Section(
         level=level,
@@ -1084,6 +1160,7 @@ def build_report(
     project: bool = False,
     *,
     material: str = MATERIAL_MUSIC,
+    tonality: str = TONALITY_FULL_RANGE,
     title: str | None = None,
     title_level: int = 1,
     section_level: int = 2,
@@ -1107,6 +1184,14 @@ def build_report(
     material. The UI layer derives this via
     ``genre_profiles.material_context_for`` and always passes it
     explicitly.
+
+    ``tonality`` only affects the one-sentence tonal phrasing in the
+    Overall Assessment: ``"full_range"`` (default) keeps the historic
+    music wording, ``"speech"`` — declared by spoken-word profiles such
+    as audio drama, audiobook or podcast — reads the same band numbers
+    against the expected speech shape and reserves the "clearly X-heavy"
+    wording for profile-atypical extremes. Derived by the UI layer via
+    ``genre_profiles.tonality_context_for``.
 
     ``sections`` controls which top-level blocks are rendered. Default is
     every section, which preserves the historical behaviour. When the
@@ -1177,7 +1262,11 @@ def build_report(
     if selected.overall:
         out.append(
             _overall_section(
-                result, material=material, project=project, level=section_level
+                result,
+                material=material,
+                tonality=tonality,
+                project=project,
+                level=section_level,
             )
         )
     if selected.comparison and extra_sections:

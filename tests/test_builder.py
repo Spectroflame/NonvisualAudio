@@ -845,3 +845,158 @@ def test_neutral_and_speech_reports_contain_no_markdown_symbols():
             assert bad not in report, (
                 f"markdown symbol {bad!r} leaked into {material} report"
             )
+
+
+# --------------------------------------------------------------------------- #
+# Spoken-word tonality (audio drama / audiobook / podcast profiles)
+# --------------------------------------------------------------------------- #
+
+def _audio_drama_bands(**overrides) -> BandEnergies:
+    """Band fixture modeled on the modern audio-drama mix that motivated
+    the spoken-tonality wording: mids loudest, bass and low mids close
+    behind, presence recessed, air 12.5 dB below the mids — a perfectly
+    normal shape for dialogue with music and atmosphere underneath."""
+    defaults = dict(
+        sub_db=-26.0,
+        bass_db=-10.5,
+        low_mid_db=-9.0,
+        mid_db=-8.0,
+        presence_db=-14.0,
+        air_db=-20.5,
+    )
+    defaults.update(overrides)
+    return BandEnergies(**defaults)
+
+
+def test_spoken_tonality_speech_shape_is_not_called_mid_heavy():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_audio_drama_bands(), peaks=())
+    )
+    report = build_report(result, tonality="speech")
+    overall = report.split("Overall Assessment")[1].split("\n\n")[0]
+    # The historic music wording must not fire for the normal speech shape.
+    assert "clearly" not in overall
+    assert "-heavy tonal balance" not in overall
+    assert "louder than" not in overall
+    # The calm spoken-word reading takes its place.
+    assert "warm, speech-centered tonal balance" in overall
+    assert "presence and upper treble are more restrained than the mids" in overall
+
+
+def test_spoken_tonality_same_bands_stay_mid_heavy_without_the_flag():
+    # Contrast case: the identical measurements with a music profile keep
+    # the historic clear verdict — the flag changes wording, not buckets.
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_audio_drama_bands(), peaks=())
+    )
+    report = build_report(result)
+    overall = report.split("Overall Assessment")[1].split("\n\n")[0]
+    assert "clearly" in overall
+    assert "louder than" in overall
+
+
+def test_spoken_tonality_keeps_the_measurement_lines_untouched():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_audio_drama_bands(), peaks=())
+    )
+    default_report = build_report(result)
+    spoken_report = build_report(result, tonality="speech")
+    freq_default = default_report.split("Frequency Balance")[1].split(
+        "Overall Assessment"
+    )[0]
+    freq_spoken = spoken_report.split("Frequency Balance")[1].split(
+        "Overall Assessment"
+    )[0]
+    assert freq_default == freq_spoken
+    assert "dB quieter" in freq_spoken
+
+
+def test_spoken_tonality_notes_absent_resonances_without_exaggerating():
+    clean = _make_result(
+        spectrum=SpectrumMetrics(bands=_audio_drama_bands(), peaks=())
+    )
+    report = build_report(clean, tonality="speech")
+    overall = report.split("Overall Assessment")[1].split("\n\n")[0]
+    assert "no narrow resonances were found" in overall
+    # One calm fragment, not a celebration: the phrase appears exactly once.
+    assert report.count("no narrow resonances were found") == 1
+
+    with_peak = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=_audio_drama_bands(),
+            peaks=(SpectralPeak(frequency_hz=420.0, prominence_db=6.0),),
+        )
+    )
+    report = build_report(with_peak, tonality="speech")
+    assert "no narrow resonances were found" not in report
+
+
+def test_spoken_tonality_keeps_clear_wording_for_atypical_extremes():
+    # Air dominating the mix is not a speech shape — the clear music
+    # wording survives so a genuinely harsh master still gets named.
+    bright = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=_audio_drama_bands(
+                sub_db=-40.0,
+                bass_db=-20.0,
+                low_mid_db=-18.0,
+                mid_db=-15.0,
+                presence_db=-10.0,
+                air_db=-5.0,
+            ),
+            peaks=(),
+        )
+    )
+    report = build_report(bright, tonality="speech")
+    overall = report.split("Overall Assessment")[1].split("\n\n")[0]
+    assert "clearly" in overall
+    assert "no narrow resonances were found" not in overall
+
+    # Bass sitting far above the dialogue mids reads as boom even for a
+    # drama with a music bed — also kept clear.
+    boomy = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=_audio_drama_bands(bass_db=-1.0, mid_db=-12.0),
+            peaks=(),
+        )
+    )
+    report = build_report(boomy, tonality="speech")
+    overall = report.split("Overall Assessment")[1].split("\n\n")[0]
+    assert "clearly" in overall
+
+
+def test_default_tonality_param_changes_nothing():
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_audio_drama_bands(), peaks=())
+    )
+    assert build_report(result) == build_report(result, tonality="full_range")
+
+
+def test_neutral_material_stays_cautious_regardless_of_tonality():
+    # Without a profile the material context is neutral and the cautious
+    # wording wins even if a tonality flag were passed.
+    result = _make_result(
+        spectrum=SpectrumMetrics(bands=_audio_drama_bands(), peaks=())
+    )
+    report = build_report(result, material="neutral", tonality="speech")
+    assert "with the energy concentrated" in report
+    assert "speech-centered" not in report
+    assert "no narrow resonances were found" not in report
+
+
+def test_german_spoken_tonality_wording():
+    from nonvisualaudio import localization
+
+    localization.load("de")
+    try:
+        result = _make_result(
+            spectrum=SpectrumMetrics(bands=_audio_drama_bands(), peaks=())
+        )
+        report = build_report(result, tonality="speech")
+        assert "klar mittenlastigen Klangbalance" not in report
+        assert "lauter als" not in report.split("Gesamturteil")[1].split("\n\n")[0]
+        assert "warmen, sprachzentrierten Klangbalance" in report
+        assert "Präsenz und obere Höhen sind zurückhaltender als die Mitten" in report
+        assert "es wurden keine schmalen Resonanzen gefunden" in report
+    finally:
+        localization.load("en")

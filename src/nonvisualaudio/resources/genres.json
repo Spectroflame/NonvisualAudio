@@ -19,6 +19,7 @@
   "profiles": [
     {
       "key": "audio_drama_classic",
+      "tonality": "speech",
       "category_key": "audio_drama",
       "display_name": {
         "en": "Audio Drama — Classic Broadcast",
@@ -32,6 +33,7 @@
     },
     {
       "key": "audio_drama_modern",
+      "tonality": "speech",
       "category_key": "audio_drama",
       "display_name": {
         "en": "Audio Drama — Modern Commercial",
@@ -45,6 +47,7 @@
     },
     {
       "key": "audio_drama_feature",
+      "tonality": "speech",
       "category_key": "audio_drama",
       "display_name": {
         "en": "Audio Drama — Radio Feature",
@@ -58,6 +61,7 @@
     },
     {
       "key": "podcast_conversation",
+      "tonality": "speech",
       "category_key": "podcast",
       "display_name": {
         "en": "Podcast — Conversational",
@@ -71,6 +75,7 @@
     },
     {
       "key": "podcast_narrative",
+      "tonality": "speech",
       "category_key": "podcast",
       "display_name": {
         "en": "Podcast — Narrative (Scripted)",
@@ -84,6 +89,7 @@
     },
     {
       "key": "podcast_news",
+      "tonality": "speech",
       "category_key": "podcast",
       "display_name": {
         "en": "Podcast — News or Interview",
@@ -97,6 +103,7 @@
     },
     {
       "key": "spoken_audiobook",
+      "tonality": "speech",
       "category_key": "spoken_word",
       "display_name": {
         "en": "Spoken Word — Audiobook",
@@ -110,6 +117,7 @@
     },
     {
       "key": "spoken_poetry",
+      "tonality": "speech",
       "category_key": "spoken_word",
       "display_name": {
         "en": "Spoken Word — Poetry or Performance",
@@ -123,6 +131,7 @@
     },
     {
       "key": "spoken_lecture",
+      "tonality": "speech",
       "category_key": "spoken_word",
       "display_name": {
         "en": "Spoken Word — Lecture or Talk",
@@ -136,6 +145,7 @@
     },
     {
       "key": "speech_raw_recording",
+      "tonality": "speech",
       "category_key": "speech",
       "material": "speech",
       "display_name": {

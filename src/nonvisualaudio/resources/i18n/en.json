@@ -624,6 +624,9 @@
   "report.tonal.heavy": "with a clearly {adj} tonal balance — {nom} is {spread} dB louder than {quietest_nom}",
   "report.tonal.heavy.plural": "with a clearly {adj} tonal balance — {nom} are {spread} dB louder than {quietest_nom}",
   "report.tonal.cautious": "with the energy concentrated {loc} (total spread {spread} dB)",
+  "report.tonal.speech_centered": "with a warm, speech-centered tonal balance — presence and upper treble are more restrained than the mids, which is tonally unremarkable for this profile",
+  "report.tonal.speech_plain": "with a tonal balance that is unremarkable for this profile",
+  "report.tonal.speech_no_resonances": "and no narrow resonances were found",
 
   "report.stereo.mono_file": "This file is mono. The stereo image analysis does not apply here.",
   "report.stereo.mono_file.project": "All tracks in this project are mono. The stereo image analysis does not apply here.",

@@ -624,6 +624,9 @@
   "report.tonal.heavy": "mit einer klar {adj} Klangbalance — {nom} ist {spread} dB lauter als {quietest_nom}",
   "report.tonal.heavy.plural": "mit einer klar {adj} Klangbalance — {nom} sind {spread} dB lauter als {quietest_nom}",
   "report.tonal.cautious": "wobei sich die Energie {loc} konzentriert (Gesamtspanne {spread} dB)",
+  "report.tonal.speech_centered": "mit einer warmen, sprachzentrierten Klangbalance — Präsenz und obere Höhen sind zurückhaltender als die Mitten, was für dieses Profil tonal unauffällig ist",
+  "report.tonal.speech_plain": "mit einer Klangbalance, die für dieses Profil tonal unauffällig ist",
+  "report.tonal.speech_no_resonances": "und es wurden keine schmalen Resonanzen gefunden",
 
   "report.stereo.mono_file": "Die Datei ist mono. Eine Stereobild-Analyse entfällt hier.",
   "report.stereo.mono_file.project": "Alle Tracks im Projekt sind mono. Eine Stereobild-Analyse entfällt hier.",

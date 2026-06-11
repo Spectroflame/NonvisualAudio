@@ -352,6 +352,34 @@ def test_material_context_speech_wins_in_mixed_selection(isolated_user_dir: Path
     assert genre_profiles.material_context_for(keys) == "speech"
 
 
+def test_spoken_word_profiles_declare_speech_tonality(isolated_user_dir: Path):
+    # Audio drama / audiobook / podcast stay music-material (they have
+    # mastering targets and keep the historic report behaviour) but
+    # declare a speech tonality so the overall verdict words the band
+    # shape against the expected spoken-word balance.
+    for key in (
+        "audio_drama_modern",
+        "spoken_audiobook",
+        "podcast_conversation",
+    ):
+        assert genre_profiles.GENRES[key].tonality == "speech", key
+        assert genre_profiles.GENRES[key].material == "music", key
+    assert genre_profiles.GENRES["speech_raw_recording"].tonality == "speech"
+    assert genre_profiles.GENRES["pop_modern"].tonality == "full_range"
+
+
+def test_tonality_context_selection_rules(isolated_user_dir: Path):
+    assert genre_profiles.tonality_context_for([]) == "full_range"
+    assert genre_profiles.tonality_context_for(None) == "full_range"
+    assert genre_profiles.tonality_context_for(["pop_modern"]) == "full_range"
+    assert genre_profiles.tonality_context_for(["audio_drama_modern"]) == "speech"
+    assert genre_profiles.tonality_context_for(["speech_raw_recording"]) == "speech"
+    # A speech declaration is a statement about the material and wins
+    # over additionally selected music genres.
+    keys = ["pop_modern", "audio_drama_modern"]
+    assert genre_profiles.tonality_context_for(keys) == "speech"
+
+
 def test_user_override_round_trip_preserves_material_and_nulls(
     isolated_user_dir: Path,
 ):

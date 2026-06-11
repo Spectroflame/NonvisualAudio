@@ -67,11 +67,23 @@ class GenreProfile:
     # the historic behaviour) or ``"speech"``. Selecting a speech
     # profile switches the main report to the speech interpretation.
     material: str = "music"
+    # How the overall verdict should read the tonal balance:
+    # ``"full_range"`` (default — a flat-ish band distribution is the
+    # reference, the historic music wording) or ``"speech"`` (spoken-word
+    # material such as audio drama, audiobook, podcast: mids and lows
+    # carrying most of the energy is the expected shape, so the verdict
+    # words the same numbers more cautiously). This only changes the
+    # one-sentence tonal phrasing in the Overall Assessment — measurements,
+    # band thresholds and every other section stay untouched.
+    tonality: str = "full_range"
 
 
 MATERIAL_MUSIC = "music"
 MATERIAL_NEUTRAL = "neutral"
 MATERIAL_SPEECH = "speech"
+
+TONALITY_FULL_RANGE = "full_range"
+TONALITY_SPEECH = "speech"
 
 
 def material_context_for(keys: "Iterable[str] | None") -> str:
@@ -94,6 +106,28 @@ def material_context_for(keys: "Iterable[str] | None") -> str:
     if any(p.material == MATERIAL_SPEECH for p in resolved):
         return MATERIAL_SPEECH
     return MATERIAL_MUSIC
+
+
+def tonality_context_for(keys: "Iterable[str] | None") -> str:
+    """Derive the overall verdict's tonality reading from selected profiles.
+
+    Returns ``"speech"`` when at least one resolved profile declares
+    spoken-word material — either via ``tonality == "speech"`` (mastered
+    spoken-word profiles such as audio drama or audiobook) or via
+    ``material == "speech"`` (raw speech). Like the material context,
+    a speech declaration is a statement about the content itself, so it
+    wins over any additionally selected music genres. Everything else —
+    including an empty selection — stays ``"full_range"``; with no
+    profile the builder's neutral material handling already keeps the
+    tonal phrasing cautious.
+    """
+    resolved = [GENRES[k] for k in (keys or []) if k in GENRES]
+    if any(
+        p.tonality == TONALITY_SPEECH or p.material == MATERIAL_SPEECH
+        for p in resolved
+    ):
+        return TONALITY_SPEECH
+    return TONALITY_FULL_RANGE
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +243,7 @@ def _build_profile_objects(
                     lra_high=lra_high,
                     notes=_resolve_localised(p.get("notes", ""), lang),
                     material=str(p.get("material", "music")),
+                    tonality=str(p.get("tonality", "full_range")),
                 )
             )
         except (KeyError, ValueError, TypeError) as exc:

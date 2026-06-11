@@ -352,3 +352,58 @@ def test_project_report_forwards_material_to_inner_sections():
 
     music_report = build_project_report(project)
     assert "Reading this as a speech recording" not in music_report
+
+
+def test_project_neutral_loudness_drops_genre_references():
+    # The combined fixture lands at minus 16 LUFS ("moderate" bucket) with
+    # LRA 6.5 ("typical" bucket) — in music mode both cite broadcast and
+    # music-mix reference points. Without a profile the project report
+    # must describe the loudness neutrally instead.
+    files = (
+        _make_file_result("a.wav", -16.0, 12.0),
+        _make_file_result("b.wav", -16.0, 12.0),
+    )
+    project = _make_project(files)
+    report = build_project_report(project, material="neutral")
+    for banned in ("music mix", "broadcast", "streaming", "podcast", "audiobook"):
+        assert banned not in report.lower(), (
+            f"{banned!r} leaked into the neutral project report"
+        )
+    assert "Across the project, that is a moderate loudness range." in report
+    assert "Across the project, the loudness sits at a moderate level." in report
+
+
+def test_project_music_material_keeps_genre_wording():
+    files = (
+        _make_file_result("a.wav", -16.0, 12.0),
+        _make_file_result("b.wav", -16.0, 12.0),
+    )
+    project = _make_project(files)
+    report = build_project_report(project, material="music")
+    assert "Across the project, that sits in the typical range for music mixes." in report
+    assert "in the broadcast ballpark" in report
+
+
+def test_project_neutral_mode_german_report_has_no_musik_mix():
+    # German rendering of the reported bug, project flavour: no profile
+    # selected must not produce "Über das ganze Projekt im üblichen
+    # Bereich für Musik-Mixe."
+    from nonvisualaudio import localization
+
+    localization.load("de")
+    try:
+        files = (
+            _make_file_result("a.wav", -16.0, 12.0),
+            _make_file_result("b.wav", -16.0, 12.0),
+        )
+        project = _make_project(files)
+        report = build_project_report(project, material="neutral")
+        assert "Musik-Mix" not in report
+        assert "Rundfunk" not in report
+        assert "Über das ganze Projekt ein moderater Lautheitsbereich." in report
+        assert (
+            "Über das ganze Projekt liegt die Lautheit in einem moderaten Bereich."
+            in report
+        )
+    finally:
+        localization.load("en")

@@ -565,6 +565,99 @@ def test_music_mode_default_is_unchanged_by_material_param():
     assert build_report(result) == build_report(result, material="music")
 
 
+def test_neutral_loudness_drops_genre_references():
+    # Integrated minus 16 LUFS lands in the "moderate" bucket and LRA 8.7
+    # in the "typical" bucket — both historically cite broadcast levels
+    # and music mixes, which are guesses when no profile is selected.
+    loud = LoudnessMetrics(
+        integrated_lufs=-16.0,
+        short_term_max_lufs=-12.0,
+        true_peak_dbtp=-1.5,
+        loudness_range_lu=8.7,
+    )
+    report = build_report(_make_result(loudness=loud), material="neutral")
+    for banned in ("music mix", "broadcast", "streaming", "podcast", "audiobook"):
+        assert banned not in report.lower(), (
+            f"{banned!r} leaked into the neutral report"
+        )
+    assert "That is a moderate loudness range." in report
+    assert "The file sits at a moderate loudness level." in report
+
+
+def test_neutral_loudness_narrow_lra_and_loud_level_stay_neutral():
+    # LRA 4 → "narrow" bucket (music wording cites streaming/broadcast
+    # masters); integrated minus 11 → "loud" bucket (music wording cites
+    # modern streaming masters). Crest 13.2 with LRA 4 also lands in the
+    # moderate dynamics bucket, whose music wording cites pop/broadcast
+    # mastering — all three must come out neutral without a profile.
+    loud = LoudnessMetrics(
+        integrated_lufs=-11.0,
+        short_term_max_lufs=-8.0,
+        true_peak_dbtp=-1.5,
+        loudness_range_lu=4.0,
+    )
+    report = build_report(_make_result(loudness=loud), material="neutral")
+    assert "streaming and broadcast masters" not in report
+    assert "pop or broadcast mastering" not in report
+    assert "the perceived loudness varies only a little over time" in report
+    assert "The file reads as loud, leaving little headroom." in report
+    assert "Dynamics sit in the moderate range." in report
+
+
+def test_neutral_stereo_width_verdict_names_no_genre():
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=0.7,
+        min_correlation=0.68,
+        mono_drop_db=-0.2,
+        side_to_mid_db=-6.0,
+    )
+    report = build_report(_make_result(stereo=stereo), material="neutral")
+    assert "stereo music and broadcast material" not in report
+    assert "neither notably narrow nor notably wide" in report
+
+
+def test_music_material_keeps_genre_wording():
+    # With a music profile the historic reference points must survive:
+    # LRA 8.7 → "music mixes"; minus 16 LUFS → broadcast ballpark.
+    loud = LoudnessMetrics(
+        integrated_lufs=-16.0,
+        short_term_max_lufs=-12.0,
+        true_peak_dbtp=-1.5,
+        loudness_range_lu=8.7,
+    )
+    report = build_report(_make_result(loudness=loud), material="music")
+    assert "That sits in the typical range for music mixes." in report
+    assert "in the broadcast ballpark" in report
+
+
+def test_neutral_mode_german_report_has_no_musik_mix():
+    # The reported bug: a no-profile run printed "im üblichen Bereich für
+    # Musik-Mixe" for a radio-drama project. The German catalogue must
+    # render the neutral siblings instead — and keep the music wording
+    # when a music profile is selected.
+    from nonvisualaudio import localization
+
+    localization.load("de")
+    try:
+        loud = LoudnessMetrics(
+            integrated_lufs=-16.0,
+            short_term_max_lufs=-12.0,
+            true_peak_dbtp=-1.5,
+            loudness_range_lu=8.7,
+        )
+        result = _make_result(loudness=loud)
+        neutral = build_report(result, material="neutral")
+        assert "Musik-Mix" not in neutral
+        assert "Rundfunk" not in neutral
+        assert "Das ist ein moderater Lautheitsbereich." in neutral
+        assert "Die Datei liegt auf einem moderaten Lautheitsniveau." in neutral
+        music = build_report(result, material="music")
+        assert "im üblichen Bereich für Musik-Mixe" in music
+    finally:
+        localization.load("en")
+
+
 # --------------------------------------------------------------------------- #
 # Material context: speech mode
 # --------------------------------------------------------------------------- #

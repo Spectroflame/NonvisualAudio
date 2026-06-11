@@ -148,6 +148,31 @@ MATERIAL_MUSIC = "music"
 MATERIAL_NEUTRAL = "neutral"
 MATERIAL_SPEECH = "speech"
 
+# Verdict keys whose reference points (music mixes, streaming masters,
+# broadcast levels) only hold when a music profile is selected. Without
+# a profile — and with a speech profile — the report must not guess the
+# material, so these swap to a ".neutral" catalogue sibling that states
+# the same finding without the genre comparison. The measurements and
+# bucket thresholds stay identical; only the wording changes.
+_GENRE_REFERENCING_KEYS = frozenset(
+    {
+        "report.loudness.lra.verdict.narrow",
+        "report.loudness.lra.verdict.typical",
+        "report.loudness.verdict.loud",
+        "report.loudness.verdict.moderate",
+        "report.dynamics.verdict.moderate",
+        "report.overall.loud_compressed",
+        "report.stereo.width.typical",
+    }
+)
+
+
+def _material_key(key: str, material: str) -> str:
+    """Swap a genre-referencing verdict key for its neutral sibling."""
+    if material != MATERIAL_MUSIC and key in _GENRE_REFERENCING_KEYS:
+        return f"{key}.neutral"
+    return key
+
 # Neutral-mode interpretation: only descriptive statements, derived from
 # robust findings, always closed with a "may be intentional" note.
 NEUTRAL_SUB_LOW_DB = -25.0
@@ -239,7 +264,11 @@ def _lra_verdict_key(lra: float) -> str:
 
 
 def _loudness_section(
-    loud: LoudnessMetrics, *, project: bool = False, level: int = 3
+    loud: LoudnessMetrics,
+    *,
+    material: str = MATERIAL_MUSIC,
+    project: bool = False,
+    level: int = 3,
 ) -> Section:
     lines: list[str] = []
     lines.append(t("report.loudness.integrated", value=fmt_signed(loud.integrated_lufs)))
@@ -269,7 +298,9 @@ def _loudness_section(
     lines.append(t("report.loudness.lra", value=fmt_signed(loud.loudness_range_lu)))
     lra_verdict_key = _lra_verdict_key(loud.loudness_range_lu)
     if lra_verdict_key:
-        lines.append(t_subject(lra_verdict_key, project=project))
+        lines.append(
+            t_subject(_material_key(lra_verdict_key, material), project=project)
+        )
 
     # Interpretive sentence.
     i = loud.integrated_lufs
@@ -282,7 +313,7 @@ def _loudness_section(
         verdict_key = "report.loudness.verdict.moderate"
     else:
         verdict_key = "report.loudness.verdict.quiet"
-    lines.append(t_subject(verdict_key, project=project))
+    lines.append(t_subject(_material_key(verdict_key, material), project=project))
 
     if tp > -0.5:
         lines.append(t("report.loudness.true_peak.risk"))
@@ -334,6 +365,7 @@ def _dynamics_section(
     dyn: DynamicsMetrics,
     loud: LoudnessMetrics,
     *,
+    material: str = MATERIAL_MUSIC,
     project: bool = False,
     level: int = 3,
 ) -> Section:
@@ -342,7 +374,7 @@ def _dynamics_section(
     lines.append(t("report.dynamics.dr_score", score=int(round(dyn.dr_score))))
 
     verdict_key = _dynamics_verdict_key(dyn.crest_factor_db, loud.loudness_range_lu)
-    lines.append(t_subject(verdict_key, project=project))
+    lines.append(t_subject(_material_key(verdict_key, material), project=project))
     return Section(
         level=level,
         heading=heading_text(t("report.heading.dynamics"), level=level),
@@ -807,7 +839,7 @@ def _overall_section(
         verdict_key = "report.overall.dynamic"
     else:
         verdict_key = "report.overall.moderate"
-    parts.append(t_subject(verdict_key, project=project))
+    parts.append(t_subject(_material_key(verdict_key, material), project=project))
 
     parts.append(_tonal_balance_phrase(bands, material))
 
@@ -852,6 +884,7 @@ def _stereo_section(
     stereo: StereoMetrics,
     channels: int,
     *,
+    material: str = MATERIAL_MUSIC,
     project: bool = False,
     level: int = 3,
 ) -> Section:
@@ -897,7 +930,10 @@ def _stereo_section(
         t_subject(_stereo_mono_verdict_key(stereo.mono_drop_db), project=project)
     )
     lines.append(
-        t_subject(_stereo_width_verdict_key(stereo.side_to_mid_db), project=project)
+        t_subject(
+            _material_key(_stereo_width_verdict_key(stereo.side_to_mid_db), material),
+            project=project,
+        )
     )
     return Section(level=level, heading=heading_line, body=tuple(lines))
 
@@ -1055,14 +1091,19 @@ def build_report(
     Overall Assessment and before Recommendations, used for Genre or
     Reference comparison output.
 
-    ``material`` selects how the frequency balance is interpreted:
+    ``material`` selects how the measurements are interpreted:
     ``"music"`` (default — the historic wording, kept for direct
     callers and old tests), ``"neutral"`` (no profile selected:
     technical facts plus cautious, material-agnostic notes), or
     ``"speech"`` (a speech profile is selected: speech-aware band
-    interpretation, no music-style sub-bass judgements). The UI layer
-    derives this via ``genre_profiles.material_context_for`` and always
-    passes it explicitly.
+    interpretation, no music-style sub-bass judgements). Outside the
+    frequency section, the non-music modes also strip the music /
+    streaming / broadcast reference points from the loudness, dynamics,
+    overall and stereo verdicts (see ``_GENRE_REFERENCING_KEYS``) —
+    without a profile those comparisons would be guesses about the
+    material. The UI layer derives this via
+    ``genre_profiles.material_context_for`` and always passes it
+    explicitly.
 
     ``sections`` controls which top-level blocks are rendered. Default is
     every section, which preserves the historical behaviour. When the
@@ -1104,12 +1145,21 @@ def build_report(
         out.append(_file_info_section(result.file_info, level=section_level))
     if selected.loudness:
         out.append(
-            _loudness_section(result.loudness, project=project, level=section_level)
+            _loudness_section(
+                result.loudness,
+                material=material,
+                project=project,
+                level=section_level,
+            )
         )
     if selected.dynamics:
         out.append(
             _dynamics_section(
-                result.dynamics, result.loudness, project=project, level=section_level
+                result.dynamics,
+                result.loudness,
+                material=material,
+                project=project,
+                level=section_level,
             )
         )
     if selected.frequency:
@@ -1134,6 +1184,7 @@ def build_report(
             _stereo_section(
                 result.stereo,
                 result.file_info.channels,
+                material=material,
                 project=project,
                 level=section_level,
             )

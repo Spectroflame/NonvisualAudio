@@ -194,3 +194,36 @@ def test_system_info_reports_resolved_ffmpeg(
     info = diagnostics.system_info()
     assert "bundled" in info
     assert "ffmpeg" in info
+
+
+# --------------------------------------------------------------------------- #
+# decoder preallocation distrusts the header duration
+# --------------------------------------------------------------------------- #
+
+
+def test_decoder_prealloc_uses_probed_duration_plus_slack() -> None:
+    from nonvisualaudio.audio import decoder
+
+    sr = 48_000
+    # 10 s at 48 kHz: probed frames plus one second of slack (the 1 %
+    # slack term is smaller here, so the one-second floor wins).
+    assert decoder._initial_buffer_frames(10.0, sr) == 10 * sr + sr
+    # Unknown duration falls back to one second.
+    assert decoder._initial_buffer_frames(0.0, sr) == sr
+    assert decoder._initial_buffer_frames(-1.0, sr) == sr
+
+
+def test_decoder_prealloc_caps_forged_header_duration() -> None:
+    from nonvisualaudio.audio import decoder
+
+    sr = 48_000
+    cap = decoder._PREALLOC_CAP_SECONDS * sr
+    # A hostile or corrupt header claiming ~2.7 years of audio must not
+    # drive the allocation; the cap bounds it regardless of the claim.
+    assert decoder._initial_buffer_frames(86_400_000.0, sr) == cap
+    assert decoder._initial_buffer_frames(1e18, sr) == cap
+    # Real material just above the cap is capped too — the buffer grows
+    # by doubling once actual frames arrive, so nothing is lost.
+    assert decoder._initial_buffer_frames(
+        decoder._PREALLOC_CAP_SECONDS + 60.0, sr
+    ) == cap

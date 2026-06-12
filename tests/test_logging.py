@@ -75,6 +75,41 @@ def test_redact_strips_user_name_under_home(
     assert "alice" not in out
 
 
+def test_redact_strips_directory_segments_with_spaces() -> None:
+    out = logging_setup.redact(
+        "failed on /Volumes/Field Recordings/Projekt Alpha/Take 1.wav now"
+    )
+    assert "Field Recordings" not in out
+    assert "Projekt Alpha" not in out
+    assert "Take 1.wav now" in out
+
+
+def test_redact_strips_windows_directories_with_spaces() -> None:
+    out = logging_setup.redact(
+        "export to D:\\Audio Projekte\\Hörspiel Mix\\final.wav failed"
+    )
+    assert "Audio Projekte" not in out
+    assert "Hörspiel Mix" not in out
+    assert "final.wav failed" in out
+
+
+def test_redact_ignores_isolated_slash_in_prose() -> None:
+    text = "levels L / R within range"
+    assert logging_setup.redact(text) == text
+
+
+def test_redact_ignores_prose_with_colon_and_slash() -> None:
+    # ``belegt: 1`` must not be mistaken for a folder named "belegt: 1" —
+    # spaced segments with a colon are prose, not paths.
+    text = "frei /belegt: 1/2 GB"
+    assert logging_setup.redact(text) == text
+
+
+def test_redact_ignores_date_with_slashes() -> None:
+    text = "scheduled 12/06/2026 cleanup run"
+    assert logging_setup.redact(text) == text
+
+
 def test_redact_leaves_urls_intact() -> None:
     url = "https://github.com/Spectroflame/NonvisualAudio/issues/new"
     assert logging_setup.redact(f"opening issues page: {url}") == (

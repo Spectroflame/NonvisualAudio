@@ -40,14 +40,24 @@ _HOME = str(Path.home())
 
 # An absolute path: an optional Windows drive, a leading separator, one or
 # more intermediate segments, and a final component. The lookbehind keeps it
-# from biting into URLs (``https://...``), words, or a path's own inner
-# separators. ``~``-relative paths are left untouched on purpose — they carry
-# no user name and aid debugging.
+# from biting into URLs (``https://...``), words, dates (``12/06/2026``), or
+# a path's own inner separators. ``~``-relative paths are left untouched on
+# purpose — they carry no user name and aid debugging.
+#
+# Intermediate segments may contain single spaces (``/Volumes/My Drive/…``)
+# as long as each space sits between words and the segment ends directly at
+# its separator — so folder names with spaces are redacted too, while a
+# lone ``/`` surrounded by spaces in prose never starts a match. A segment
+# that contains a space must not contain a colon: real folder names cannot
+# carry ``:`` on macOS or Windows, but prose like ``belegt: 1/2`` would
+# otherwise be swallowed as a fake segment. The final component stays
+# space-free: it is kept (as the basename) anyway, so absorbing trailing
+# prose into it would gain nothing.
 _ABS_PATH_RE = re.compile(
     r"(?<![\w:~\\/])"
     r"(?:[A-Za-z]:)?"
     r"[\\/]"
-    r"(?:[^\\/\s]+[\\/])+"
+    r"(?:(?:[^\\/\s]+|[^\\/\s:]+(?: [^\\/\s:]+)*)[\\/])+"
     r"[^\\/\s]+"
 )
 
@@ -133,8 +143,9 @@ def path_for_log(path: str | Path) -> str:
 
     With verbose logging off (the default) only the final path component
     is returned — e.g. ``Take 1.wav`` — so neither the user name nor any
-    folder names ever reach the log, even when those segments contain
-    spaces (which the line-level :func:`redact` regex cannot fully strip).
+    folder names ever reach the log. Unlike the line-level :func:`redact`
+    regex, which is a heuristic safety net, this is exact regardless of
+    spacing or unusual characters in the path.
 
     With verbose logging on, the full, unredacted path is returned. That
     switch is opt-in: the user turns it on themselves in the diagnostics

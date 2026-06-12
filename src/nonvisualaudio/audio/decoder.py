@@ -356,6 +356,30 @@ def decode(path: str | Path) -> DecodedAudio:
         raise
 
 
+# Upper bound for the duration-derived preallocation in
+# :func:`_ffmpeg_decode_with_loudness`. The duration comes from the
+# container header, which a malformed (or hostile) file can inflate at
+# will — allocating on its say-so alone would be a cheap memory bomb.
+# Files genuinely longer than the cap still decode: the buffer grows by
+# doubling as real frames arrive, so only the header claim is distrusted.
+_PREALLOC_CAP_SECONDS = 600
+
+
+def _initial_buffer_frames(duration: float, sample_rate: int) -> int:
+    """Frames to preallocate for a probed ``duration``, header-capped.
+
+    Reserves the probed length plus one second of slack plus 1 % (ffmpeg
+    can emit slightly more frames than ``duration × sample_rate``), but
+    never more than ``_PREALLOC_CAP_SECONDS`` worth of frames, because
+    the header duration is unverified input.
+    """
+    expected_frames = int(round(duration * sample_rate)) if duration > 0 else 0
+    slack = max(int(expected_frames * 0.01), sample_rate)
+    wanted = max(expected_frames + slack, sample_rate)
+    cap = max(_PREALLOC_CAP_SECONDS * sample_rate, sample_rate)
+    return min(wanted, cap)
+
+
 def _ffmpeg_decode_with_loudness(
     path: Path,
     sample_rate: int,
@@ -430,14 +454,10 @@ def _ffmpeg_decode_with_loudness(
         progress_state["last_pct"] = pct
         on_progress(pct, "combined")
 
-    # Preallocate the PCM buffer based on the probed duration. ffmpeg can
-    # emit slightly more or fewer frames than ``duration × sample_rate``
-    # (encoder/decoder delay, VBR probe inaccuracy), so we reserve a
-    # second of slack plus 1 %. If we still overshoot we grow the buffer
-    # by doubling, which costs one extra allocation in the rare case.
-    expected_frames = int(round(duration * sample_rate)) if duration > 0 else 0
-    slack = max(int(expected_frames * 0.01), sample_rate)
-    initial_capacity = max(expected_frames + slack, sample_rate)
+    # Preallocate the PCM buffer based on the probed duration — but never
+    # beyond the header-distrust cap, see :func:`_initial_buffer_frames`.
+    # If the real stream overshoots, the buffer grows by doubling.
+    initial_capacity = _initial_buffer_frames(duration, sample_rate)
     frame_bytes = decode_channels * 4
 
     if decode_channels == 2:

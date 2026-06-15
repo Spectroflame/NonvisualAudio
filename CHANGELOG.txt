@@ -1,3 +1,26 @@
+NONVISUALAUDIO — VERSION 2.1.2
+
+Sicherheits-Patch. Übernimmt ausschließlich die sicherheitsrelevanten
+Korrekturen aus der 2.2-Entwicklung zurück; keine neuen Funktionen.
+
+- Log-Injection verhindert: Steuerzeichen (Zeilenumbruch, Wagenrücklauf,
+  Tabulator, ANSI-Escapes) in protokollierten Werten werden jetzt
+  unschädlich gemacht, sodass ein manipulierter Dateiname keine zweite,
+  gefälschte Protokollzeile mehr vortäuschen kann.
+- Pfad-Redaction vervollständigt: Ordnernamen mit Leerzeichen (etwa
+  „/Volumes/My Drive/Projekt Alpha/…") werden im Protokoll jetzt
+  vollständig entfernt und nicht mehr nach dem ersten Leerzeichen
+  preisgegeben.
+- Speicher-Schutz beim Dekodieren: Die anfängliche Puffergröße richtet
+  sich nicht mehr ungeprüft nach der im Datei-Header angegebenen Dauer,
+  die eine manipulierte Datei beliebig aufblähen könnte; sie wird auf
+  600 Sekunden gedeckelt. Echte längere Dateien werden weiterhin korrekt
+  verarbeitet.
+- Robuster Clipboard-Scan: Überlanger oder mit Null-Bytes versehener
+  Text in der Zwischenablage führt beim Start nicht mehr zu einem
+  Absturz, sondern wird wie jede andere Nicht-Pfad-Eingabe behandelt.
+
+
 NONVISUALAUDIO — VERSION 2.1.1
 
 Hotfix für das Release-Paket.

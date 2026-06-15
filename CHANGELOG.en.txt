@@ -1,3 +1,23 @@
+NONVISUALAUDIO — VERSION 2.1.2
+
+Security patch. Backports only the security-relevant fixes from the 2.2
+line; no new features.
+
+- Log injection prevented: control characters (newline, carriage return,
+  tab, ANSI escapes) in logged values are now neutralised, so a crafted
+  file name can no longer forge a second, fake log line.
+- Path redaction completed: folder names containing spaces (such as
+  "/Volumes/My Drive/Projekt Alpha/…") are now fully stripped from the
+  log instead of leaking past the first space.
+- Decoder memory guard: the initial PCM buffer is no longer sized purely
+  on the container's header duration — which a malformed file can inflate
+  at will — but capped at 600 seconds. Genuinely longer files still
+  decode correctly.
+- Hardened clipboard scan: overlong or null-byte text on the clipboard
+  no longer crashes the app at startup; it is treated like any other
+  non-path input.
+
+
 NONVISUALAUDIO — VERSION 2.1.1
 
 Hotfix for the release package.

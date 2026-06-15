@@ -1,4 +1,4 @@
-"""Release-packaging guards for the 2.1.1 hotfix.
+"""Release-packaging guards for the 2.1.2 security patch.
 
 These are fast, PyInstaller-free checks that lock in the fixes made after
 the 2.1.0 package shipped with a broken macOS first-launch helper and a
@@ -54,8 +54,8 @@ def test_no_split_helper_artifacts() -> None:
 def test_liesmich_names_helper_and_version() -> None:
     liesmich = _read("packaging/macos/LIESMICH.txt")
     assert HELPER_NAME in liesmich
-    assert "2.1.1" in liesmich
-    assert "2.1.0" not in liesmich
+    assert "2.1.2" in liesmich
+    assert "2.1.1" not in liesmich
 
 
 # --------------------------------------------------------------------------- #
@@ -157,7 +157,7 @@ def test_only_release_job_grants_write() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_pyproject_version_is_2_1_1() -> None:
+def test_pyproject_version_is_2_1_2() -> None:
     with (ROOT / "pyproject.toml").open("rb") as fh:
         data = tomllib.load(fh)
-    assert data["project"]["version"] == "2.1.1"
+    assert data["project"]["version"] == "2.1.2"

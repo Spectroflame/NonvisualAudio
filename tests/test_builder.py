@@ -387,10 +387,53 @@ def test_stereo_section_surfaces_worst_block_when_it_diverges():
         min_correlation=-0.4,  # one bad block hiding behind a good average
         mono_drop_db=-0.5,
         side_to_mid_db=-9.0,
+        min_correlation_time_seconds=73.0,
     )
     report = build_report(_make_result(stereo=stereo))
     stereo_block = report.split("Stereo Image")[1].split("\n\n")[0]
     assert "worst block" in stereo_block.lower()
+    # The position is surfaced in the same "occurs at" wording as the
+    # true-peak line (1 minute 13 seconds = 73 s).
+    assert "occurs at" in stereo_block.lower()
+    assert "13 second" in stereo_block.lower()
+    # Healthy mean + small mono drop → the hint reads as a check, not a
+    # phase warning.
+    assert "spot to check" in stereo_block.lower()
+
+
+def test_stereo_worst_block_warns_when_overall_picture_is_poor():
+    """A diverging worst block on top of a weak mean and a real mono drop
+    gets the substantive hint, not the calm check wording."""
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=0.2,
+        min_correlation=-0.6,
+        mono_drop_db=-4.0,
+        side_to_mid_db=-2.0,
+        min_correlation_time_seconds=12.0,
+    )
+    report = build_report(_make_result(stereo=stereo))
+    stereo_block = report.split("Stereo Image")[1].split("\n\n")[0]
+    assert "worst block" in stereo_block.lower()
+    assert "mono check" in stereo_block.lower()
+    assert "spot to check" not in stereo_block.lower()
+
+
+def test_stereo_worst_block_drops_timestamp_in_project_mode():
+    """In project mode the block position maps to the concatenated
+    timeline, so the value is shown without a misleading timestamp."""
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=0.7,
+        min_correlation=-0.4,
+        mono_drop_db=-0.5,
+        side_to_mid_db=-9.0,
+        min_correlation_time_seconds=73.0,
+    )
+    report = build_report(_make_result(stereo=stereo), project=True)
+    stereo_block = report.split("Stereo Image")[1].split("\n\n")[0]
+    assert "worst block" in stereo_block.lower()
+    assert "occurs at" not in stereo_block.lower()
 
 
 def test_stereo_low_correlation_triggers_recommendation():
@@ -629,6 +672,69 @@ def test_music_material_keeps_genre_wording():
     report = build_report(_make_result(loudness=loud), material="music")
     assert "That sits in the typical range for music mixes." in report
     assert "in the broadcast ballpark" in report
+
+
+def test_spoken_word_profile_uses_speech_wording_not_music():
+    # Mastered spoken-word (audio drama, audiobook, podcast) carries
+    # material="music" but tonality="speech". The genre-referencing
+    # verdicts must swap music references for spoken-word ones — the
+    # production is finished, so it is NOT routed to the neutral siblings.
+    loud = LoudnessMetrics(
+        integrated_lufs=-11.0,
+        short_term_max_lufs=-8.0,
+        true_peak_dbtp=-1.5,
+        loudness_range_lu=4.0,
+    )
+    stereo = StereoMetrics(
+        is_stereo=True,
+        mean_correlation=0.7,
+        min_correlation=0.68,
+        mono_drop_db=-0.2,
+        side_to_mid_db=-6.0,
+    )
+    report = build_report(
+        _make_result(loudness=loud, stereo=stereo),
+        material="music",
+        tonality="speech",
+    )
+    # No music reference points.
+    for banned in (
+        "streaming masters",
+        "streaming and broadcast masters",
+        "pop or broadcast mastering",
+        "music mix",
+        "stereo music and broadcast material",
+    ):
+        assert banned not in report.lower(), f"{banned!r} leaked into speech report"
+    # Speech reference points instead.
+    assert "spoken-word production" in report
+    assert "radio drama and broadcast material" in report
+    # And it is NOT the bare neutral fallback.
+    assert "neither notably narrow nor notably wide" not in report
+
+
+def test_raw_speech_stays_neutral_not_finished_production():
+    # A raw recording (material="speech") must avoid both music AND
+    # "finished production" claims — it is judged as source material, so
+    # it routes to the neutral siblings, not the .speech ones.
+    from nonvisualaudio import localization
+
+    localization.load("de")
+    try:
+        loud = LoudnessMetrics(
+            integrated_lufs=-11.0,
+            short_term_max_lufs=-8.0,
+            true_peak_dbtp=-1.5,
+            loudness_range_lu=4.0,
+        )
+        report = build_report(
+            _make_result(loudness=loud), material="speech", tonality="speech"
+        )
+        for banned in ("Master", "Mix", "Sendefassung", "Streaming-Fassung"):
+            assert banned not in report, f"{banned!r} leaked into raw-speech report"
+        assert "Die Datei wirkt laut und lässt wenig Headroom." in report
+    finally:
+        localization.load("en")
 
 
 def test_neutral_mode_german_report_has_no_musik_mix():

@@ -72,6 +72,12 @@ class StereoMetrics:
     min_correlation: float        # worst per-block correlation
     mono_drop_db: float           # mono-sum vs stereo, dB. 0 ≈ perfect mono compat
     side_to_mid_db: float         # M/S width, dB. Negative = narrow, 0 dB = very wide
+    # Start of the 0.1 s block that produced ``min_correlation``, in
+    # seconds from the file start. ``None`` when there is no measurement
+    # (mono / empty / unanalysable buffer). Lets the report point the
+    # user at the exact passage, the same way the loudness section names
+    # the true-peak position.
+    min_correlation_time_seconds: float | None = None
 
 
 def _empty_stereo() -> StereoMetrics:

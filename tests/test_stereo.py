@@ -205,6 +205,8 @@ def test_block_at_chunk_boundary_keeps_its_correlation(monkeypatch):
         "the anti-phase boundary block did not register as min_correlation"
     )
     assert metrics.mean_correlation > 0.7  # 19/20 of energy is correlated
+    # The worst block is index 4 → 4 × 0.1 s = 0.4 s into the file.
+    assert metrics.min_correlation_time_seconds == pytest.approx(0.4, abs=1e-6)
 
 
 def test_long_multi_chunk_signal_matches_short_reference(monkeypatch):
@@ -231,6 +233,9 @@ def test_long_multi_chunk_signal_matches_short_reference(monkeypatch):
     )
     assert multi_chunk.min_correlation == pytest.approx(
         one_chunk.min_correlation, abs=1e-6
+    )
+    assert multi_chunk.min_correlation_time_seconds == pytest.approx(
+        one_chunk.min_correlation_time_seconds, abs=1e-6
     )
     assert multi_chunk.mono_drop_db == pytest.approx(
         one_chunk.mono_drop_db, abs=0.01

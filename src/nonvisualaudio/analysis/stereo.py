@@ -119,6 +119,9 @@ def compute_stereo(
         right_full = stereo_samples[:, 1].astype(np.float64)
         mean_corr = _pearson_full(left_full, right_full)
         min_corr = mean_corr
+        # The whole (sub-block) buffer is the one and only "block", so the
+        # worst value sits at the very start of the file.
+        min_corr_block = 0
         sum_l2 = float(np.sum(left_full * left_full))
         sum_r2 = float(np.sum(right_full * right_full))
         # Compute the mid/side energies directly. Even on tiny buffers
@@ -196,10 +199,15 @@ def compute_stereo(
         if not np.any(mask):
             mean_corr = float(np.mean(corr))
             min_corr = float(np.min(corr))
+            min_corr_block = int(np.argmin(corr))
         else:
             weights = block_rms_arr[mask] * block_rms_arr[mask]
             mean_corr = float(np.sum(corr[mask] * weights) / np.sum(weights))
+            # argmin over the non-silent blocks, mapped back to the global
+            # block index so the reported time matches the file timeline.
+            masked_indices = np.nonzero(mask)[0]
             min_corr = float(np.min(corr[mask]))
+            min_corr_block = int(masked_indices[int(np.argmin(corr[mask]))])
 
     if total_samples == 0 or (sum_l2 == 0.0 and sum_r2 == 0.0):
         return _empty_stereo()
@@ -231,6 +239,7 @@ def compute_stereo(
         min_correlation=round(min_corr, 3),
         mono_drop_db=mono_drop_db,
         side_to_mid_db=side_to_mid_db,
+        min_correlation_time_seconds=min_corr_block * block_len / sample_rate,
     )
 
 
@@ -388,6 +397,7 @@ class StereoStreamer:
             right_full = buf[:, 1].astype(np.float64)
             mean_corr = _pearson_full(left_full, right_full)
             min_corr = mean_corr
+            min_corr_block = 0
             sum_l2 = float(np.sum(left_full * left_full))
             sum_r2 = float(np.sum(right_full * right_full))
             mid_full = (left_full + right_full) * 0.5
@@ -411,12 +421,15 @@ class StereoStreamer:
             if not np.any(mask):
                 mean_corr = float(np.mean(corr))
                 min_corr = float(np.min(corr))
+                min_corr_block = int(np.argmin(corr))
             else:
                 weights = block_rms_arr[mask] * block_rms_arr[mask]
                 mean_corr = float(
                     np.sum(corr[mask] * weights) / np.sum(weights)
                 )
+                masked_indices = np.nonzero(mask)[0]
                 min_corr = float(np.min(corr[mask]))
+                min_corr_block = int(masked_indices[int(np.argmin(corr[mask]))])
             sum_l2 = self._sum_l2
             sum_r2 = self._sum_r2
             sum_mid_sq = self._sum_mid_sq
@@ -448,4 +461,7 @@ class StereoStreamer:
             min_correlation=round(min_corr, 3),
             mono_drop_db=mono_drop_db,
             side_to_mid_db=side_to_mid_db,
+            min_correlation_time_seconds=(
+                min_corr_block * self._block_len / self.sample_rate
+            ),
         )

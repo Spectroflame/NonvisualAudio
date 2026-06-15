@@ -181,9 +181,33 @@ _GENRE_REFERENCING_KEYS = frozenset(
 )
 
 
-def _material_key(key: str, material: str) -> str:
-    """Swap a genre-referencing verdict key for its neutral sibling."""
-    if material != MATERIAL_MUSIC and key in _GENRE_REFERENCING_KEYS:
+def _material_key(
+    key: str, material: str, tonality: str = TONALITY_FULL_RANGE
+) -> str:
+    """Pick the verdict wording that matches the active profile.
+
+    Three voices for the genre-referencing keys (see
+    ``_GENRE_REFERENCING_KEYS``):
+
+    - **music** (``material == "music"`` and ``tonality == "full_range"``):
+      the historic wording with its music reference points (music mixes,
+      streaming masters, …).
+    - **spoken-word** (``material == "music"`` and ``tonality ==
+      "speech"`` — mastered audio drama, audiobook, podcast): the
+      ``.speech`` sibling, which keeps the "finished production" framing
+      but swaps the music references for speech ones (broadcast /
+      streaming versions of spoken-word productions). Same detector as
+      the tonal-balance phrase and the overall all-clear.
+    - **neutral** (no profile, or a *raw* speech take where ``material ==
+      "speech"``): the ``.neutral`` sibling, which states the finding
+      with no material assumption at all — the right reading for raw
+      source material that is not yet a master.
+    """
+    if key not in _GENRE_REFERENCING_KEYS:
+        return key
+    if material == MATERIAL_MUSIC and tonality == TONALITY_SPEECH:
+        return f"{key}.speech"
+    if material != MATERIAL_MUSIC:
         return f"{key}.neutral"
     return key
 
@@ -296,6 +320,7 @@ def _loudness_section(
     loud: LoudnessMetrics,
     *,
     material: str = MATERIAL_MUSIC,
+    tonality: str = TONALITY_FULL_RANGE,
     project: bool = False,
     level: int = 3,
 ) -> Section:
@@ -328,7 +353,9 @@ def _loudness_section(
     lra_verdict_key = _lra_verdict_key(loud.loudness_range_lu)
     if lra_verdict_key:
         lines.append(
-            t_subject(_material_key(lra_verdict_key, material), project=project)
+            t_subject(
+                _material_key(lra_verdict_key, material, tonality), project=project
+            )
         )
 
     # Interpretive sentence.
@@ -342,7 +369,9 @@ def _loudness_section(
         verdict_key = "report.loudness.verdict.moderate"
     else:
         verdict_key = "report.loudness.verdict.quiet"
-    lines.append(t_subject(_material_key(verdict_key, material), project=project))
+    lines.append(
+        t_subject(_material_key(verdict_key, material, tonality), project=project)
+    )
 
     if tp > -0.5:
         lines.append(t("report.loudness.true_peak.risk"))
@@ -395,6 +424,7 @@ def _dynamics_section(
     loud: LoudnessMetrics,
     *,
     material: str = MATERIAL_MUSIC,
+    tonality: str = TONALITY_FULL_RANGE,
     project: bool = False,
     level: int = 3,
 ) -> Section:
@@ -403,7 +433,9 @@ def _dynamics_section(
     lines.append(t("report.dynamics.dr_score", score=int(round(dyn.dr_score))))
 
     verdict_key = _dynamics_verdict_key(dyn.crest_factor_db, loud.loudness_range_lu)
-    lines.append(t_subject(_material_key(verdict_key, material), project=project))
+    lines.append(
+        t_subject(_material_key(verdict_key, material, tonality), project=project)
+    )
     return Section(
         level=level,
         heading=heading_text(t("report.heading.dynamics"), level=level),
@@ -905,7 +937,9 @@ def _overall_section(
         verdict_key = "report.overall.dynamic"
     else:
         verdict_key = "report.overall.moderate"
-    parts.append(t_subject(_material_key(verdict_key, material), project=project))
+    parts.append(
+        t_subject(_material_key(verdict_key, material, tonality), project=project)
+    )
 
     parts.append(_tonal_balance_phrase(bands, material, tonality))
 
@@ -927,6 +961,18 @@ def _overall_section(
         heading=heading_text(t("report.heading.overall"), level=level),
         body=(paragraph(", ".join(parts)),),
     )
+
+
+# Worst-block reporting. The minimum per-block correlation only earns
+# its own line when it sits at least this far below the mean — otherwise
+# it is just measurement noise around the value we already printed.
+_STEREO_WORST_BLOCK_MARGIN = 0.05
+# When the mean correlation is at least this healthy AND the mono drop
+# stays above this (small) level, a single bad block reads as a calm
+# check hint rather than a phase warning — the worst block is then most
+# likely a short, wide passage, not a structural problem.
+_STEREO_CALM_MEAN_CORR = 0.5
+_STEREO_CALM_MONO_DROP_DB = -1.0
 
 
 def _stereo_correlation_verdict_key(corr: float) -> str:
@@ -964,6 +1010,7 @@ def _stereo_section(
     channels: int,
     *,
     material: str = MATERIAL_MUSIC,
+    tonality: str = TONALITY_FULL_RANGE,
     project: bool = False,
     level: int = 3,
 ) -> Section:
@@ -985,14 +1032,40 @@ def _stereo_section(
             value=fmt_signed(stereo.mean_correlation, 2),
         )
     )
-    if stereo.min_correlation < stereo.mean_correlation - 0.05:
-        # The worst block diverges noticeably from the mean — surface
-        # the minimum, otherwise the single number can hide a problem
-        # passage.
+    if stereo.min_correlation < stereo.mean_correlation - _STEREO_WORST_BLOCK_MARGIN:
+        # The worst block diverges noticeably from the mean — surface the
+        # minimum and where it sits, otherwise the single number can hide
+        # a problem passage. In project mode the position maps to the
+        # concatenated timeline rather than a single source file, so we
+        # drop the timestamp there, mirroring the true-peak line.
+        worst_time = stereo.min_correlation_time_seconds
+        if not project and worst_time is not None:
+            lines.append(
+                t(
+                    "report.stereo.correlation_worst_at",
+                    value=fmt_signed(stereo.min_correlation, 2),
+                    time=fmt_peak_time(worst_time),
+                )
+            )
+        else:
+            lines.append(
+                t(
+                    "report.stereo.correlation_worst",
+                    value=fmt_signed(stereo.min_correlation, 2),
+                )
+            )
+        # A single bad block against a healthy mean and a small mono drop
+        # is most likely a short wide passage — phrase it as a check hint
+        # rather than dramatising a phase fault.
+        calm = (
+            stereo.mean_correlation > _STEREO_CALM_MEAN_CORR
+            and stereo.mono_drop_db > _STEREO_CALM_MONO_DROP_DB
+        )
         lines.append(
             t(
-                "report.stereo.correlation_worst",
-                value=fmt_signed(stereo.min_correlation, 2),
+                "report.stereo.correlation_worst_hint.calm"
+                if calm
+                else "report.stereo.correlation_worst_hint"
             )
         )
     lines.append(
@@ -1010,7 +1083,9 @@ def _stereo_section(
     )
     lines.append(
         t_subject(
-            _material_key(_stereo_width_verdict_key(stereo.side_to_mid_db), material),
+            _material_key(
+                _stereo_width_verdict_key(stereo.side_to_mid_db), material, tonality
+            ),
             project=project,
         )
     )
@@ -1236,6 +1311,7 @@ def build_report(
             _loudness_section(
                 result.loudness,
                 material=material,
+                tonality=tonality,
                 project=project,
                 level=section_level,
             )
@@ -1246,6 +1322,7 @@ def build_report(
                 result.dynamics,
                 result.loudness,
                 material=material,
+                tonality=tonality,
                 project=project,
                 level=section_level,
             )
@@ -1277,6 +1354,7 @@ def build_report(
                 result.stereo,
                 result.file_info.channels,
                 material=material,
+                tonality=tonality,
                 project=project,
                 level=section_level,
             )

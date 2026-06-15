@@ -84,6 +84,9 @@ def test_streamer_output_invariant_across_chunk_sizes():
         assert result.min_correlation == pytest.approx(
             baseline.min_correlation, abs=1e-6
         ), f"min_correlation diverged at chunk_size={chunk_size}"
+        assert result.min_correlation_time_seconds == pytest.approx(
+            baseline.min_correlation_time_seconds, abs=1e-6
+        ), f"min_correlation_time diverged at chunk_size={chunk_size}"
         assert result.mono_drop_db == pytest.approx(
             baseline.mono_drop_db, abs=1e-6
         ), f"mono_drop_db diverged at chunk_size={chunk_size}"

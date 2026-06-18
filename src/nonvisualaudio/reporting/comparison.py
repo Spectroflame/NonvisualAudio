@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from nonvisualaudio.analysis.result import AnalysisResult
 from nonvisualaudio.localization import t, t_subject
 from nonvisualaudio.reporting.genre_profiles import GenreProfile
@@ -118,6 +120,35 @@ def _band_diff_sentence(band_key: str, a: float, b: float) -> str | None:
     )
 
 
+def _ab_match_sentence(di: float, *, project: bool) -> str | None:
+    """Recommend the level offset for a loudness-matched A/B comparison.
+
+    ``di`` is the target-minus-reference integrated loudness in LU. A
+    uniform gain change of N dB shifts integrated loudness by N LU, so
+    the offset needed to bring both files to the same loudness equals
+    ``abs(di)`` dB, applied to whichever file is louder — for a fair A/B
+    test the louder file must come down, otherwise it tends to be judged
+    "better" purely because it is louder.
+
+    Below 0.5 LU the two count as already matched, mirroring the loudness
+    threshold used above. Returns ``None`` for a non-finite difference
+    (e.g. a silent file with no defined loudness) so no misleading number
+    is shown.
+    """
+    if not math.isfinite(di):
+        return None
+    if abs(di) < 0.5:
+        return t_subject("report.ref.ab_match.matched", project=project)
+    diff_s = fmt_decimal(abs(di))
+    if di < 0:
+        # Reference is louder; attenuate the reference to match the target.
+        return t("report.ref.ab_match.lower_reference", diff=diff_s)
+    # Target is louder; attenuate the target (the louder file) instead.
+    return t_subject(
+        "report.ref.ab_match.lower_target", project=project, diff=diff_s
+    )
+
+
 def build_reference_comparison(
     target: AnalysisResult,
     reference: AnalysisResult,
@@ -167,6 +198,11 @@ def build_reference_comparison(
         )
     else:
         lines.append(t_subject("report.ref.loudness_same", project=project))
+
+    # Level offset for an objective, loudness-matched A/B comparison.
+    ab_line = _ab_match_sentence(di, project=project)
+    if ab_line:
+        lines.append(ab_line)
 
     # LRA.
     dlra = target.loudness.loudness_range_lu - reference.loudness.loudness_range_lu

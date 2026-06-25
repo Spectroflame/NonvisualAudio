@@ -143,6 +143,28 @@ def update_help(widget: Any, description: str) -> None:
     _push_windows_accessible(widget)
 
 
+def update_name(widget: Any, name: str) -> None:
+    """Refresh the screen-reader name (label) on a widget at runtime.
+
+    Use this when a control's *name* — not its value or description —
+    changes while the app runs. The progress gauge does exactly this
+    during an analysis: its percent stays the gauge value (which the
+    screen reader announces as the control's state) while the
+    remaining-time estimate rides in the name, so the gauge announces
+    progress and runtime as a single element.
+
+    On macOS the name must be re-pushed through the NSAccessibility
+    title bridge — plain ``SetName`` only writes the identifier there,
+    which VoiceOver does not read. On Windows and Linux the name falls
+    through to the platform default accessible.
+    """
+    if hasattr(widget, "SetName"):
+        widget.SetName(name)
+    from nonvisualaudio.ui import macos_a11y
+
+    macos_a11y.set_accessibility_title(widget, name)
+
+
 def _push_windows_accessible(widget: Any) -> None:
     """Update the widget's wx.Accessible from its stored description.
 

@@ -299,7 +299,12 @@ class MainWindow(wx.Frame):
         self.analyze_btn.SetDefault()
         root.Add(self.analyze_btn, flag=wx.LEFT | wx.RIGHT, border=10)
 
-        # ----- Progress bar -----
+        # ----- Progress row: gauge + current-stage label, side by side -----
+        # The gauge owns the percent (as its value, which the screen
+        # reader announces as the control's state) and, during a run,
+        # the remaining-time estimate folded into its name — so
+        # "progress + runtime" reads as a single element. The label
+        # beside it carries only what the analysis is currently doing.
         self.progress = wx.Gauge(panel, range=100, style=wx.GA_HORIZONTAL)
         a11y.set_a11y(
             self.progress,
@@ -307,13 +312,12 @@ class MainWindow(wx.Frame):
             t("ui.hint.progress_bar"),
         )
         self.progress.Hide()
-        root.Add(self.progress, flag=wx.EXPAND | wx.ALL, border=10)
 
-        # Progress label. Read-only TextCtrl rather than StaticText so it
-        # sits in the tab order: during analysis the user can Tab past the
+        # Read-only TextCtrl rather than StaticText so it sits in the
+        # tab order: during analysis the user can Tab past the
         # (disabled) Analyze button and land on this control to hear the
-        # current stage ("Measuring loudness — 40%"). A StaticText would
-        # be skipped by the screen reader's focus traversal.
+        # current stage ("Dekodiere Audio"). A StaticText would be
+        # skipped by the screen reader's focus traversal.
         self.progress_label = wx.TextCtrl(panel, style=wx.TE_READONLY)
         a11y.set_a11y(
             self.progress_label,
@@ -321,7 +325,16 @@ class MainWindow(wx.Frame):
             t("ui.hint.progress_stage"),
         )
         self.progress_label.Hide()
-        root.Add(self.progress_label, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+
+        progress_row = wx.BoxSizer(wx.HORIZONTAL)
+        progress_row.Add(
+            self.progress,
+            proportion=1,
+            flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+            border=10,
+        )
+        progress_row.Add(self.progress_label, proportion=1, flag=wx.EXPAND)
+        root.Add(progress_row, flag=wx.EXPAND | wx.ALL, border=10)
 
         panel.SetSizer(root)
 
@@ -1100,6 +1113,9 @@ class MainWindow(wx.Frame):
         self._set_analyze_button_state(running=True)
         self.SetStatusText(t("status.running"))
         self.progress.SetValue(0)
+        # Reset the gauge name in case a previous run left a remaining-time
+        # estimate folded into it; the first progress tick fills it back in.
+        a11y.update_name(self.progress, t("ui.label.progress_bar"))
         self.progress.Show()
         self.progress_label.ChangeValue(t("ui.progress.starting"))
         self.progress_label.Show()
@@ -1334,23 +1350,23 @@ class MainWindow(wx.Frame):
         # Drop progress from an abandoned run (cancelled or superseded).
         if token != self._run_token:
             return
-        # The gauge owns the percent — both visually and as a screen-reader
-        # value — so the stage text and the status bar carry only the
-        # phase name and the ETA. Two competing percent readings on
-        # neighbouring widgets confused screen-reader users; one source
-        # of truth keeps the announcements coherent.
+        # One element for "progress + runtime": the percent stays the
+        # gauge's value (which the screen reader announces as its state)
+        # while the remaining-time estimate rides in the gauge's name.
+        # The neighbouring label then carries only the current stage, so
+        # no widget announces the percent twice — the double reading the
+        # split design used to produce confused screen-reader users.
         self.progress.SetValue(max(0, min(100, int(percent))))
         eta = self._compute_eta_label(int(percent))
         if eta is None:
-            line = t("ui.progress.line", stage=stage)
-            hint = t("ui.progress.hint", stage=stage)
+            gauge_name = t("ui.label.progress_bar")
             status = t("ui.progress.status", stage=stage)
         else:
-            line = t("ui.progress.line.with_eta", stage=stage, eta=eta)
-            hint = t("ui.progress.hint.with_eta", stage=stage, eta=eta)
+            gauge_name = t("ui.progress.gauge.with_eta", eta=eta)
             status = t("ui.progress.status.with_eta", stage=stage, eta=eta)
-        self.progress_label.ChangeValue(line)
-        a11y.update_help(self.progress_label, hint)
+        a11y.update_name(self.progress, gauge_name)
+        self.progress_label.ChangeValue(stage)
+        a11y.update_help(self.progress_label, t("ui.progress.hint", stage=stage))
         self.SetStatusText(status)
 
     def _stop_running_ui(self) -> None:
@@ -1361,6 +1377,10 @@ class MainWindow(wx.Frame):
         self._set_analyze_button_state(running=False)
         self.progress.Hide()
         self.progress.SetValue(0)
+        # Drop any remaining-time estimate from the gauge name so a later
+        # run never briefly shows a stale ETA before its first tick.
+        a11y.update_name(self.progress, t("ui.label.progress_bar"))
+        self.progress_label.ChangeValue("")
         self.progress_label.Hide()
         self._progress_started_at = None
         self._progress_eta_seconds = None

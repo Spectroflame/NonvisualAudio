@@ -131,10 +131,18 @@ SECTION_ORDER: tuple[str, ...] = (
 
 # Bands with relative energy below this threshold are reported as
 # "effectively silent" rather than with a "X dB quieter than the loudest
-# band" sentence. A pure sine tone parks all other bands far below this
-# level; a 16-bit master's noise floor sits around here too, so the
-# threshold lines up with what a human ear genuinely hears.
-SILENT_BAND_THRESHOLD_DB = -90.0
+# band" sentence. Band values are dB relative to the file's TOTAL
+# spectral energy (see analysis/spectrum.py) — a share-of-energy
+# cut-off, not a dBFS level. Measured anchors: the most aggressive
+# intentional filtering stays clearly above this (telephone-band air
+# lands around -56, a steep 80 Hz high-pass parks the sub around -43),
+# while digital floors sit clearly below (a 16-bit dithered test tone
+# parks its unused bands around -90 and lower — the old -90 threshold
+# let exactly that dither floor through as "89.6 dB quieter"). -70
+# splits the two classes with at least 14 dB margin either way; a band
+# this far down holds under a ten-millionth of the signal energy and is
+# inaudible on any real playback.
+SILENT_BAND_THRESHOLD_DB = -70.0
 
 # --------------------------------------------------------------------------- #
 # Material context
@@ -239,6 +247,12 @@ SPEECH_PRESENCE_LOW_REL_DB = -10.0   # presence well below mid → check clarity
 SPEECH_PRESENCE_HIGH_REL_DB = -3.0   # presence close to mid → harshness possible
 SPEECH_SIBILANCE_REL_DB = -8.0       # 6-10 kHz close to mid → sibilance
 SPEECH_AIR_LOW_REL_DB = -32.0        # 10-20 kHz far below mid → reduced openness
+# Gate for the air note: only stay silent about the top octave when it
+# sits at the digital floor (pure silence, legacy fixtures). Deliberately
+# NOT the reporting threshold above — a heavily denoised take parks its
+# top octave around -75 relative energy, which is exactly when the
+# "very restrained" note is most warranted.
+SPEECH_AIR_FLOOR_DB = -90.0
 
 # Spoken-word tonality (Overall Assessment wording only — no measurement
 # or band threshold depends on these). For audio drama / audiobook /
@@ -650,7 +664,7 @@ def _speech_band_findings(bands: BandEnergies) -> list[_SpeechFinding]:
     if (
         bands.air_high_db is not None
         and bands.air_high_db < mid + SPEECH_AIR_LOW_REL_DB
-        and bands.air_high_db >= SILENT_BAND_THRESHOLD_DB
+        and bands.air_high_db >= SPEECH_AIR_FLOOR_DB
     ):
         findings.append(
             _SpeechFinding(
@@ -762,10 +776,13 @@ def _frequency_section(
             if len(silent_others) == 1
             else "report.freq.silent_bands.other"
         )
+        # fmt_signed spells the threshold as "minus 70" — the raw "-70"
+        # form broke the report-wide rule that negative numbers are
+        # written out so screen readers speak them naturally.
         lines.append(
             t(
                 key,
-                threshold=int(SILENT_BAND_THRESHOLD_DB),
+                threshold=fmt_signed(SILENT_BAND_THRESHOLD_DB, 0),
                 names=silent_names,
             )
         )

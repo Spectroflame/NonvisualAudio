@@ -161,7 +161,7 @@ def test_silent_bands_collapse_into_a_single_line():
     report = build_report(sine)
     freq = report.split("Frequency Balance")[1].split("\n\n")[0]
     # Sub bass, bass, presence, air are all silent.
-    assert "Effectively silent (below -90 dB)" in freq
+    assert "Effectively silent (below minus 70 dB)" in freq
     assert "sub-bass" in freq
     assert "bass" in freq
     assert "presence" in freq
@@ -199,7 +199,7 @@ def test_sine_tone_emits_single_band_dominant_sentence():
 
 
 def test_silent_band_threshold_excludes_just_above_floor():
-    # A band at -89 dB is still audible (above the threshold), so it
+    # A band at -69 dB is still audible (above the threshold), so it
     # must keep its "X dB quieter" sentence rather than disappearing
     # into the silent group.
     near_floor = _make_result(
@@ -210,16 +210,44 @@ def test_silent_band_threshold_excludes_just_above_floor():
                 low_mid_db=-9.0,
                 mid_db=-8.0,
                 presence_db=-10.0,
-                air_db=-89.0,  # just above the silence threshold
+                air_db=-69.0,  # just above the silence threshold
             ),
             peaks=(),
         )
     )
     report = build_report(near_floor)
     freq = report.split("Frequency Balance")[1].split("\n\n")[0]
-    # The -89 dB band gets a normal quieter sentence, not the silent line.
+    # The -69 dB band gets a normal quieter sentence, not the silent line.
     assert "Effectively silent" not in freq
     assert "air" in freq
+
+
+def test_silent_band_threshold_catches_dither_floor():
+    # Regression for the threshold raise from -90 to -70: a real 16-bit
+    # dithered export parks unused bands around -90 relative energy,
+    # which slipped just past the old threshold and produced an absurd
+    # "89.6 dB quieter" sentence. Anything in the digital-floor window
+    # must now collapse into the silent line instead.
+    dither_floor = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=BandEnergies(
+                sub_db=-14.0,
+                bass_db=-11.0,
+                low_mid_db=-9.0,
+                mid_db=-8.0,
+                presence_db=-10.0,
+                air_db=-75.0,  # below the new threshold, above the old one
+            ),
+            peaks=(),
+        )
+    )
+    report = build_report(dither_floor)
+    freq = report.split("Frequency Balance")[1].split("\n\n")[0]
+    assert "Effectively silent (below minus 70 dB)" in freq
+    # The spread sentence must use the quietest AUDIBLE band, not the
+    # silent one — presence at -10 vs mid at -8, not air at -75.
+    assert "Total spread between" in freq
+    assert "67.0 dB" not in freq
 
 
 def test_overall_assessment_mentions_the_actual_loudest_band_when_skewed():
@@ -1299,3 +1327,27 @@ def test_spoken_word_profile_gets_speech_limiter_recommendations():
     spoken = build_report(result, material="music", tonality="speech")
     assert "for spoken-word masters too" in spoken
     assert "easing off the limiting on the spoken-word master" in spoken
+
+
+def test_speech_air_note_survives_between_floor_and_silent_threshold():
+    # Review follow-up to the threshold raise: the air-note gate must sit
+    # at the digital floor (SPEECH_AIR_FLOOR_DB, minus 90), NOT at the
+    # raised reporting threshold (minus 70). A heavily denoised take
+    # parks its top octave around minus 75 — exactly when "very
+    # restrained" is warranted — while true digital silence below the
+    # floor still gets no comment.
+    denoised = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=_speech_like_bands(air_high_db=-75.0), peaks=()
+        )
+    )
+    report = build_report(denoised, material="speech")
+    assert "The 10 to 20 kHz region is very restrained" in report
+
+    digital_silence = _make_result(
+        spectrum=SpectrumMetrics(
+            bands=_speech_like_bands(air_high_db=-120.0), peaks=()
+        )
+    )
+    report = build_report(digital_silence, material="speech")
+    assert "The 10 to 20 kHz region is very restrained" not in report

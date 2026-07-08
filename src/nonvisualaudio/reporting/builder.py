@@ -1144,6 +1144,7 @@ def _recommendations_section(
     result: AnalysisResult,
     *,
     material: str = MATERIAL_MUSIC,
+    tonality: str = TONALITY_FULL_RANGE,
     project: bool = False,
     level: int = 3,
 ) -> Section:
@@ -1151,18 +1152,17 @@ def _recommendations_section(
 
     loud = result.loudness
     # The limiter-ceiling advice presumes a mastering chain, like the
-    # limit_less line below — same routing: music keeps it, profile-free
-    # and raw-speech runs get the ".neutral" headroom wording.
+    # limit_less line below — same routing as the verdicts: music keeps
+    # it, mastered spoken-word profiles get the ".speech" framing, and
+    # profile-free / raw-speech runs get the ".neutral" headroom wording.
     if loud.true_peak_dbtp > -1.0:
-        recs.append(t(_material_key("report.rec.true_peak", material)))
+        recs.append(t(_material_key("report.rec.true_peak", material, tonality)))
     # "Ease off the limiting" assumes a limiter exists — a mastered-
     # material claim. Without a profile (and for a raw speech take) the
     # ".neutral" sibling states the high level without guessing how it
-    # got there. Recommendations carry no tonality, so mastered spoken-
-    # word profiles (material="music") keep the limiter wording, which
-    # is equally valid for a finished speech master.
+    # got there.
     if loud.integrated_lufs > -9.0:
-        recs.append(t(_material_key("report.rec.limit_less", material)))
+        recs.append(t(_material_key("report.rec.limit_less", material, tonality)))
 
     # One actionable EQ starting point per detected prominent peak. The
     # peaks are already prominence-filtered upstream, so everything in
@@ -1172,11 +1172,18 @@ def _recommendations_section(
         recs.append(_peak_fix_recommendation(peak))
 
     b = result.spectrum.bands
-    if material == MATERIAL_MUSIC:
+    if material == MATERIAL_MUSIC and tonality == TONALITY_FULL_RANGE:
         # These three assume mastered music ("the very low end is almost
         # absent" is no problem at all on a speech take). Without a
-        # profile we must not guess the material, so they stay
-        # music-only.
+        # profile we must not guess the material, and for spoken-word
+        # profiles (audio drama, audiobook, podcast) a quiet sub bass or
+        # rolled-off air IS the expected shape — the high-pass advice
+        # would tell the user to undo an intentional filter. Extreme
+        # shapes (the sub bass ending up the loudest band) still surface
+        # in the Overall Assessment via the spoken-tonality check; a
+        # loud-but-not-loudest sub bass is deliberately tolerated, since
+        # a music bed under dialogue can look exactly like that on
+        # purpose.
         if b.air_db < -22.0:
             recs.append(t("report.rec.air_boost"))
         if b.sub_db < -25.0:
@@ -1276,12 +1283,16 @@ def build_report(
     ``genre_profiles.material_context_for`` and always passes it
     explicitly.
 
-    ``tonality`` only affects the one-sentence tonal phrasing in the
-    Overall Assessment: ``"full_range"`` (default) keeps the historic
-    music wording, ``"speech"`` — declared by spoken-word profiles such
-    as audio drama, audiobook or podcast — reads the same band numbers
-    against the expected speech shape and reserves the "clearly X-heavy"
-    wording for profile-atypical extremes. Derived by the UI layer via
+    ``tonality`` affects the one-sentence tonal phrasing in the Overall
+    Assessment and the recommendations: ``"full_range"`` (default)
+    keeps the historic music wording, ``"speech"`` — declared by
+    spoken-word profiles such as audio drama, audiobook or podcast —
+    reads the same band numbers against the expected speech shape,
+    reserves the "clearly X-heavy" wording for profile-atypical
+    extremes, swaps the limiter recommendations to their spoken-word
+    framing, and suppresses the music-only band recommendations (a
+    quiet sub bass is the expected shape for speech, not a mix-bus
+    filter mistake). Derived by the UI layer via
     ``genre_profiles.tonality_context_for``.
 
     ``sections`` controls which top-level blocks are rendered. Default is
@@ -1378,7 +1389,11 @@ def build_report(
     if selected.recommendations:
         out.append(
             _recommendations_section(
-                result, material=material, project=project, level=section_level
+                result,
+                material=material,
+                tonality=tonality,
+                project=project,
+                level=section_level,
             )
         )
     return ReportDoc(sections=tuple(out))

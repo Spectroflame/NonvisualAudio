@@ -1257,3 +1257,45 @@ def test_genre_referencing_keys_have_material_siblings_in_both_catalogs():
                     f"{key}.speech.project",
                 ):
                     assert sibling in catalog, f"{lang}: {sibling} missing"
+
+
+def test_spoken_word_profile_suppresses_music_band_recommendations():
+    # The reported oddity: an audio-drama profile (material="music",
+    # tonality="speech") got "if this is music, check the high pass on
+    # the mix or master bus" for its quiet sub bass — but a rolled-off
+    # low end is the expected shape for spoken word, usually put there
+    # by an intentional filter. The three music-band recommendations
+    # must stay for real music profiles and disappear for spoken-word.
+    bands = BandEnergies(
+        sub_db=-30.0,
+        bass_db=-12.0,
+        low_mid_db=-9.0,
+        mid_db=-8.0,
+        presence_db=-14.0,
+        air_db=-25.0,
+    )
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    music = build_report(result, material="music")
+    assert "mix or master bus" in music
+    assert "clarity and air" in music
+    spoken = build_report(result, material="music", tonality="speech")
+    assert "mix or master bus" not in spoken
+    assert "clarity and air" not in spoken
+
+
+def test_spoken_word_profile_gets_speech_limiter_recommendations():
+    # With tonality now passed into the recommendations, the .speech
+    # siblings of the two limiter recommendations become live for
+    # mastered spoken-word profiles instead of the generic music text.
+    loud = LoudnessMetrics(
+        integrated_lufs=-8.0,
+        short_term_max_lufs=-5.0,
+        true_peak_dbtp=-0.3,
+        loudness_range_lu=3.5,
+    )
+    result = _make_result(loudness=loud)
+    music = build_report(result, material="music")
+    assert "In most brickwall limiters" in music
+    spoken = build_report(result, material="music", tonality="speech")
+    assert "for spoken-word masters too" in spoken
+    assert "easing off the limiting on the spoken-word master" in spoken

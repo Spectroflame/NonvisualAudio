@@ -163,20 +163,27 @@ TONALITY_FULL_RANGE = "full_range"
 TONALITY_SPEECH = "speech"
 
 # Verdict keys whose reference points (music mixes, streaming masters,
-# broadcast levels) only hold when a music profile is selected. Without
-# a profile — and with a speech profile — the report must not guess the
-# material, so these swap to a ".neutral" catalogue sibling that states
-# the same finding without the genre comparison. The measurements and
-# bucket thresholds stay identical; only the wording changes.
+# broadcast levels) or production assumptions (a mastering limiter, a
+# "healthy" wide dynamic range) only hold when a music profile is
+# selected. Without a profile — and with a speech profile — the report
+# must not guess the material, so these swap to a ".neutral" catalogue
+# sibling that states the same finding without the genre comparison.
+# The measurements and bucket thresholds stay identical; only the
+# wording changes.
 _GENRE_REFERENCING_KEYS = frozenset(
     {
+        "report.loudness.lra.verdict.very_narrow",
         "report.loudness.lra.verdict.narrow",
         "report.loudness.lra.verdict.typical",
+        "report.loudness.verdict.very_loud",
         "report.loudness.verdict.loud",
         "report.loudness.verdict.moderate",
         "report.dynamics.verdict.moderate",
+        "report.dynamics.verdict.wide",
         "report.overall.loud_compressed",
         "report.stereo.width.typical",
+        "report.rec.limit_less",
+        "report.rec.true_peak",
     }
 )
 
@@ -1143,10 +1150,19 @@ def _recommendations_section(
     recs: list[str] = []
 
     loud = result.loudness
+    # The limiter-ceiling advice presumes a mastering chain, like the
+    # limit_less line below — same routing: music keeps it, profile-free
+    # and raw-speech runs get the ".neutral" headroom wording.
     if loud.true_peak_dbtp > -1.0:
-        recs.append(t("report.rec.true_peak"))
+        recs.append(t(_material_key("report.rec.true_peak", material)))
+    # "Ease off the limiting" assumes a limiter exists — a mastered-
+    # material claim. Without a profile (and for a raw speech take) the
+    # ".neutral" sibling states the high level without guessing how it
+    # got there. Recommendations carry no tonality, so mastered spoken-
+    # word profiles (material="music") keep the limiter wording, which
+    # is equally valid for a finished speech master.
     if loud.integrated_lufs > -9.0:
-        recs.append(t("report.rec.limit_less"))
+        recs.append(t(_material_key("report.rec.limit_less", material)))
 
     # One actionable EQ starting point per detected prominent peak. The
     # peaks are already prominence-filtered upstream, so everything in

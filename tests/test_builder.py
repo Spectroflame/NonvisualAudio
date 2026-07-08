@@ -1106,3 +1106,154 @@ def test_german_spoken_tonality_wording():
         assert "es wurden keine schmalen Resonanzen gefunden" in report
     finally:
         localization.load("en")
+
+
+def test_wide_dynamics_healthy_wording_is_music_only():
+    # "Wide, healthy dynamic range" is a music-mastering value judgement:
+    # for spoken-word delivery a wide range can hurt intelligibility, and
+    # without a profile the report must not judge at all. LRA 13 with
+    # crest 15 lands in the "wide" bucket in every mode.
+    loud = LoudnessMetrics(
+        integrated_lufs=-18.0,
+        short_term_max_lufs=-10.0,
+        true_peak_dbtp=-2.0,
+        loudness_range_lu=13.0,
+    )
+    dyn = DynamicsMetrics(
+        peak_db=-2.0,
+        rms_db=-17.0,
+        crest_factor_db=15.0,
+        dr_score=14.0,
+    )
+    result = _make_result(loudness=loud, dynamics=dyn)
+    assert "wide, healthy dynamic range" in build_report(result, material="music")
+    neutral = build_report(result, material="neutral")
+    assert "healthy" not in neutral
+    assert "The dynamic range is wide" in neutral
+    raw_speech = build_report(result, material="speech")
+    assert "healthy" not in raw_speech
+    spoken = build_report(result, material="music", tonality="speech")
+    assert "healthy" not in spoken
+    assert "worth checking quiet passages for intelligibility" in spoken
+
+
+def test_limit_less_recommendation_assumes_limiter_only_for_music():
+    # Integrated above minus 9 LUFS triggers the "ease off the limiting"
+    # recommendation. That advice presumes a limiter exists — fine for a
+    # music (or mastered spoken-word) profile, a guess for profile-free
+    # runs and raw takes, which get the neutral level wording instead.
+    loud = LoudnessMetrics(
+        integrated_lufs=-8.0,
+        short_term_max_lufs=-5.0,
+        true_peak_dbtp=-2.0,
+        loudness_range_lu=3.5,
+    )
+    result = _make_result(loudness=loud)
+    assert "easing off the limiting" in build_report(result, material="music")
+    neutral = build_report(result, material="neutral")
+    assert "easing off the limiting" not in neutral
+    assert "lowering the overall level" in neutral
+    raw_speech = build_report(result, material="speech")
+    assert "easing off the limiting" not in raw_speech
+    assert "lowering the overall level" in raw_speech
+
+
+def test_very_narrow_lra_limiting_claim_is_material_aware():
+    # "Typical of heavily limited material" asserts a processing chain.
+    # A raw, evenly spoken take can land under 3 LU without any limiter,
+    # so profile-free and raw-speech runs get the descriptive neutral
+    # sibling; mastered spoken-word keeps a finished-production framing.
+    loud = LoudnessMetrics(
+        integrated_lufs=-16.0,
+        short_term_max_lufs=-13.0,
+        true_peak_dbtp=-2.0,
+        loudness_range_lu=2.0,
+    )
+    result = _make_result(loudness=loud)
+    assert "typical of heavily limited material" in build_report(
+        result, material="music"
+    )
+    neutral = build_report(result, material="neutral")
+    assert "heavily limited" not in neutral
+    assert "the perceived loudness stays almost constant over time" in neutral
+    raw_speech = build_report(result, material="speech")
+    assert "heavily limited" not in raw_speech
+    spoken = build_report(result, material="music", tonality="speech")
+    assert "heavily limited material" not in spoken
+    assert "typical of heavily processed spoken-word versions" in spoken
+
+
+def test_true_peak_recommendation_limiter_wording_is_material_aware():
+    # A true peak above minus 1 dBTP triggers the ceiling recommendation.
+    # The brickwall-limiter framing presumes a mastering chain; without a
+    # profile (and for a raw take) the neutral sibling talks about level
+    # headroom instead.
+    loud = LoudnessMetrics(
+        integrated_lufs=-16.0,
+        short_term_max_lufs=-12.0,
+        true_peak_dbtp=-0.3,
+        loudness_range_lu=8.7,
+    )
+    result = _make_result(loudness=loud)
+    assert "brickwall limiters" in build_report(result, material="music")
+    neutral = build_report(result, material="neutral")
+    assert "brickwall" not in neutral
+    assert "a bit more level headroom helps" in neutral
+    raw_speech = build_report(result, material="speech")
+    assert "brickwall" not in raw_speech
+    assert "a bit more level headroom helps" in raw_speech
+
+
+def test_very_loud_limiting_claim_is_material_aware():
+    # Review follow-up: with the recommendations now material-aware, the
+    # "most likely heavily limited" loudness verdict was the last line
+    # asserting a limiter in profile-free reports — the same report would
+    # claim limiting up top and stay carefully neutral further down.
+    loud = LoudnessMetrics(
+        integrated_lufs=-7.0,
+        short_term_max_lufs=-4.0,
+        true_peak_dbtp=-2.0,
+        loudness_range_lu=4.0,
+    )
+    result = _make_result(loudness=loud)
+    assert "most likely heavily limited" in build_report(result, material="music")
+    neutral = build_report(result, material="neutral")
+    assert "heavily limited" not in neutral
+    assert "very loud, leaving practically no headroom" in neutral
+    raw_speech = build_report(result, material="speech")
+    assert "heavily limited" not in raw_speech
+    spoken = build_report(result, material="music", tonality="speech")
+    assert "heavily limited" not in spoken
+    assert (
+        "well above the levels usual for broadcast and streaming versions"
+        in spoken
+    )
+
+
+def test_genre_referencing_keys_have_material_siblings_in_both_catalogs():
+    # Guard for the raw-key-in-UI failure mode: every key routed through
+    # _material_key must have .neutral and .speech siblings in BOTH
+    # catalogues, and — where the base key has a .project variant — the
+    # material siblings need their .project variants too, so project
+    # mode never silently falls back to file wording for one material
+    # while using project wording for another.
+    import json
+    from pathlib import Path
+
+    from nonvisualaudio.reporting import builder as builder_mod
+
+    i18n_dir = (
+        Path(builder_mod.__file__).resolve().parent.parent / "resources" / "i18n"
+    )
+    for lang in ("de", "en"):
+        catalog = json.loads((i18n_dir / f"{lang}.json").read_text("utf-8"))
+        for key in builder_mod._GENRE_REFERENCING_KEYS:
+            assert key in catalog, f"{lang}: base key {key} missing"
+            for sibling in (f"{key}.neutral", f"{key}.speech"):
+                assert sibling in catalog, f"{lang}: {sibling} missing"
+            if f"{key}.project" in catalog:
+                for sibling in (
+                    f"{key}.neutral.project",
+                    f"{key}.speech.project",
+                ):
+                    assert sibling in catalog, f"{lang}: {sibling} missing"

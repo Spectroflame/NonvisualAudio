@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import sys
-import time
 from pathlib import Path
 
 import wx
@@ -12,9 +11,7 @@ import wx
 from nonvisualaudio import preferences
 from nonvisualaudio.analysis.memory import (
     MemoryEstimate,
-    build_estimate,
-    estimate_file_bytes,
-    estimate_project_bytes,
+    collect_run_estimate,
     format_bytes,
 )
 from nonvisualaudio.errors import UserFacingError
@@ -26,10 +23,12 @@ from nonvisualaudio.ui import a11y
 from nonvisualaudio.ui import macos_a11y
 from nonvisualaudio.ui import theme
 from nonvisualaudio.ui.about_dialog import show_about
+from nonvisualaudio.ui.clipboard_paths import read_clipboard_paths
 from nonvisualaudio.ui.click_sound import ClickTicker
 from nonvisualaudio.ui.diagnostics_dialog import show_diagnostics
-from nonvisualaudio.ui.drop import expand_audio_paths, parse_paste_text
+from nonvisualaudio.ui.drop import common_folder_name, expand_audio_paths
 from nonvisualaudio.ui.error_dialog import show_error
+from nonvisualaudio.ui.eta import EtaEstimator
 from nonvisualaudio.ui.genre_dialog import GenreDialog
 from nonvisualaudio.ui.genre_editor_dialog import GenreEditorDialog
 from nonvisualaudio.ui.project_prompt import should_offer_project_mode
@@ -84,13 +83,9 @@ class MainWindow(wx.Frame):
         self._analysis_running: bool = False
         self._cancel_dialog_open: bool = False
         self._pending_result: tuple | None = None
-        # ETA state: ``_progress_started_at`` is the monotonic clock when
-        # the user pressed Analyze; ``_progress_eta_seconds`` holds the
-        # last EMA-smoothed remaining-time estimate (None until the bar
-        # crosses 5 %, since the ratio is wildly unstable below that).
-        # Both reset to None when the analysis stops.
-        self._progress_started_at: float | None = None
-        self._progress_eta_seconds: float | None = None
+        # Remaining-time estimate for the progress display; started on
+        # Analyze, reset when the analysis stops. See ui.eta.EtaEstimator.
+        self._eta = EtaEstimator()
         # Report-section preference: default to "everything on" so a
         # fresh install behaves like the historical report.
         stored_sections = preferences.load_report_sections()
@@ -667,27 +662,6 @@ class MainWindow(wx.Frame):
     # Clipboard helpers
     # ------------------------------------------------------------------ #
 
-    def _read_clipboard_paths(self) -> list[str]:
-        """Return path-like strings from the system clipboard, or []."""
-        paths: list[str] = []
-        if not wx.TheClipboard.Open():
-            return paths
-        try:
-            file_format = wx.DataFormat(wx.DF_FILENAME)
-            if wx.TheClipboard.IsSupported(file_format):
-                data = wx.FileDataObject()
-                if wx.TheClipboard.GetData(data):
-                    paths.extend(data.GetFilenames())
-            if not paths and wx.TheClipboard.IsSupported(
-                wx.DataFormat(wx.DF_UNICODETEXT)
-            ):
-                text_data = wx.TextDataObject()
-                if wx.TheClipboard.GetData(text_data):
-                    paths.extend(parse_paste_text(text_data.GetText()))
-        finally:
-            wx.TheClipboard.Close()
-        return paths
-
     def _paste_destination_is_reference(self) -> bool:
         """Return True when the user is working in the reference area.
 
@@ -715,7 +689,7 @@ class MainWindow(wx.Frame):
         then had to press it again. Menu accelerators bypass widget
         event-routing entirely on macOS, so one press always fires.
         """
-        paths = self._read_clipboard_paths()
+        paths = read_clipboard_paths()
         if not paths:
             log.info("paste menu: clipboard had no usable paths")
             return
@@ -735,7 +709,7 @@ class MainWindow(wx.Frame):
         if self._startup_scan_done:
             return
         self._startup_scan_done = True
-        raw = self._read_clipboard_paths()
+        raw = read_clipboard_paths()
         if not raw:
             return
         expanded = expand_audio_paths(raw)
@@ -928,7 +902,7 @@ class MainWindow(wx.Frame):
         same directory; otherwise returns ``None`` and the pipeline
         falls back to a generic localised label.
         """
-        return self._common_folder_name(self._target_paths)
+        return common_folder_name(self._target_paths)
 
     def _derive_reference_name(self) -> str | None:
         """Same heuristic as :meth:`_derive_project_name` but for the
@@ -936,21 +910,7 @@ class MainWindow(wx.Frame):
         """
         if len(self._reference_paths) <= 1:
             return None
-        return self._common_folder_name(self._reference_paths)
-
-    @staticmethod
-    def _common_folder_name(paths: list[str]) -> str | None:
-        if not paths:
-            return None
-        from os.path import commonpath
-
-        try:
-            common = Path(commonpath(paths))
-        except ValueError:
-            return None
-        if common.is_dir():
-            return common.name or None
-        return None
+        return common_folder_name(self._reference_paths)
 
     # ------------------------------------------------------------------ #
     # Reference file
@@ -1120,8 +1080,7 @@ class MainWindow(wx.Frame):
         self.progress_label.ChangeValue(t("ui.progress.starting"))
         self.progress_label.Show()
         self.Layout()
-        self._progress_started_at = time.monotonic()
-        self._progress_eta_seconds = None
+        self._eta.start()
         self._click_ticker.start()
         genre_keys = self._selected_genre_keys or None
         sections = ReportSections.from_keys(self._section_keys)
@@ -1180,55 +1139,21 @@ class MainWindow(wx.Frame):
         return self._on_confirm_memory(estimate)
 
     def _collect_ram_estimate(self) -> MemoryEstimate | None:
-        """Build the worst-case RAM estimate for the run that's about to start.
+        """Worst-case RAM estimate for the run that's about to start.
 
-        Project mode is one combined pass over all targets, so it gets
-        the project-overhead formula. Otherwise we estimate each target
-        individually and report the largest — that's the file that will
-        either fit or trip the warning. A multi-file reference adds its
-        own project-style estimate; a single-file reference is treated
-        like any other file.
+        The heavy lifting lives in :func:`collect_run_estimate`; this
+        wrapper only supplies the current window state and the localised
+        fallback labels for the combined passes.
         """
-        candidates: list[MemoryEstimate] = []
-        if self._target_paths:
-            if self._project_mode:
-                candidates.append(
-                    build_estimate(
-                        label=self._derive_project_name()
-                        or t("project.default_name"),
-                        estimated_bytes=estimate_project_bytes(self._target_paths),
-                    )
-                )
-            else:
-                for raw in self._target_paths:
-                    candidates.append(
-                        build_estimate(
-                            label=Path(raw).name,
-                            estimated_bytes=estimate_file_bytes(raw),
-                        )
-                    )
-        if self._reference_paths:
-            if len(self._reference_paths) == 1:
-                ref = self._reference_paths[0]
-                candidates.append(
-                    build_estimate(
-                        label=Path(ref).name,
-                        estimated_bytes=estimate_file_bytes(ref),
-                    )
-                )
-            else:
-                candidates.append(
-                    build_estimate(
-                        label=self._derive_reference_name()
-                        or t("project.reference_default_name"),
-                        estimated_bytes=estimate_project_bytes(
-                            self._reference_paths
-                        ),
-                    )
-                )
-        if not candidates:
-            return None
-        return max(candidates, key=lambda e: e.estimated_bytes)
+        return collect_run_estimate(
+            self._target_paths,
+            self._reference_paths,
+            project_mode=self._project_mode,
+            project_label=self._derive_project_name()
+            or t("project.default_name"),
+            reference_label=self._derive_reference_name()
+            or t("project.reference_default_name"),
+        )
 
     def _on_confirm_memory(self, estimate: MemoryEstimate) -> bool:
         """Show the RAM warning and return True if the user wants to proceed.
@@ -1275,77 +1200,6 @@ class MainWindow(wx.Frame):
         log.info("user %s the ram warning", "accepted" if proceed else "cancelled")
         return proceed
 
-    def _format_eta(self, seconds: float) -> str:
-        """Render the remaining-time estimate for screen-reader output.
-
-        Buckets it into "less than 30 s" / "seconds" / "minutes" /
-        "hours and minutes" with screen-reader-friendly rounding (5-s
-        steps under a minute, 1-min steps under ten, 5-min steps after
-        that). Reading "noch ca. 1 Minute 34 Sekunden" aloud every
-        few seconds is more noise than help — these buckets keep the
-        screen reader's output stable.
-        """
-        seconds = max(0.0, seconds)
-        if seconds < 30:
-            return t("ui.progress.eta.under_30s")
-        if seconds < 60:
-            rounded = int(round(seconds / 10.0) * 10)
-            return t("ui.progress.eta.seconds", seconds=rounded)
-        if seconds < 600:
-            minutes = max(1, int(round(seconds / 60.0)))
-            key = (
-                "ui.progress.eta.minutes.one"
-                if minutes == 1
-                else "ui.progress.eta.minutes"
-            )
-            return t(key, minutes=minutes)
-        if seconds < 3600:
-            minutes = max(5, int(round(seconds / 300.0)) * 5)
-            return t("ui.progress.eta.minutes", minutes=minutes)
-        hours = int(seconds // 3600)
-        minutes = int(round((seconds - hours * 3600) / 300.0)) * 5
-        if minutes >= 60:
-            hours += 1
-            minutes = 0
-        if minutes == 0:
-            key = (
-                "ui.progress.eta.hours_only.one"
-                if hours == 1
-                else "ui.progress.eta.hours_only"
-            )
-            return t(key, hours=hours)
-        key = (
-            "ui.progress.eta.hours.one" if hours == 1 else "ui.progress.eta.hours"
-        )
-        return t(key, hours=hours, minutes=minutes)
-
-    def _compute_eta_label(self, percent: int) -> str | None:
-        """EMA-smoothed remaining-time estimate, or None if not yet useful.
-
-        Below 5 % the ratio is dominated by start-up cost (ffmpeg launch,
-        first reads) and the projection is nonsense; we wait until the
-        bar has actually moved. The exponential moving average tames the
-        natural jitter that comes from different pipeline stages
-        running at different speeds.
-        """
-        if self._progress_started_at is None or percent < 5:
-            return None
-        elapsed = time.monotonic() - self._progress_started_at
-        if elapsed < 0.5:
-            return None
-        raw_eta = max(0.0, elapsed / percent * (100 - percent))
-        # alpha=0.3 is a moderate smoothing — fast enough that the ETA
-        # converges within a few ticks, slow enough that one outlier
-        # tick (e.g. a sudden 75→80 % jump when post-decode parallel
-        # work finishes) does not yank the displayed value around.
-        if self._progress_eta_seconds is None:
-            self._progress_eta_seconds = raw_eta
-        else:
-            self._progress_eta_seconds = (
-                0.7 * self._progress_eta_seconds + 0.3 * raw_eta
-            )
-        return self._format_eta(self._progress_eta_seconds)
-
     def _on_analysis_progress(self, token: int, percent: int, stage: str) -> None:
         # Drop progress from an abandoned run (cancelled or superseded).
         if token != self._run_token:
@@ -1357,7 +1211,7 @@ class MainWindow(wx.Frame):
         # no widget announces the percent twice — the double reading the
         # split design used to produce confused screen-reader users.
         self.progress.SetValue(max(0, min(100, int(percent))))
-        eta = self._compute_eta_label(int(percent))
+        eta = self._eta.label_for(int(percent))
         if eta is None:
             gauge_name = t("ui.label.progress_bar")
             status = t("ui.progress.status", stage=stage)
@@ -1382,8 +1236,7 @@ class MainWindow(wx.Frame):
         a11y.update_name(self.progress, t("ui.label.progress_bar"))
         self.progress_label.ChangeValue("")
         self.progress_label.Hide()
-        self._progress_started_at = None
-        self._progress_eta_seconds = None
+        self._eta.reset()
         self.Layout()
         self.open_btn.Enable()
         self._update_analyze_state()

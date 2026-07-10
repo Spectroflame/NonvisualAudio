@@ -49,7 +49,7 @@ def _start(win: MainWindow) -> int:
 def test_early_tick_keeps_gauge_name_plain(window: MainWindow):
     """Before the ETA is computable the gauge name stays the bare label."""
     tok = _start(window)
-    window._progress_started_at = None  # too early for an estimate
+    window._eta.started_at = None  # too early for an estimate
     window._on_analysis_progress(tok, 3, "Dekodiere Audio")
 
     assert window.progress.GetValue() == 3
@@ -65,8 +65,8 @@ def test_eta_rides_in_gauge_name_stage_in_label(window: MainWindow):
     not duplicated into the name or the label."""
     tok = _start(window)
     # 10 s elapsed at 50 % yields a usable, non-zero estimate.
-    window._progress_started_at = time.monotonic() - 10.0
-    window._progress_eta_seconds = None
+    window._eta.started_at = time.monotonic() - 10.0
+    window._eta.eta_seconds = None
     window._on_analysis_progress(tok, 50, "Messe Lautheit")
 
     assert window.progress.GetValue() == 50
@@ -85,8 +85,8 @@ def test_eta_rides_in_gauge_name_stage_in_label(window: MainWindow):
 def test_stale_token_is_ignored(window: MainWindow):
     """Progress from a superseded/cancelled run must not touch the UI."""
     tok = _start(window)
-    window._progress_started_at = time.monotonic() - 10.0
-    window._progress_eta_seconds = None
+    window._eta.started_at = time.monotonic() - 10.0
+    window._eta.eta_seconds = None
     window._on_analysis_progress(tok, 50, "Messe Lautheit")
 
     window._on_analysis_progress(tok + 999, 80, "Analysiere Spektrum")
@@ -99,8 +99,8 @@ def test_stop_resets_gauge_name_and_label(window: MainWindow):
     """Stopping clears the ETA from the gauge name and empties the label
     so the next run never flashes a stale estimate before its first tick."""
     tok = _start(window)
-    window._progress_started_at = time.monotonic() - 10.0
-    window._progress_eta_seconds = None
+    window._eta.started_at = time.monotonic() - 10.0
+    window._eta.eta_seconds = None
     window._on_analysis_progress(tok, 50, "Messe Lautheit")
 
     window._stop_running_ui()

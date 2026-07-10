@@ -169,6 +169,115 @@ def active_ffmpeg_info() -> tuple[str, str] | None:
     return _active_info
 
 
+def _spawn(args: Sequence[str], cancel: Cancellation | None) -> subprocess.Popen:
+    """Start the child with piped stdout/stderr and register it for cancel.
+
+    Uses ``Popen`` rather than ``subprocess.run`` so the running process
+    can be registered for cancellation — ``subprocess.run`` hides the
+    handle. The explicit minimal environment (PATH plus the platform's
+    dynamic-linker hints) lets a non-statically-linked ffmpeg resolve its
+    dylibs, see :func:`_subprocess_env`.
+    """
+    binary = Path(args[0]).name
+    if cancel is not None:
+        cancel.raise_if_cancelled()
+    try:
+        proc = subprocess.Popen(
+            list(args),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_subprocess_env(),
+        )
+    except FileNotFoundError as exc:
+        log.error("%s not found on PATH", binary)
+        raise FFmpegError(f"binary_not_found:{args[0]}") from exc
+    if cancel is not None:
+        cancel.bind_process(proc)
+    return proc
+
+
+def _start_stderr_drain(
+    proc: subprocess.Popen,
+    stderr_line_callback: Callable[[bytes], None] | None,
+) -> tuple[threading.Thread, list[bytes]]:
+    """Drain the child's stderr on a daemon thread, collecting raw lines.
+
+    Reading stderr only after stdout drains can deadlock if the OS pipe
+    buffers fill up — so stderr is always consumed concurrently. Each
+    full line is appended to the returned list and, if given, handed to
+    ``stderr_line_callback``. The callback must be cheap; exceptions are
+    caught and logged so a buggy callback cannot wedge the worker thread.
+    """
+    stderr_chunks: list[bytes] = []
+
+    def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        try:
+            for line in iter(proc.stderr.readline, b""):
+                stderr_chunks.append(line)
+                if stderr_line_callback is not None:
+                    try:
+                        stderr_line_callback(line)
+                    except Exception:  # noqa: BLE001 — never let a UI callback wedge ffmpeg
+                        log.exception("stderr_line_callback raised")
+        finally:
+            try:
+                proc.stderr.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    thread = threading.Thread(target=_drain_stderr, daemon=True)
+    thread.start()
+    return thread, stderr_chunks
+
+
+def _wait_and_collect_stderr(
+    proc: subprocess.Popen,
+    *,
+    binary: str,
+    timeout: float,
+    cancel: Cancellation | None,
+    stderr_thread: threading.Thread,
+    stderr_chunks: list[bytes],
+    t0: float,
+) -> tuple[str, float]:
+    """Wait for exit, join the stderr drain, and enforce the exit code.
+
+    Returns ``(stderr_text, elapsed_seconds)`` on success. Raises
+    :class:`FFmpegError` on timeout or non-zero exit. A cancel that fired
+    during the run terminated the process, which surfaces here as a
+    non-zero exit — it is reported as :class:`CancelledError` instead,
+    never as an ``FFmpegError``, so it cannot reach an error dialog.
+    """
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        proc.wait()
+        log.error("%s timed out after %.1fs", binary, timeout)
+        raise FFmpegError(f"timeout:{timeout}") from exc
+    finally:
+        if cancel is not None:
+            cancel.clear_process()
+    if cancel is not None:
+        cancel.raise_if_cancelled()
+    # Reader thread should be near the end by now; cap the join so a
+    # stuck thread cannot freeze the analyser indefinitely.
+    stderr_thread.join(timeout=30.0)
+    stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+    elapsed = time.time() - t0
+    if proc.returncode != 0:
+        log.error(
+            "%s exited %d after %.2fs: %s",
+            binary,
+            proc.returncode,
+            elapsed,
+            stderr_text[:400],
+        )
+        raise FFmpegError(f"exit:{proc.returncode}\n{stderr_text}")
+    return stderr_text, elapsed
+
+
 def run_split_streams(
     args: Sequence[str],
     *,
@@ -199,41 +308,8 @@ def run_split_streams(
     binary = Path(args[0]).name
     log.debug("exec stream %s %s", binary, " ".join(str(a) for a in args[1:]))
     t0 = time.time()
-    if cancel is not None:
-        cancel.raise_if_cancelled()
-    try:
-        proc = subprocess.Popen(
-            list(args),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=_subprocess_env(),
-        )
-    except FileNotFoundError as exc:
-        log.error("%s not found on PATH", binary)
-        raise FFmpegError(f"binary_not_found:{args[0]}") from exc
-    if cancel is not None:
-        cancel.bind_process(proc)
-
-    stderr_chunks: list[bytes] = []
-
-    def _drain_stderr() -> None:
-        assert proc.stderr is not None
-        try:
-            for line in iter(proc.stderr.readline, b""):
-                stderr_chunks.append(line)
-                if stderr_line_callback is not None:
-                    try:
-                        stderr_line_callback(line)
-                    except Exception:  # noqa: BLE001 — never let a UI callback wedge ffmpeg
-                        log.exception("stderr_line_callback raised")
-        finally:
-            try:
-                proc.stderr.close()
-            except Exception:  # noqa: BLE001
-                pass
-
-    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
-    stderr_thread.start()
+    proc = _spawn(args, cancel)
+    stderr_thread, stderr_chunks = _start_stderr_drain(proc, stderr_line_callback)
     try:
         assert proc.stdout is not None
         stdout_data = proc.stdout.read()
@@ -243,35 +319,15 @@ def run_split_streams(
             proc.stdout.close()
         except Exception:  # noqa: BLE001
             pass
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        proc.kill()
-        proc.wait()
-        log.error("%s timed out after %.1fs", binary, timeout)
-        raise FFmpegError(f"timeout:{timeout}") from exc
-    finally:
-        if cancel is not None:
-            cancel.clear_process()
-    # A cancel that fired during the run terminated the process, which
-    # surfaces here as a non-zero exit. Report it as cancellation, never
-    # as an FFmpegError, so it cannot reach an error dialog.
-    if cancel is not None:
-        cancel.raise_if_cancelled()
-    # Reader thread should be near the end by now; cap the join so a
-    # stuck thread cannot freeze the analyser indefinitely.
-    stderr_thread.join(timeout=30.0)
-    stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace")
-    elapsed = time.time() - t0
-    if proc.returncode != 0:
-        log.error(
-            "%s exited %d after %.2fs: %s",
-            binary,
-            proc.returncode,
-            elapsed,
-            stderr_text[:400],
-        )
-        raise FFmpegError(f"exit:{proc.returncode}\n{stderr_text}")
+    stderr_text, elapsed = _wait_and_collect_stderr(
+        proc,
+        binary=binary,
+        timeout=timeout,
+        cancel=cancel,
+        stderr_thread=stderr_thread,
+        stderr_chunks=stderr_chunks,
+        t0=t0,
+    )
     log.debug(
         "%s done in %.2fs (%d bytes stdout)", binary, elapsed, len(stdout_data)
     )
@@ -307,41 +363,8 @@ def run_split_streams_streaming(
         "exec stream(chunked) %s %s", binary, " ".join(str(a) for a in args[1:])
     )
     t0 = time.time()
-    if cancel is not None:
-        cancel.raise_if_cancelled()
-    try:
-        proc = subprocess.Popen(
-            list(args),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=_subprocess_env(),
-        )
-    except FileNotFoundError as exc:
-        log.error("%s not found on PATH", binary)
-        raise FFmpegError(f"binary_not_found:{args[0]}") from exc
-    if cancel is not None:
-        cancel.bind_process(proc)
-
-    stderr_chunks: list[bytes] = []
-
-    def _drain_stderr() -> None:
-        assert proc.stderr is not None
-        try:
-            for line in iter(proc.stderr.readline, b""):
-                stderr_chunks.append(line)
-                if stderr_line_callback is not None:
-                    try:
-                        stderr_line_callback(line)
-                    except Exception:  # noqa: BLE001 — never let a UI callback wedge ffmpeg
-                        log.exception("stderr_line_callback raised")
-        finally:
-            try:
-                proc.stderr.close()
-            except Exception:  # noqa: BLE001
-                pass
-
-    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
-    stderr_thread.start()
+    proc = _spawn(args, cancel)
+    stderr_thread, stderr_chunks = _start_stderr_drain(proc, stderr_line_callback)
     total_bytes = 0
     try:
         assert proc.stdout is not None
@@ -370,33 +393,15 @@ def run_split_streams_streaming(
             proc.stdout.close()
         except Exception:  # noqa: BLE001
             pass
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        proc.kill()
-        proc.wait()
-        log.error("%s timed out after %.1fs", binary, timeout)
-        raise FFmpegError(f"timeout:{timeout}") from exc
-    finally:
-        if cancel is not None:
-            cancel.clear_process()
-    # A cancel that fired during the run terminated the process, which
-    # surfaces here as a non-zero exit. Report it as cancellation, never
-    # as an FFmpegError, so it cannot reach an error dialog.
-    if cancel is not None:
-        cancel.raise_if_cancelled()
-    stderr_thread.join(timeout=30.0)
-    stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace")
-    elapsed = time.time() - t0
-    if proc.returncode != 0:
-        log.error(
-            "%s exited %d after %.2fs: %s",
-            binary,
-            proc.returncode,
-            elapsed,
-            stderr_text[:400],
-        )
-        raise FFmpegError(f"exit:{proc.returncode}\n{stderr_text}")
+    stderr_text, elapsed = _wait_and_collect_stderr(
+        proc,
+        binary=binary,
+        timeout=timeout,
+        cancel=cancel,
+        stderr_thread=stderr_thread,
+        stderr_chunks=stderr_chunks,
+        t0=t0,
+    )
     log.debug(
         "%s done in %.2fs (%d bytes stdout streamed)",
         binary,
@@ -428,25 +433,7 @@ def run(
     t0 = time.time()
     binary = Path(args[0]).name
     log.debug("exec %s %s", binary, " ".join(str(a) for a in args[1:]))
-    if cancel is not None:
-        cancel.raise_if_cancelled()
-    try:
-        # Popen rather than subprocess.run so the running process can be
-        # registered for cancellation; subprocess.run hides the handle.
-        proc = subprocess.Popen(
-            list(args),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            # Explicit minimal environment: PATH plus the platform's
-            # dynamic-linker hints so a non-statically-linked ffmpeg can
-            # still resolve its dylibs. See _subprocess_env().
-            env=_subprocess_env(),
-        )
-    except FileNotFoundError as exc:
-        log.error("%s not found on PATH", binary)
-        raise FFmpegError(f"binary_not_found:{args[0]}") from exc
-    if cancel is not None:
-        cancel.bind_process(proc)
+    proc = _spawn(args, cancel)
     try:
         try:
             stdout, stderr_bytes = proc.communicate(timeout=timeout)

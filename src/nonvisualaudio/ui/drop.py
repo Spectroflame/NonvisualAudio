@@ -170,3 +170,24 @@ def parse_paste_text(text: str) -> list[str]:
             continue
         paths.append(line)
     return paths
+
+
+def common_folder_name(paths: Iterable[str]) -> str | None:
+    """Name of the deepest folder that contains every given path, or None.
+
+    Used to derive a display name for a multi-file project: if all
+    inputs live below the same directory, that directory's name is a
+    sensible label. Returns ``None`` for an empty list, for paths on
+    different drives (``commonpath`` raises), or when the common prefix
+    is not an existing directory.
+    """
+    path_list = list(paths)
+    if not path_list:
+        return None
+    try:
+        common = Path(os.path.commonpath(path_list))
+    except ValueError:
+        return None
+    if common.is_dir():
+        return common.name or None
+    return None

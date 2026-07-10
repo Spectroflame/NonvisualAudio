@@ -222,3 +222,51 @@ def test_expand_survives_null_byte_in_path():
     # An embedded null byte makes os.stat raise ValueError instead of
     # OSError; both must degrade to "not a file", not a traceback.
     assert expand_audio_paths(["bad\x00path.wav"]) == []
+
+
+# --------------------------------------------------------------------------- #
+# common_folder_name
+# --------------------------------------------------------------------------- #
+
+
+def test_common_folder_name_empty_list_is_none():
+    from nonvisualaudio.ui.drop import common_folder_name
+
+    assert common_folder_name([]) is None
+
+
+def test_common_folder_name_uses_shared_parent(tmp_path: Path):
+    from nonvisualaudio.ui.drop import common_folder_name
+
+    album = tmp_path / "Mein Album"
+    a = _touch(album / "01.wav")
+    b = _touch(album / "02.wav")
+    assert common_folder_name([str(a), str(b)]) == "Mein Album"
+
+
+def test_common_folder_name_single_file_names_its_folder(tmp_path: Path):
+    from nonvisualaudio.ui.drop import common_folder_name
+
+    f = _touch(tmp_path / "Projekt" / "take.wav")
+    # commonpath of one file is the file itself — not a directory.
+    assert common_folder_name([str(f)]) is None
+    # Two identical entries behave the same way.
+    assert common_folder_name([str(f), str(f)]) is None
+
+
+def test_common_folder_name_subfolders_roll_up(tmp_path: Path):
+    from nonvisualaudio.ui.drop import common_folder_name
+
+    root = tmp_path / "Hörspiel"
+    a = _touch(root / "cd1" / "01.wav")
+    b = _touch(root / "cd2" / "01.wav")
+    assert common_folder_name([str(a), str(b)]) == "Hörspiel"
+
+
+def test_common_folder_name_mixed_absolute_relative_is_none(tmp_path: Path):
+    from nonvisualaudio.ui.drop import common_folder_name
+
+    a = _touch(tmp_path / "x" / "a.wav")
+    # os.path.commonpath raises ValueError on absolute/relative mixes;
+    # the helper must swallow that and answer "no common folder".
+    assert common_folder_name([str(a), "relative/b.wav"]) is None

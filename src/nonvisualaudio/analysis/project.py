@@ -33,6 +33,7 @@ from pathlib import Path
 from nonvisualaudio.analysis import memory
 from nonvisualaudio.analysis.dynamics import DynamicsStreamer
 from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128_summary
+from nonvisualaudio.analysis.loudness import make_progress_line_callback
 from nonvisualaudio.analysis.memory import (
     ConfirmMemoryCb,
     RamCheckCancelled,
@@ -196,27 +197,9 @@ def _measure_combined_streaming(
     ]
 
     # Live progress from the ebur128 ``t:`` markers, fired on the stderr
-    # reader thread — keep the callback cheap.
-    progress_state = {"last_pct": -1}
-
-    def _on_line(raw_line: bytes) -> None:
-        if on_progress is None or total_duration <= 0:
-            return
-        text = raw_line.decode("utf-8", errors="replace")
-        from nonvisualaudio.analysis.loudness import _RE_FRAME_T
-
-        m = _RE_FRAME_T.search(text)
-        if m is None:
-            return
-        try:
-            t_sec = float(m.group(1))
-        except ValueError:
-            return
-        pct = int(100.0 * min(1.0, max(0.0, t_sec / total_duration)))
-        if pct == progress_state["last_pct"]:
-            return
-        progress_state["last_pct"] = pct
-        on_progress(pct)
+    # reader thread — the shared parser keeps the callback cheap and
+    # drops duplicate percent values.
+    _on_line = make_progress_line_callback(total_duration, on_progress)
 
     # The combined scan is roughly the sum of the individual scans;
     # 30 minutes of audio at realtime ≈ 30s of ffmpeg work, so the

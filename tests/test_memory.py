@@ -318,3 +318,98 @@ def test_pipeline_invokes_callback_only_when_concerning(
         pipeline.analyze(wav, confirm_memory_cb=cb)
     assert len(calls) == 1
     assert calls[0].is_concerning is True
+
+
+# --------------------------------------------------------------------------- #
+# collect_run_estimate — worst-case pick for a whole run
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture()
+def _fake_estimators(monkeypatch: pytest.MonkeyPatch):
+    """Deterministic per-path byte estimates keyed by file name.
+
+    ``estimate_file_bytes`` returns 100 for "small.wav", 500 for
+    "big.wav"; ``estimate_project_bytes`` returns 1000 times the number
+    of paths so project estimates are easy to tell apart.
+    """
+    sizes = {"small.wav": 100, "big.wav": 500}
+
+    def fake_file(path):
+        return sizes.get(Path(path).name, 1)
+
+    def fake_project(paths):
+        return 1000 * len(paths)
+
+    monkeypatch.setattr(memory, "estimate_file_bytes", fake_file)
+    monkeypatch.setattr(memory, "estimate_project_bytes", fake_project)
+
+
+def test_collect_run_estimate_empty_run_is_none(_fake_estimators) -> None:
+    assert (
+        memory.collect_run_estimate(
+            [],
+            [],
+            project_mode=False,
+            project_label="Projekt",
+            reference_label="Referenz",
+        )
+        is None
+    )
+
+
+def test_collect_run_estimate_picks_largest_single_file(_fake_estimators) -> None:
+    est = memory.collect_run_estimate(
+        ["/in/small.wav", "/in/big.wav"],
+        [],
+        project_mode=False,
+        project_label="Projekt",
+        reference_label="Referenz",
+    )
+    assert est is not None
+    assert est.label == "big.wav"
+    assert est.estimated_bytes == 500
+
+
+def test_collect_run_estimate_project_mode_uses_project_formula(
+    _fake_estimators,
+) -> None:
+    est = memory.collect_run_estimate(
+        ["/in/small.wav", "/in/big.wav"],
+        [],
+        project_mode=True,
+        project_label="Mein Projekt",
+        reference_label="Referenz",
+    )
+    assert est is not None
+    assert est.label == "Mein Projekt"
+    assert est.estimated_bytes == 2000
+
+
+def test_collect_run_estimate_single_reference_is_a_file(_fake_estimators) -> None:
+    est = memory.collect_run_estimate(
+        ["/in/small.wav"],
+        ["/ref/big.wav"],
+        project_mode=False,
+        project_label="Projekt",
+        reference_label="Referenz",
+    )
+    assert est is not None
+    # The 500-byte reference file beats the 100-byte target.
+    assert est.label == "big.wav"
+    assert est.estimated_bytes == 500
+
+
+def test_collect_run_estimate_multi_reference_uses_project_formula(
+    _fake_estimators,
+) -> None:
+    est = memory.collect_run_estimate(
+        ["/in/small.wav"],
+        ["/ref/a.wav", "/ref/b.wav", "/ref/c.wav"],
+        project_mode=False,
+        project_label="Projekt",
+        reference_label="Album X",
+    )
+    assert est is not None
+    assert est.label == "Album X"
+    assert est.estimated_bytes == 3000

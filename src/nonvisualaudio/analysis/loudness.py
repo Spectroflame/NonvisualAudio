@@ -141,7 +141,7 @@ def _parse(stderr_text: str, filename: str) -> LoudnessMetrics:
     )
 
 
-def _make_progress_line_callback(
+def make_progress_line_callback(
     duration_seconds: float | None,
     on_progress: LoudnessProgressCb | None,
 ):
@@ -150,8 +150,10 @@ def _make_progress_line_callback(
     ffmpeg's ebur128 filter writes a ``t:`` value in seconds on every
     progress line. With the file's duration known, we map that into a
     percentage and call back the caller. Returns ``None`` when there is
-    nothing to wire up so :func:`run_split_streams` can skip the
-    callback machinery entirely.
+    nothing to wire up so the ffmpeg runners can skip the callback
+    machinery entirely. Shared by every ebur128 pass in the app: the
+    plain loudness scan here, the combined decode+loudness passes in
+    the decoder, and the project-mode multi-file pass.
     """
     if on_progress is None or duration_seconds is None or duration_seconds <= 0:
         return None
@@ -208,7 +210,7 @@ def measure_loudness(
         "null",
         "-",
     ]
-    progress_handler = _make_progress_line_callback(duration_seconds, on_progress)
+    progress_handler = make_progress_line_callback(duration_seconds, on_progress)
     try:
         _stdout, stderr = run_split_streams(
             args, timeout=1200.0, stderr_line_callback=progress_handler, cancel=cancel

@@ -440,3 +440,61 @@ def peak_rss_bytes() -> int | None:
         return int(usage.ru_maxrss)
     # Linux + most other Unixes.
     return int(usage.ru_maxrss) * 1024
+
+
+def collect_run_estimate(
+    target_paths: list[str],
+    reference_paths: list[str],
+    *,
+    project_mode: bool,
+    project_label: str,
+    reference_label: str,
+) -> MemoryEstimate | None:
+    """Worst-case RAM estimate for an analysis run about to start.
+
+    Project mode is one combined pass over all targets, so it gets
+    the project-overhead formula. Otherwise each target is estimated
+    individually and the largest wins — that's the file that will
+    either fit or trip the warning. A multi-file reference adds its
+    own project-style estimate; a single-file reference is treated
+    like any other file. ``project_label`` / ``reference_label`` name
+    the combined passes in the returned estimate; the labels are only
+    used when the corresponding multi-file case applies. Returns
+    ``None`` when there is nothing to estimate.
+    """
+    candidates: list[MemoryEstimate] = []
+    if target_paths:
+        if project_mode:
+            candidates.append(
+                build_estimate(
+                    label=project_label,
+                    estimated_bytes=estimate_project_bytes(target_paths),
+                )
+            )
+        else:
+            for raw in target_paths:
+                candidates.append(
+                    build_estimate(
+                        label=Path(raw).name,
+                        estimated_bytes=estimate_file_bytes(raw),
+                    )
+                )
+    if reference_paths:
+        if len(reference_paths) == 1:
+            ref = reference_paths[0]
+            candidates.append(
+                build_estimate(
+                    label=Path(ref).name,
+                    estimated_bytes=estimate_file_bytes(ref),
+                )
+            )
+        else:
+            candidates.append(
+                build_estimate(
+                    label=reference_label,
+                    estimated_bytes=estimate_project_bytes(reference_paths),
+                )
+            )
+    if not candidates:
+        return None
+    return max(candidates, key=lambda e: e.estimated_bytes)

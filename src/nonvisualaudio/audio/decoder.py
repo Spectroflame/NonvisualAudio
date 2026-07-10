@@ -380,6 +380,60 @@ def _initial_buffer_frames(duration: float, sample_rate: int) -> int:
     return min(wanted, cap)
 
 
+def _combined_pass_args(
+    path: Path, sample_rate: int, decode_channels: int
+) -> list[str]:
+    """ffmpeg argv for the single-read combined pass.
+
+    ``asplit`` fans the decoded audio out to two branches: one is muxed
+    to stdout as raw float32 PCM, the other runs through ``ebur128``
+    whose progress and summary land in stderr. Shared by the batch and
+    streaming decode-with-loudness variants, which differ only in how
+    they consume the PCM.
+    """
+    return [
+        find_ffmpeg(),
+        "-hide_banner",
+        "-nostats",
+        "-nostdin",
+        "-i",
+        str(path),
+        "-filter_complex",
+        "[0:a]asplit=2[pcm][ana];"
+        "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]",
+        "-map", "[pcm]",
+        "-f", "f32le",
+        "-acodec", "pcm_f32le",
+        "-ac", str(decode_channels),
+        "-ar", str(sample_rate),
+        "pipe:1",
+        "-map", "[loud]",
+        "-f", "null",
+        "-",
+    ]
+
+
+def _combined_pass_progress_callback(
+    duration: float, on_progress: DecodeProgressCb | None
+):
+    """Stderr line handler emitting decode progress for the combined pass.
+
+    Wraps the shared ebur128 ``t:``-marker parser from the loudness
+    module, tagging every tick with the ``"combined"`` stage. The
+    handler fires on the stderr reader thread, so it must stay cheap.
+    Returns ``None`` when there is nothing to report to.
+    """
+    # Imported lazily so the decoder module does not depend on the
+    # loudness module at import time.
+    from nonvisualaudio.analysis.loudness import make_progress_line_callback
+
+    if on_progress is None:
+        return None
+    return make_progress_line_callback(
+        duration, lambda pct: on_progress(pct, "combined")
+    )
+
+
 def _ffmpeg_decode_with_loudness(
     path: Path,
     sample_rate: int,
@@ -406,53 +460,8 @@ def _ffmpeg_decode_with_loudness(
     from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128
 
     decode_channels = 2 if channels == 2 else 1
-    args = [
-        find_ffmpeg(),
-        "-hide_banner",
-        "-nostats",
-        "-nostdin",
-        "-i",
-        str(path),
-        "-filter_complex",
-        "[0:a]asplit=2[pcm][ana];"
-        "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]",
-        "-map", "[pcm]",
-        "-f", "f32le",
-        "-acodec", "pcm_f32le",
-        "-ac", str(decode_channels),
-        "-ar", str(sample_rate),
-        "pipe:1",
-        "-map", "[loud]",
-        "-f", "null",
-        "-",
-    ]
-
-    # Live progress: parse the ``t:`` value out of each ebur128 progress
-    # line and translate it into a 0..100 percentage against the probed
-    # duration. The callback fires on the stderr reader thread, so it
-    # must stay cheap.
-    progress_state = {"last_pct": -1}
-
-    def _on_line(raw_line: bytes) -> None:
-        if on_progress is None or duration <= 0:
-            return
-        text = raw_line.decode("utf-8", errors="replace")
-        # We import the regex lazily so the decoder module does not
-        # need to depend on the loudness module at import time.
-        from nonvisualaudio.analysis.loudness import _RE_FRAME_T
-
-        m = _RE_FRAME_T.search(text)
-        if m is None:
-            return
-        try:
-            t_sec = float(m.group(1))
-        except ValueError:
-            return
-        pct = int(100.0 * min(1.0, max(0.0, t_sec / duration)))
-        if pct == progress_state["last_pct"]:
-            return
-        progress_state["last_pct"] = pct
-        on_progress(pct, "combined")
+    args = _combined_pass_args(path, sample_rate, decode_channels)
+    _on_line = _combined_pass_progress_callback(duration, on_progress)
 
     # Preallocate the PCM buffer based on the probed duration — but never
     # beyond the header-distrust cap, see :func:`_initial_buffer_frames`.
@@ -826,50 +835,8 @@ def _ffmpeg_decode_with_loudness_streaming(
     from nonvisualaudio.analysis.loudness import _parse as _parse_ebur128
 
     decode_channels = 2 if channels == 2 else 1
-    args = [
-        find_ffmpeg(),
-        "-hide_banner",
-        "-nostats",
-        "-nostdin",
-        "-i",
-        str(path),
-        "-filter_complex",
-        "[0:a]asplit=2[pcm][ana];"
-        "[ana]ebur128=peak=true:metadata=1:framelog=info[loud]",
-        "-map", "[pcm]",
-        "-f", "f32le",
-        "-acodec", "pcm_f32le",
-        "-ac", str(decode_channels),
-        "-ar", str(sample_rate),
-        "pipe:1",
-        "-map", "[loud]",
-        "-f", "null",
-        "-",
-    ]
-
-    # Live progress from the ebur128 ``t:`` markers — same logic the
-    # batch streaming variant uses. The callback fires on the stderr
-    # reader thread, so it must stay cheap.
-    progress_state = {"last_pct": -1}
-
-    def _on_line(raw_line: bytes) -> None:
-        if on_progress is None or duration <= 0:
-            return
-        text = raw_line.decode("utf-8", errors="replace")
-        from nonvisualaudio.analysis.loudness import _RE_FRAME_T
-
-        m = _RE_FRAME_T.search(text)
-        if m is None:
-            return
-        try:
-            t_sec = float(m.group(1))
-        except ValueError:
-            return
-        pct = int(100.0 * min(1.0, max(0.0, t_sec / duration)))
-        if pct == progress_state["last_pct"]:
-            return
-        progress_state["last_pct"] = pct
-        on_progress(pct, "combined")
+    args = _combined_pass_args(path, sample_rate, decode_channels)
+    _on_line = _combined_pass_progress_callback(duration, on_progress)
 
     try:
         stderr_text = run_split_streams_streaming(

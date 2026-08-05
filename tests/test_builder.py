@@ -690,7 +690,7 @@ def test_neutral_stereo_width_verdict_names_no_genre():
 
 def test_music_material_keeps_genre_wording():
     # With a music profile the historic reference points must survive:
-    # LRA 8.7 → "music mixes"; minus 16 LUFS → broadcast ballpark.
+    # LRA 8.7 → "music mixes"; minus 16 LUFS → streaming normalization range.
     loud = LoudnessMetrics(
         integrated_lufs=-16.0,
         short_term_max_lufs=-12.0,
@@ -699,7 +699,7 @@ def test_music_material_keeps_genre_wording():
     )
     report = build_report(_make_result(loudness=loud), material="music")
     assert "That sits in the typical range for music mixes." in report
-    assert "in the broadcast ballpark" in report
+    assert "streaming platforms aim for with loudness normalization" in report
 
 
 def test_spoken_word_profile_uses_speech_wording_not_music():
@@ -1397,3 +1397,41 @@ def test_very_quiet_bucket_below_minus_26_lufs():
     neutral = build_report(result, material="neutral")
     assert "very low loudness level" in neutral
     assert "broadcast" not in neutral.lower()
+
+
+def test_moderate_bucket_cites_streaming_normalization_not_broadcast():
+    # Broadcast targets are minus 23 LUFS (EBU R128) and minus 24 LKFS
+    # (ATSC A/85) — both live in the quiet bucket. Calling minus 13 to
+    # minus 20 "the broadcast ballpark" mislabelled the range; the
+    # honest reference for it is streaming loudness normalization.
+    loud = LoudnessMetrics(
+        integrated_lufs=-16.0,
+        short_term_max_lufs=-12.0,
+        true_peak_dbtp=-1.5,
+        loudness_range_lu=8.7,
+    )
+    result = _make_result(loudness=loud)
+    music = build_report(result, material="music")
+    assert "broadcast ballpark" not in music
+    assert "streaming platforms aim for with loudness normalization" in music
+    spoken = build_report(result, material="music", tonality="speech")
+    assert "as is usual for a broadcast version" not in spoken
+    assert "podcast and streaming versions of spoken-word productions" in spoken
+
+
+def test_loud_speech_bucket_does_not_call_minus_11_typical():
+    # Minus 9 to minus 13 LUFS sits above every common spoken-word
+    # delivery target (podcast and streaming versions mostly aim for
+    # minus 14 to minus 18 LUFS); the old wording called that range
+    # "typical for a streaming version" of a spoken-word production.
+    loud = LoudnessMetrics(
+        integrated_lufs=-11.0,
+        short_term_max_lufs=-8.0,
+        true_peak_dbtp=-1.5,
+        loudness_range_lu=4.0,
+    )
+    spoken = build_report(
+        _make_result(loudness=loud), material="music", tonality="speech"
+    )
+    assert "typical for a streaming version" not in spoken
+    assert "above the levels usual for podcast and streaming versions" in spoken

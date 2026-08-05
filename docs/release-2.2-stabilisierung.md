@@ -21,7 +21,7 @@ Wird von der jeweiligen Sitzung nach Abschluss aktualisiert
 (erledigt + Commit-Hash). Frische Agenten prüfen hier die
 Voraussetzungen ihrer Phase.
 
-- Phase 1 (Watchdog + `run_split_streams`): offen
+- Phase 1 (Watchdog + `run_split_streams`): erledigt (`05a2d24`)
 - Phase 2 (Watchdog für `run_split_streams_streaming`): offen
 - Phase 3 (atomarer Schreibhelfer + `preferences.py`): offen
 - Phase 4 (atomare Writes für `genre_profiles.py`): offen

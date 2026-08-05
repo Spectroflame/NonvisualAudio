@@ -186,6 +186,8 @@ _GENRE_REFERENCING_KEYS = frozenset(
         "report.loudness.verdict.very_loud",
         "report.loudness.verdict.loud",
         "report.loudness.verdict.moderate",
+        "report.loudness.verdict.quiet",
+        "report.loudness.verdict.very_quiet",
         "report.dynamics.verdict.moderate",
         "report.dynamics.verdict.wide",
         "report.overall.loud_compressed",
@@ -388,8 +390,18 @@ def _loudness_section(
         verdict_key = "report.loudness.verdict.loud"
     elif i > -20.0:
         verdict_key = "report.loudness.verdict.moderate"
-    else:
+    elif i > -26.0:
+        # Home of the classic broadcast targets: EBU R128 (-23 LUFS),
+        # ATSC A/85 (-24 LKFS), plus classical/jazz masters around -20.
+        # The speech sibling can therefore honestly call this the
+        # broadcast region; -26 leaves 3 LU of margin below R128.
         verdict_key = "report.loudness.verdict.quiet"
+    else:
+        # Quieter than any common delivery target except theatrical
+        # cinema (dialogue anchor around -27 LKFS) — worded separately
+        # so a -23 LUFS radio drama is never lumped in with a -35 LUFS
+        # under-modulated take.
+        verdict_key = "report.loudness.verdict.very_quiet"
     lines.append(
         t_subject(_material_key(verdict_key, material, tonality), project=project)
     )

@@ -1351,3 +1351,49 @@ def test_speech_air_note_survives_between_floor_and_silent_threshold():
     )
     report = build_report(digital_silence, material="speech")
     assert "The 10 to 20 kHz region is very restrained" not in report
+
+
+def test_r128_broadcast_level_not_called_quiet_for_spoken_word():
+    # The reported contradiction: a radio drama correctly mastered to
+    # EBU R128 (minus 23 LUFS) was judged "reads as quiet, leaving
+    # plenty of headroom" while the genre comparison two sections later
+    # called the same value on target. For spoken-word profiles the
+    # minus 20 to minus 26 region IS the classic broadcast home and
+    # must be named as such; profile-free runs stay descriptive.
+    loud = LoudnessMetrics(
+        integrated_lufs=-23.0,
+        short_term_max_lufs=-18.0,
+        true_peak_dbtp=-3.0,
+        loudness_range_lu=14.0,
+    )
+    result = _make_result(loudness=loud)
+    spoken = build_report(result, material="music", tonality="speech")
+    assert "classic broadcast levels" in spoken
+    assert "EBU R128" in spoken
+    assert "reads as quiet" not in spoken
+    neutral = build_report(result, material="neutral")
+    assert "broadcast" not in neutral.lower()
+    assert "The file sits at a low loudness level" in neutral
+    music = build_report(result, material="music")
+    assert "classical, acoustic jazz, or film mixes" in music
+
+
+def test_very_quiet_bucket_below_minus_26_lufs():
+    # Below minus 26 LUFS even a broadcast master reads quiet. The old
+    # single bucket lumped minus 23 (on target for EBU R128) together
+    # with a minus 32 under-modulated take — the split keeps the
+    # broadcast wording honest.
+    loud = LoudnessMetrics(
+        integrated_lufs=-32.0,
+        short_term_max_lufs=-25.0,
+        true_peak_dbtp=-8.0,
+        loudness_range_lu=10.0,
+    )
+    result = _make_result(loudness=loud)
+    music = build_report(result, material="music")
+    assert "reads as very quiet" in music
+    spoken = build_report(result, material="music", tonality="speech")
+    assert "clearly quieter than the classic broadcast level" in spoken
+    neutral = build_report(result, material="neutral")
+    assert "very low loudness level" in neutral
+    assert "broadcast" not in neutral.lower()

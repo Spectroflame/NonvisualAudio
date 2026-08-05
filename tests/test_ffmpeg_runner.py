@@ -11,14 +11,18 @@ errors as before. Like the cancellation tests, these drive a plain
 from __future__ import annotations
 
 import sys
+import threading
+import time
 
 import pytest
 
+from nonvisualaudio.audio import ffmpeg_runner
 from nonvisualaudio.audio.ffmpeg_runner import (
     FFmpegError,
     run_split_streams,
     run_split_streams_streaming,
 )
+from nonvisualaudio.cancellation import Cancellation, CancelledError
 
 _ECHO_BOTH = (
     "import sys\n"
@@ -32,6 +36,14 @@ def test_split_streams_returns_stdout_and_stderr() -> None:
     assert stdout == b"PCMDATA"
     assert "line one" in stderr
     assert "line two" in stderr
+
+
+def test_split_streams_fast_process_finishes_before_deadline() -> None:
+    stdout, stderr = run_split_streams(
+        [sys.executable, "-c", _ECHO_BOTH], timeout=5.0
+    )
+    assert stdout == b"PCMDATA"
+    assert "line one" in stderr
 
 
 def test_split_streams_streaming_delivers_chunks_and_stderr() -> None:
@@ -97,18 +109,54 @@ def test_split_streams_missing_binary_raises() -> None:
 
 
 def test_split_streams_timeout_kills_and_raises() -> None:
-    # Child closes its pipe file descriptors, then sleeps: stdout EOF
-    # arrives quickly and the wait() afterwards must trip the timeout.
-    # (os.close, not sys.stdout.close(): the std-stream wrappers keep
-    # the underlying descriptor open.)
-    prog = (
-        "import os, time\n"
-        "os.close(1); os.close(2)\n"
-        "time.sleep(30)\n"
-    )
+    # The child deliberately keeps stdout open without ever writing. The
+    # deadline must interrupt the blocking read, not start only afterwards.
+    prog = "import time\ntime.sleep(30)\n"
+    started = time.perf_counter()
     with pytest.raises(FFmpegError) as exc_info:
-        run_split_streams([sys.executable, "-c", prog], timeout=0.5)
-    assert str(exc_info.value).startswith("timeout:")
+        run_split_streams([sys.executable, "-c", prog], timeout=0.3)
+    elapsed = time.perf_counter() - started
+    assert str(exc_info.value) == "timeout:0.3"
+    assert elapsed < 2.0
+
+
+def test_split_streams_cancel_wins_while_stdout_is_blocked() -> None:
+    prog = "import time\ntime.sleep(30)\n"
+    cancel = Cancellation()
+    request_cancel = threading.Timer(0.2, cancel.cancel)
+    request_cancel.daemon = True
+    request_cancel.start()
+    started = time.perf_counter()
+    try:
+        with pytest.raises(CancelledError):
+            run_split_streams(
+                [sys.executable, "-c", prog], timeout=5.0, cancel=cancel
+            )
+    finally:
+        request_cancel.cancel()
+    assert time.perf_counter() - started < 2.0
+
+
+def test_split_streams_cancel_wins_when_deadline_also_fired(monkeypatch) -> None:
+    cancel = Cancellation()
+    original_wait = ffmpeg_runner._wait_and_collect_stderr
+
+    def _cancel_before_error_check(proc, **kwargs):
+        watchdog = kwargs["watchdog"]
+        assert watchdog is not None and watchdog.timed_out
+        cancel.cancel()
+        return original_wait(proc, **kwargs)
+
+    monkeypatch.setattr(
+        ffmpeg_runner, "_wait_and_collect_stderr", _cancel_before_error_check
+    )
+
+    with pytest.raises(CancelledError):
+        run_split_streams(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            timeout=0.3,
+            cancel=cancel,
+        )
 
 
 def test_split_streams_streaming_timeout_kills_and_raises() -> None:

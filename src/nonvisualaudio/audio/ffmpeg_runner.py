@@ -66,6 +66,38 @@ class FFmpegError(RuntimeError):
     """
 
 
+class _Watchdog:
+    """Kill a child when its wall-clock deadline expires."""
+
+    def __init__(self, proc: subprocess.Popen, timeout: float) -> None:
+        self._proc = proc
+        self._timed_out = threading.Event()
+        self._timer = threading.Timer(timeout, self._expire)
+        self._timer.daemon = True
+
+    @property
+    def timed_out(self) -> bool:
+        return self._timed_out.is_set()
+
+    def start(self) -> None:
+        self._timer.start()
+
+    def cancel(self) -> None:
+        self._timer.cancel()
+
+    def _expire(self) -> None:
+        if self._proc.poll() is not None:
+            return
+        # Record the deadline before kill() closes the pipes and wakes the
+        # reader; the worker thread uses this to distinguish timeout from a
+        # genuine ffmpeg failure.
+        self._timed_out.set()
+        try:
+            self._proc.kill()
+        except OSError as exc:
+            log.debug("kill() raised in ffmpeg deadline watchdog: %s", exc)
+
+
 def _platform_dir() -> str:
     if sys.platform == "darwin":
         return "darwin"
@@ -236,6 +268,7 @@ def _wait_and_collect_stderr(
     *,
     binary: str,
     timeout: float,
+    watchdog: _Watchdog | None,
     cancel: Cancellation | None,
     stderr_thread: threading.Thread,
     stderr_chunks: list[bytes],
@@ -249,18 +282,25 @@ def _wait_and_collect_stderr(
     non-zero exit — it is reported as :class:`CancelledError` instead,
     never as an ``FFmpegError``, so it cannot reach an error dialog.
     """
+    wait_timeout: subprocess.TimeoutExpired | None = None
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         proc.kill()
         proc.wait()
-        log.error("%s timed out after %.1fs", binary, timeout)
-        raise FFmpegError(f"timeout:{timeout}") from exc
+        wait_timeout = exc
     finally:
         if cancel is not None:
             cancel.clear_process()
+    # User intent wins if cancel and either timeout mechanism race.
     if cancel is not None:
         cancel.raise_if_cancelled()
+    if (watchdog is not None and watchdog.timed_out) or wait_timeout is not None:
+        log.error("%s timed out after %.1fs", binary, timeout)
+        error = FFmpegError(f"timeout:{timeout}")
+        if wait_timeout is not None:
+            raise error from wait_timeout
+        raise error
     # Reader thread should be near the end by now; cap the join so a
     # stuck thread cannot freeze the analyser indefinitely.
     stderr_thread.join(timeout=30.0)
@@ -309,25 +349,33 @@ def run_split_streams(
     log.debug("exec stream %s %s", binary, " ".join(str(a) for a in args[1:]))
     t0 = time.time()
     proc = _spawn(args, cancel)
-    stderr_thread, stderr_chunks = _start_stderr_drain(proc, stderr_line_callback)
+    watchdog = _Watchdog(proc, timeout)
+    watchdog.start()
     try:
-        assert proc.stdout is not None
-        stdout_data = proc.stdout.read()
-    finally:
+        stderr_thread, stderr_chunks = _start_stderr_drain(
+            proc, stderr_line_callback
+        )
         try:
             assert proc.stdout is not None
-            proc.stdout.close()
-        except Exception:  # noqa: BLE001
-            pass
-    stderr_text, elapsed = _wait_and_collect_stderr(
-        proc,
-        binary=binary,
-        timeout=timeout,
-        cancel=cancel,
-        stderr_thread=stderr_thread,
-        stderr_chunks=stderr_chunks,
-        t0=t0,
-    )
+            stdout_data = proc.stdout.read()
+        finally:
+            try:
+                assert proc.stdout is not None
+                proc.stdout.close()
+            except Exception:  # noqa: BLE001
+                pass
+        stderr_text, elapsed = _wait_and_collect_stderr(
+            proc,
+            binary=binary,
+            timeout=timeout,
+            watchdog=watchdog,
+            cancel=cancel,
+            stderr_thread=stderr_thread,
+            stderr_chunks=stderr_chunks,
+            t0=t0,
+        )
+    finally:
+        watchdog.cancel()
     log.debug(
         "%s done in %.2fs (%d bytes stdout)", binary, elapsed, len(stdout_data)
     )
@@ -397,6 +445,7 @@ def run_split_streams_streaming(
         proc,
         binary=binary,
         timeout=timeout,
+        watchdog=None,
         cancel=cancel,
         stderr_thread=stderr_thread,
         stderr_chunks=stderr_chunks,

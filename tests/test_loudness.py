@@ -1,4 +1,32 @@
+import pytest
+
+from nonvisualaudio.analysis import loudness
 from nonvisualaudio.analysis.loudness import _parse
+from nonvisualaudio.audio.ffmpeg_runner import FFmpegError
+from nonvisualaudio.errors import LoudnessMeasurementError
+
+
+def test_measure_loudness_preserves_timeout_error_translation(monkeypatch) -> None:
+    monkeypatch.setattr(loudness, "find_ffmpeg", lambda: "ffmpeg")
+
+    def _timeout(*_args, **_kwargs):
+        raise FFmpegError("timeout:1200.0")
+
+    monkeypatch.setattr(loudness, "run_split_streams", _timeout)
+
+    with pytest.raises(LoudnessMeasurementError) as exc_info:
+        loudness.measure_loudness("example.wav")
+
+    error = exc_info.value
+    assert error.title == "Loudness scan of example.wav took too long"
+    assert error.body == (
+        "The audio engine did not finish the EBU R128 loudness scan within "
+        "the allowed time. The file may be extremely long or stored on a slow "
+        "drive."
+    )
+    assert error.hint == (
+        "Copy the file to a local drive or trim it to a shorter segment."
+    )
 
 
 SAMPLE_PROGRESS = """\

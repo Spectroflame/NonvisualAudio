@@ -273,6 +273,7 @@ def _wait_and_collect_stderr(
     stderr_thread: threading.Thread,
     stderr_chunks: list[bytes],
     t0: float,
+    deadline_expired: bool = False,
 ) -> tuple[str, float]:
     """Wait for exit, join the stderr drain, and enforce the exit code.
 
@@ -295,7 +296,11 @@ def _wait_and_collect_stderr(
     # User intent wins if cancel and either timeout mechanism race.
     if cancel is not None:
         cancel.raise_if_cancelled()
-    if (watchdog is not None and watchdog.timed_out) or wait_timeout is not None:
+    if (
+        (watchdog is not None and watchdog.timed_out)
+        or deadline_expired
+        or wait_timeout is not None
+    ):
         log.error("%s timed out after %.1fs", binary, timeout)
         error = FFmpegError(f"timeout:{timeout}")
         if wait_timeout is not None:
@@ -412,45 +417,61 @@ def run_split_streams_streaming(
     )
     t0 = time.time()
     proc = _spawn(args, cancel)
-    stderr_thread, stderr_chunks = _start_stderr_drain(proc, stderr_line_callback)
-    total_bytes = 0
+    deadline = time.monotonic() + timeout
+    watchdog = _Watchdog(proc, timeout)
+    watchdog.start()
     try:
-        assert proc.stdout is not None
-        while True:
-            # Cooperative cancel: a cancel between chunks stops the read
-            # loop, tears the process down, and raises CancelledError.
-            if cancel is not None and cancel.is_cancelled():
-                proc.kill()
-                proc.wait()
-                raise CancelledError()
-            chunk = proc.stdout.read(chunk_size)
-            if not chunk:
-                break
-            total_bytes += len(chunk)
-            try:
-                stdout_chunk_handler(chunk)
-            except Exception:
-                # A failing handler must terminate ffmpeg so the parent
-                # doesn't keep producing PCM into a dead pipe.
-                proc.kill()
-                proc.wait()
-                raise
-    finally:
+        stderr_thread, stderr_chunks = _start_stderr_drain(
+            proc, stderr_line_callback
+        )
+        total_bytes = 0
+        deadline_expired = False
         try:
             assert proc.stdout is not None
-            proc.stdout.close()
-        except Exception:  # noqa: BLE001
-            pass
-    stderr_text, elapsed = _wait_and_collect_stderr(
-        proc,
-        binary=binary,
-        timeout=timeout,
-        watchdog=None,
-        cancel=cancel,
-        stderr_thread=stderr_thread,
-        stderr_chunks=stderr_chunks,
-        t0=t0,
-    )
+            while True:
+                # User intent wins if cancel and the deadline coincide.
+                if cancel is not None and cancel.is_cancelled():
+                    proc.kill()
+                    proc.wait()
+                    raise CancelledError()
+                # The watchdog interrupts a blocked read. This cheap check
+                # additionally caps a process that keeps yielding chunks.
+                if time.monotonic() >= deadline and proc.poll() is None:
+                    deadline_expired = True
+                    proc.kill()
+                    proc.wait()
+                    break
+                chunk = proc.stdout.read(chunk_size)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                try:
+                    stdout_chunk_handler(chunk)
+                except Exception:
+                    # A failing handler must terminate ffmpeg so the parent
+                    # doesn't keep producing PCM into a dead pipe.
+                    proc.kill()
+                    proc.wait()
+                    raise
+        finally:
+            try:
+                assert proc.stdout is not None
+                proc.stdout.close()
+            except Exception:  # noqa: BLE001
+                pass
+        stderr_text, elapsed = _wait_and_collect_stderr(
+            proc,
+            binary=binary,
+            timeout=timeout,
+            watchdog=watchdog,
+            cancel=cancel,
+            stderr_thread=stderr_thread,
+            stderr_chunks=stderr_chunks,
+            t0=t0,
+            deadline_expired=deadline_expired,
+        )
+    finally:
+        watchdog.cancel()
     log.debug(
         "%s done in %.2fs (%d bytes stdout streamed)",
         binary,

@@ -160,18 +160,86 @@ def test_split_streams_cancel_wins_when_deadline_also_fired(monkeypatch) -> None
 
 
 def test_split_streams_streaming_timeout_kills_and_raises() -> None:
-    prog = (
-        "import os, time\n"
-        "os.close(1); os.close(2)\n"
-        "time.sleep(30)\n"
-    )
+    # The child deliberately keeps stdout open without ever writing. The
+    # streaming runner's deadline must interrupt its blocking chunk read.
+    prog = "import time\ntime.sleep(30)\n"
+    started = time.perf_counter()
     with pytest.raises(FFmpegError) as exc_info:
         run_split_streams_streaming(
             [sys.executable, "-c", prog],
             stdout_chunk_handler=lambda _b: None,
-            timeout=0.5,
+            timeout=0.3,
         )
-    assert str(exc_info.value).startswith("timeout:")
+    elapsed = time.perf_counter() - started
+    assert str(exc_info.value) == "timeout:0.3"
+    assert elapsed < 2.0
+
+
+def test_split_streams_streaming_trickle_respects_deadline(monkeypatch) -> None:
+    # One-byte reads ensure each slow write reaches the handler as a chunk.
+    # A per-chunk deadline check must stop this non-blocked, never-ending
+    # stream instead of letting each new byte postpone completion forever.
+    prog = (
+        "import sys, time\n"
+        "for _ in range(100):\n"
+        "    sys.stdout.buffer.write(b'x')\n"
+        "    sys.stdout.buffer.flush()\n"
+        "    time.sleep(0.05)\n"
+    )
+
+    class _NoopWatchdog:
+        """Leave the per-chunk deadline check solely responsible."""
+
+        timed_out = False
+
+        def __init__(self, _proc, _timeout: float) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def cancel(self) -> None:
+            pass
+
+    monkeypatch.setattr(ffmpeg_runner, "_Watchdog", _NoopWatchdog)
+    chunks: list[bytes] = []
+    started = time.perf_counter()
+    with pytest.raises(FFmpegError) as exc_info:
+        run_split_streams_streaming(
+            [sys.executable, "-c", prog],
+            stdout_chunk_handler=chunks.append,
+            chunk_size=1,
+            timeout=0.3,
+        )
+    elapsed = time.perf_counter() - started
+    assert str(exc_info.value) == "timeout:0.3"
+    assert chunks
+    assert elapsed < 2.0
+
+
+def test_split_streams_streaming_cancel_wins_when_deadline_also_fired(
+    monkeypatch,
+) -> None:
+    cancel = Cancellation()
+    original_wait = ffmpeg_runner._wait_and_collect_stderr
+
+    def _cancel_before_error_check(proc, **kwargs):
+        watchdog = kwargs["watchdog"]
+        assert watchdog is not None and watchdog.timed_out
+        cancel.cancel()
+        return original_wait(proc, **kwargs)
+
+    monkeypatch.setattr(
+        ffmpeg_runner, "_wait_and_collect_stderr", _cancel_before_error_check
+    )
+
+    with pytest.raises(CancelledError):
+        run_split_streams_streaming(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdout_chunk_handler=lambda _b: None,
+            timeout=0.3,
+            cancel=cancel,
+        )
 
 
 def test_streaming_failing_chunk_handler_propagates() -> None:

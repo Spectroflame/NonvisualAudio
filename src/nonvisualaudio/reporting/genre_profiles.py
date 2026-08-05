@@ -23,6 +23,7 @@ from typing import Any, Iterable
 
 from nonvisualaudio.localization import DEFAULT_LANG, current_lang
 from nonvisualaudio.paths import user_genres_path
+from nonvisualaudio.persistence import atomic_write_json
 
 log = logging.getLogger("nonvisualaudio.genre_profiles")
 
@@ -461,10 +462,7 @@ def save_user_overrides(
         "profiles": list(profiles),
     }
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2, ensure_ascii=False)
-            fh.write("\n")
+        atomic_write_json(path, payload)
     except OSError as exc:
         # Disk full, read-only home, missing permissions — none of these
         # should crash the editor dialog. The in-memory state already

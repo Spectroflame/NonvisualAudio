@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, TextIO
 
 import pytest
 
+from nonvisualaudio import persistence
 from nonvisualaudio.reporting import genre_profiles
 
 
@@ -90,6 +92,75 @@ def test_save_user_overrides_does_not_crash_when_no_file_to_remove(
     # and must not raise.
     genre_profiles.save_user_overrides([], [])
     assert not (isolated_user_dir / "genres.json").exists()
+
+
+def test_save_user_overrides_atomically_replaces_existing_file(
+    isolated_user_dir: Path,
+):
+    path = isolated_user_dir / "genres.json"
+    path.write_text('{"stale": true}\n', encoding="utf-8")
+    categories = [{"key": "custom", "display_name": "Custom"}]
+    profiles = [
+        {
+            "key": "my_genre",
+            "category_key": "custom",
+            "display_name": "My Genre",
+            "target_lufs": -14.0,
+            "lra_low": 5.0,
+            "lra_high": 10.0,
+            "notes": "custom profile",
+        }
+    ]
+
+    returned_path = genre_profiles.save_user_overrides(categories, profiles)
+
+    assert returned_path == path
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "version": 1,
+        "categories": categories,
+        "profiles": profiles,
+    }
+    assert list(isolated_user_dir.iterdir()) == [path]
+
+
+def test_save_user_overrides_failure_preserves_existing_file_and_removes_temp(
+    monkeypatch: pytest.MonkeyPatch, isolated_user_dir: Path
+):
+    path = isolated_user_dir / "genres.json"
+    original = b'{"version": 1, "categories": [], "profiles": []}\n'
+    path.write_bytes(original)
+
+    def fail_mid_write(data: Any, fh: TextIO, **kwargs: Any) -> None:
+        fh.write('{"version": 1, "categories": ')
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(persistence.json, "dump", fail_mid_write)
+
+    returned_path = genre_profiles.save_user_overrides(
+        [{"key": "custom", "display_name": "Custom"}], []
+    )
+
+    assert returned_path == path
+    assert path.read_bytes() == original
+    assert list(isolated_user_dir.iterdir()) == [path]
+
+
+def test_save_user_overrides_creates_missing_target_directory(
+    monkeypatch: pytest.MonkeyPatch, isolated_user_dir: Path
+):
+    path = isolated_user_dir / "new-user" / "genres.json"
+    monkeypatch.setattr(genre_profiles, "user_genres_path", lambda: path)
+
+    returned_path = genre_profiles.save_user_overrides(
+        [{"key": "custom", "display_name": "Custom"}], []
+    )
+
+    assert returned_path == path
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "version": 1,
+        "categories": [{"key": "custom", "display_name": "Custom"}],
+        "profiles": [],
+    }
 
 
 def test_user_override_adds_new_profile(isolated_user_dir: Path):

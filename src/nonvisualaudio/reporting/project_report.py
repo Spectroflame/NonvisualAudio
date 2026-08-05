@@ -129,6 +129,7 @@ def build_project_report(
     *,
     material: str = MATERIAL_MUSIC,
     tonality: str = TONALITY_FULL_RANGE,
+    profile_target_lufs: float | None = None,
 ) -> ReportDoc:
     """Render the full project-mode report as a structured :class:`ReportDoc`.
 
@@ -138,9 +139,9 @@ def build_project_report(
     the cross-track consistency block uses its own ``include_consistency``
     flag because it has no analogue in single-file mode.
 
-    ``material`` and ``tonality`` mirror :func:`build_report`'s
-    parameters and are passed straight through to the inner combined
-    report.
+    ``material``, ``tonality`` and ``profile_target_lufs`` mirror
+    :func:`build_report`'s parameters and are passed straight through
+    to the inner combined report.
     """
     selected = sections if sections is not None else ReportSections.all()
 
@@ -163,6 +164,7 @@ def build_project_report(
             project=True,
             material=material,
             tonality=tonality,
+            profile_target_lufs=profile_target_lufs,
             title=None,
             section_level=2,
         )

@@ -1435,3 +1435,52 @@ def test_loud_speech_bucket_does_not_call_minus_11_typical():
     )
     assert "typical for a streaming version" not in spoken
     assert "above the levels usual for podcast and streaming versions" in spoken
+
+
+def test_limit_less_suppressed_when_file_sits_on_loud_profile_target():
+    # A trap or EDM master at its own minus 7 LUFS target got "in line
+    # with the genre" from the comparison section and "easing off the
+    # limiting" from the recommendations of the same report. With the
+    # profile target passed in, the recommendation stays quiet while
+    # the file is at or below target (1 LU of grace) and returns once
+    # the file overshoots the chosen goal.
+    loud = LoudnessMetrics(
+        integrated_lufs=-7.0,
+        short_term_max_lufs=-4.0,
+        true_peak_dbtp=-2.0,
+        loudness_range_lu=4.0,
+    )
+    result = _make_result(loudness=loud)
+    on_target = build_report(result, material="music", profile_target_lufs=-7.0)
+    assert "easing off the limiting" not in on_target
+    over_target = build_report(
+        result, material="music", profile_target_lufs=-14.0
+    )
+    assert "easing off the limiting" in over_target
+    no_profile = build_report(result, material="music")
+    assert "easing off the limiting" in no_profile
+
+
+def test_sub_dominant_hint_suppressed_for_club_loud_profiles():
+    # Every bundled profile targeting minus 9 LUFS or louder (trap,
+    # EDM, dancehall, metal, modern pop and rock) is sub- or
+    # bass-forward by design, so the gentle-cut advice would fight the
+    # profile notes shown in the same report. Quieter genres and
+    # profile-free runs keep the hint.
+    bands = BandEnergies(
+        sub_db=-4.0,
+        bass_db=-8.0,
+        low_mid_db=-10.0,
+        mid_db=-9.0,
+        presence_db=-12.0,
+        air_db=-18.0,
+    )
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    club = build_report(result, material="music", profile_target_lufs=-7.0)
+    assert "sub-bass is dominant" not in club
+    quieter_genre = build_report(
+        result, material="music", profile_target_lufs=-14.0
+    )
+    assert "sub-bass is dominant" in quieter_genre
+    no_profile = build_report(result, material="music")
+    assert "sub-bass is dominant" in no_profile

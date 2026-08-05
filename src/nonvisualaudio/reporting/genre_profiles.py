@@ -130,6 +130,25 @@ def tonality_context_for(keys: "Iterable[str] | None") -> str:
     return TONALITY_FULL_RANGE
 
 
+def loudest_target_lufs_for(keys: "Iterable[str] | None") -> float | None:
+    """Return the loudest ``target_lufs`` among the selected profiles.
+
+    ``None`` when no resolved profile carries a loudness target (empty
+    selection, deleted profiles, or only raw-material profiles). With
+    several profiles selected the loudest target wins: if any chosen
+    genre justifies the measured level, the report must not recommend
+    undoing it. Used by the report builder to keep the recommendations
+    from contradicting the genre comparison — a club master sitting on
+    its minus 7 LUFS target must not be told to ease off the limiting.
+    """
+    targets = [
+        GENRES[k].target_lufs
+        for k in (keys or [])
+        if k in GENRES and GENRES[k].target_lufs is not None
+    ]
+    return max(targets) if targets else None
+
+
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------

@@ -1174,6 +1174,7 @@ def _recommendations_section(
     *,
     material: str = MATERIAL_MUSIC,
     tonality: str = TONALITY_FULL_RANGE,
+    profile_target_lufs: float | None = None,
     project: bool = False,
     level: int = 3,
 ) -> Section:
@@ -1189,8 +1190,16 @@ def _recommendations_section(
     # "Ease off the limiting" assumes a limiter exists — a mastered-
     # material claim. Without a profile (and for a raw speech take) the
     # ".neutral" sibling states the high level without guessing how it
-    # got there.
-    if loud.integrated_lufs > -9.0:
+    # got there. When a selected profile targets a loud level and the
+    # file sits at or below that target (1 LU of grace above it), the
+    # loudness is the chosen goal, not a defect — the genre comparison
+    # already relates measured and target values, so recommending to
+    # undo the limiting would contradict it in the same report.
+    on_profile_target = (
+        profile_target_lufs is not None
+        and loud.integrated_lufs <= profile_target_lufs + 1.0
+    )
+    if loud.integrated_lufs > -9.0 and not on_profile_target:
         recs.append(t(_material_key("report.rec.limit_less", material, tonality)))
 
     # One actionable EQ starting point per detected prominent peak. The
@@ -1217,7 +1226,16 @@ def _recommendations_section(
             recs.append(t("report.rec.air_boost"))
         if b.sub_db < -25.0:
             recs.append(t("report.rec.sub_absent"))
-        if b.sub_db > -6.0:
+        # A dominant sub band is stylistic in the club-loud genres
+        # (trap, EDM, dancehall, metal — every bundled profile with a
+        # target of minus 9 LUFS or louder is also sub- or bass-forward
+        # by design), so the gentle-cut advice is suppressed there
+        # rather than contradicting the profile notes in the same
+        # report. Quieter genres keep the hint.
+        club_loud_profile = (
+            profile_target_lufs is not None and profile_target_lufs >= -9.0
+        )
+        if b.sub_db > -6.0 and not club_loud_profile:
             recs.append(t("report.rec.sub_dominant"))
     elif material == MATERIAL_SPEECH:
         # Speech recommendations mirror the speech findings in the
@@ -1288,6 +1306,7 @@ def build_report(
     *,
     material: str = MATERIAL_MUSIC,
     tonality: str = TONALITY_FULL_RANGE,
+    profile_target_lufs: float | None = None,
     title: str | None = None,
     title_level: int = 1,
     section_level: int = 2,
@@ -1323,6 +1342,16 @@ def build_report(
     quiet sub bass is the expected shape for speech, not a mix-bus
     filter mistake). Derived by the UI layer via
     ``genre_profiles.tonality_context_for``.
+
+    ``profile_target_lufs`` is the loudest loudness target among the
+    selected genre profiles (``genre_profiles.loudest_target_lufs_for``),
+    or ``None`` when no profile with a target is selected. It only
+    gates recommendations that would otherwise contradict the genre
+    comparison in the same report: the "ease off the limiting" advice
+    is dropped when the file sits at or below the chosen target, and
+    the sub-bass-cut hint is dropped for club-loud profiles where a
+    dominant sub is the intended shape. Verdicts and measurements are
+    not affected.
 
     ``sections`` controls which top-level blocks are rendered. Default is
     every section, which preserves the historical behaviour. When the
@@ -1421,6 +1450,7 @@ def build_report(
                 result,
                 material=material,
                 tonality=tonality,
+                profile_target_lufs=profile_target_lufs,
                 project=project,
                 level=section_level,
             )

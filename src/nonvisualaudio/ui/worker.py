@@ -420,6 +420,9 @@ class AnalysisWorker:
                     sections=self._sections,
                     material=genre_profiles.material_context_for(self._genre_keys),
                     tonality=genre_profiles.tonality_context_for(self._genre_keys),
+                    profile_target_lufs=genre_profiles.loudest_target_lufs_for(
+                        self._genre_keys
+                    ),
                     title=title,
                     title_level=per_file_title_level,
                     section_level=per_file_section_level,
@@ -626,6 +629,9 @@ class AnalysisWorker:
                 sections=self._sections,
                 material=genre_profiles.material_context_for(self._genre_keys),
                 tonality=genre_profiles.tonality_context_for(self._genre_keys),
+                profile_target_lufs=genre_profiles.loudest_target_lufs_for(
+                    self._genre_keys
+                ),
             )
         except Exception as exc:  # noqa: BLE001 — defensive boundary
             log.exception("project report builder crashed")

@@ -426,3 +426,22 @@ def test_bundle_profile_returns_unmodified_data(isolated_user_dir: Path):
     assert original["target_lufs"] == -9.0
     # After Phase B4 the bundle stores display_name as {en, de} dicts.
     assert original["display_name"]["en"] == "Pop — Modern Commercial"
+
+
+def test_loudest_target_lufs_for_selection(isolated_user_dir: Path):
+    # Feeds the recommendation gate in the report builder: no selection
+    # (or only targetless raw profiles) yields None, and with several
+    # profiles selected the loudest target wins so a chosen loud genre
+    # can justify the measured level.
+    assert genre_profiles.loudest_target_lufs_for(None) is None
+    assert genre_profiles.loudest_target_lufs_for([]) is None
+    assert (
+        genre_profiles.loudest_target_lufs_for(["speech_raw_recording"]) is None
+    )
+    assert genre_profiles.loudest_target_lufs_for(["electronic_club"]) == -7.0
+    assert (
+        genre_profiles.loudest_target_lufs_for(
+            ["classical_chamber", "electronic_club", "does_not_exist"]
+        )
+        == -7.0
+    )

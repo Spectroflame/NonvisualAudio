@@ -98,6 +98,81 @@ def test_true_peak_timestamp_is_none_without_progress_frames():
     assert m.true_peak_time_seconds is None
 
 
+def test_true_peak_timestamp_uses_loudest_channel_not_just_the_first():
+    # Stereo files print one FTPK value per channel ("FTPK: L R dBFS").
+    # The overall loudest true peak here is -0.5 dBFS on the RIGHT
+    # channel at t: 5.0; the left channel peaks earlier (-1.0 at t: 2.0).
+    # The timestamp must follow the loudest channel, not channel 0.
+    progress = (
+        "[Parsed_ebur128_0 @ 0x1] t: 2.0 M:-10 S:-11 I:-12 LUFS "
+        "LRA: 1.0 LU FTPK: -1.0 -20.0 dBFS TPK: -1.0 -20.0 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] t: 5.0 M:-10 S:-11 I:-12 LUFS "
+        "LRA: 1.0 LU FTPK: -20.0 -0.5 dBFS TPK: -1.0 -0.5 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] Summary:\n"
+        "  Integrated loudness:\n"
+        "    I:         -12.0 LUFS\n"
+        "    Threshold: -22.0 LUFS\n"
+        "  Loudness range:\n"
+        "    LRA:         1.0 LU\n"
+        "    Threshold: -32.0 LUFS\n"
+        "    LRA low:   -13.0 LUFS\n"
+        "    LRA high:  -12.0 LUFS\n"
+        "  True peak:\n"
+        "    Peak:       -0.5 dBFS\n"
+    )
+    m = _parse(progress, "fake.wav")
+    assert m.true_peak_time_seconds == 5.0
+
+
+def test_true_peak_timestamp_skips_inf_channel_but_reads_the_other():
+    # One silent channel reports -inf while the other carries a real
+    # peak — the -inf token must be skipped without discarding the line.
+    progress = (
+        "[Parsed_ebur128_0 @ 0x1] t: 1.5 M:-10 S:-11 I:-12 LUFS "
+        "LRA: 1.0 LU FTPK: -inf -4.0 dBFS TPK: -inf -4.0 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] Summary:\n"
+        "  Integrated loudness:\n"
+        "    I:         -12.0 LUFS\n"
+        "    Threshold: -22.0 LUFS\n"
+        "  Loudness range:\n"
+        "    LRA:         1.0 LU\n"
+        "    Threshold: -32.0 LUFS\n"
+        "    LRA low:   -13.0 LUFS\n"
+        "    LRA high:  -12.0 LUFS\n"
+        "  True peak:\n"
+        "    Peak:       -4.0 dBFS\n"
+    )
+    m = _parse(progress, "fake.wav")
+    assert m.true_peak_time_seconds == 1.5
+
+
+def test_true_peak_timestamp_never_reads_the_cumulative_tpk_values():
+    # Guard against regex over-capture: the FTPK value run must stop at
+    # "dBFS" and never continue into the cumulative "TPK:" field. The
+    # TPK values here are deliberately louder than every FTPK reading —
+    # if they leaked into the capture, frame t: 2.0 would win with -1.0
+    # instead of frame t: 5.0 with the true loudest FTPK of -10.0.
+    progress = (
+        "[Parsed_ebur128_0 @ 0x1] t: 2.0 M:-10 S:-11 I:-12 LUFS "
+        "LRA: 1.0 LU FTPK: -20.0 -20.0 dBFS TPK: -1.0 -1.0 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] t: 5.0 M:-10 S:-11 I:-12 LUFS "
+        "LRA: 1.0 LU FTPK: -10.0 -10.0 dBFS TPK: -1.0 -1.0 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] Summary:\n"
+        "  Integrated loudness:\n"
+        "    I:         -12.0 LUFS\n"
+        "    Threshold: -22.0 LUFS\n"
+        "  Loudness range:\n"
+        "    LRA:         1.0 LU\n"
+        "    Threshold: -32.0 LUFS\n"
+        "    LRA low:   -13.0 LUFS\n"
+        "    LRA high:  -12.0 LUFS\n"
+        "  True peak:\n"
+        "    Peak:       -1.0 dBFS\n"
+    )
+    m = _parse(progress, "fake.wav")
+    assert m.true_peak_time_seconds == 5.0
+
+
 def test_true_peak_timestamp_ignores_inf_frames():
     # Leading silence reports FTPK: -inf — those frames must not be
     # picked, and must not crash the float() conversion.

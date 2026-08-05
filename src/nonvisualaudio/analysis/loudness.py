@@ -60,30 +60,55 @@ _RE_SHORT_TERM = re.compile(r"\bS:\s*(-?\d+(?:\.\d+)?|-inf)")
 # Per-frame readings used to locate *when* the loudest true peak occurs:
 # ``t:`` is the frame timestamp, ``FTPK:`` the frame's true peak. ``\bFTPK``
 # will not match the cumulative ``TPK:`` field — there is no word boundary
-# inside "FTPK".
+# inside "FTPK". ffmpeg prints one FTPK value per channel ("FTPK: -60.0
+# -3.0 dBFS" for stereo), so the group captures the whole run of values;
+# the frame's peak is the loudest channel, not the first one.
 _RE_FRAME_T = re.compile(r"\bt:\s*(\d+(?:\.\d+)?)")
-_RE_FRAME_TPK = re.compile(r"\bFTPK:\s*(-?\d+(?:\.\d+)?|-inf)")
+# ``[ \t]`` instead of ``\s`` so the value run can never continue across
+# a line break if a caller ever feeds raw multi-line stderr instead of
+# single lines.
+_RE_FRAME_TPK = re.compile(
+    r"\bFTPK:[ \t]*((?:-?\d+(?:\.\d+)?|-inf)(?:[ \t]+(?:-?\d+(?:\.\d+)?|-inf))*)"
+)
+
+
+def _frame_true_peak(values: str) -> float | None:
+    """Return the loudest finite channel reading from an ``FTPK:`` group.
+
+    ``values`` is the whitespace-separated per-channel run captured by
+    ``_RE_FRAME_TPK``. ``-inf`` marks a silent channel and is skipped;
+    None means no channel carried a finite reading.
+    """
+    best: float | None = None
+    for token in values.split():
+        if token == "-inf":
+            continue
+        try:
+            val = float(token)
+        except ValueError:
+            continue
+        if best is None or val > best:
+            best = val
+    return best
 
 
 def _peak_time(progress: str) -> float | None:
     """Return the timestamp of the loudest true-peak frame, in seconds.
 
     Scans the per-frame progress lines for the highest ``FTPK`` reading
-    and returns the ``t:`` of that frame. The first frame wins on a tie,
-    so the timestamp points at the onset of the loudest moment. Returns
-    None when no frame carried a finite peak reading.
+    across all channels and returns the ``t:`` of that frame. The first
+    frame wins on a tie, so the timestamp points at the onset of the
+    loudest moment. Returns None when no frame carried a finite peak
+    reading.
     """
     best_peak = -math.inf
     best_time: float | None = None
     for line in progress.splitlines():
         m_peak = _RE_FRAME_TPK.search(line)
-        if m_peak is None or m_peak.group(1) == "-inf":
+        if m_peak is None:
             continue
-        try:
-            peak = float(m_peak.group(1))
-        except ValueError:
-            continue
-        if peak <= best_peak:
+        peak = _frame_true_peak(m_peak.group(1))
+        if peak is None or peak <= best_peak:
             continue
         m_time = _RE_FRAME_T.search(line)
         if m_time is None:

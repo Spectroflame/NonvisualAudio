@@ -111,8 +111,8 @@
       },
       "target_lufs": -19.0, "lra_low": 6.0, "lra_high": 10.0,
       "notes": {
-        "en": "narration oriented, midrange focused, minimal low end, Audible RMS target around minus 18 to minus 20 dB",
-        "de": "erzählerorientiert, mittenbetont, minimaler Bassanteil, Audible-RMS-Ziel rund minus 18 bis minus 20 dB"
+        "en": "narration oriented, midrange focused, minimal low end, ACX (Audible) requires RMS between minus 23 and minus 18 dB",
+        "de": "erzählerorientiert, mittenbetont, minimaler Bassanteil, ACX (Audible) verlangt RMS zwischen minus 23 und minus 18 dB"
       }
     },
     {
@@ -557,8 +557,8 @@
       },
       "target_lufs": -27.0, "lra_low": 15.0, "lra_high": 25.0,
       "notes": {
-        "en": "cinema dialogue sitting around minus 27 LKFS with large effects headroom",
-        "de": "Kinodialog bei rund minus 27 LKFS, mit großem Headroom für Effekte"
+        "en": "cinema dialogue sitting around minus 27 LKFS with large effects headroom. That anchor is measured on dialogue only, so effects-heavy material can read louder in integrated loudness",
+        "de": "Kinodialog bei rund minus 27 LKFS, mit großem Headroom für Effekte. Der Anker wird nur auf dem Dialog gemessen — effektlastiges Material kann in der integrierten Lautheit lauter ausfallen"
       }
     },
     {
@@ -570,8 +570,8 @@
       },
       "target_lufs": -24.0, "lra_low": 10.0, "lra_high": 18.0,
       "notes": {
-        "en": "mixed for home viewing under ATSC A/85 or EBU R128 broadcast rules",
-        "de": "für die Wiedergabe zu Hause nach den Sendenormen ATSC A/85 bzw. EBU R128 gemischt"
+        "en": "mixed for home viewing; ATSC A/85 targets minus 24 LKFS, EBU R128 minus 23 LUFS",
+        "de": "für die Wiedergabe zu Hause gemischt; ATSC A/85 zielt auf minus 24 LKFS, EBU R128 auf minus 23 LUFS"
       }
     },
     {

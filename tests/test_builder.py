@@ -699,7 +699,7 @@ def test_music_material_keeps_genre_wording():
     )
     report = build_report(_make_result(loudness=loud), material="music")
     assert "That sits in the typical range for music mixes." in report
-    assert "streaming platforms aim for with loudness normalization" in report
+    assert "streaming platforms normalize to around minus 14 to minus 16" in report
 
 
 def test_spoken_word_profile_uses_speech_wording_not_music():
@@ -1413,7 +1413,7 @@ def test_moderate_bucket_cites_streaming_normalization_not_broadcast():
     result = _make_result(loudness=loud)
     music = build_report(result, material="music")
     assert "broadcast ballpark" not in music
-    assert "streaming platforms aim for with loudness normalization" in music
+    assert "streaming platforms normalize to around minus 14 to minus 16" in music
     spoken = build_report(result, material="music", tonality="speech")
     assert "as is usual for a broadcast version" not in spoken
     assert "podcast and streaming versions of spoken-word productions" in spoken
@@ -1484,3 +1484,45 @@ def test_sub_dominant_hint_suppressed_for_club_loud_profiles():
     assert "sub-bass is dominant" in quieter_genre
     no_profile = build_report(result, material="music")
     assert "sub-bass is dominant" in no_profile
+
+
+def test_quiet_bucket_boundaries_are_exact():
+    # Review follow-up: pin the exact bucket edges. Minus 20.0 falls
+    # into the quiet bucket (the moderate branch requires strictly
+    # louder than minus 20), and minus 26.0 falls into very quiet (the
+    # quiet branch requires strictly louder than minus 26).
+    def loud_at(i):
+        return LoudnessMetrics(
+            integrated_lufs=i,
+            short_term_max_lufs=i + 5.0,
+            true_peak_dbtp=-3.0,
+            loudness_range_lu=8.7,
+        )
+
+    at_minus_20 = build_report(
+        _make_result(loudness=loud_at(-20.0)), material="music"
+    )
+    assert "plays at a quiet level" in at_minus_20
+    assert "moderate loudness level" not in at_minus_20
+    at_minus_26 = build_report(
+        _make_result(loudness=loud_at(-26.0)), material="music"
+    )
+    assert "reads as very quiet" in at_minus_26
+    assert "plays at a quiet level" not in at_minus_26
+
+
+def test_club_loud_gate_includes_target_exactly_minus_9():
+    # The sub-dominant suppression applies from minus 9 LUFS upward —
+    # a profile targeting exactly minus 9 (modern pop and rock) is part
+    # of the deliberately-loud class.
+    bands = BandEnergies(
+        sub_db=-4.0,
+        bass_db=-8.0,
+        low_mid_db=-10.0,
+        mid_db=-9.0,
+        presence_db=-12.0,
+        air_db=-18.0,
+    )
+    result = _make_result(spectrum=SpectrumMetrics(bands=bands, peaks=()))
+    report = build_report(result, material="music", profile_target_lufs=-9.0)
+    assert "sub-bass is dominant" not in report

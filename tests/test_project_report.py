@@ -381,7 +381,7 @@ def test_project_music_material_keeps_genre_wording():
     project = _make_project(files)
     report = build_project_report(project, material="music")
     assert "Across the project, that sits in the typical range for music mixes." in report
-    assert "streaming platforms aim for with loudness normalization" in report
+    assert "streaming platforms normalize to around minus 14 to minus 16" in report
 
 
 def test_project_neutral_mode_german_report_has_no_musik_mix():

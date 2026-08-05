@@ -1226,12 +1226,15 @@ def _recommendations_section(
             recs.append(t("report.rec.air_boost"))
         if b.sub_db < -25.0:
             recs.append(t("report.rec.sub_absent"))
-        # A dominant sub band is stylistic in the club-loud genres
-        # (trap, EDM, dancehall, metal — every bundled profile with a
-        # target of minus 9 LUFS or louder is also sub- or bass-forward
-        # by design), so the gentle-cut advice is suppressed there
-        # rather than contradicting the profile notes in the same
-        # report. Quieter genres keep the hint.
+        # A dominant sub band is stylistic in most club-loud genres:
+        # of the bundled profiles targeting minus 9 LUFS or louder,
+        # trap, EDM, dancehall, techno/house and metal are sub- or
+        # bass-forward by design. Modern pop and rock (minus 9) are
+        # not, but they are still deliberately loud masters where the
+        # gentle-cut advice would second-guess the chosen aesthetic,
+        # so the whole class is treated the same rather than the hint
+        # contradicting the profile notes in the same report. Quieter
+        # genres keep it.
         club_loud_profile = (
             profile_target_lufs is not None and profile_target_lufs >= -9.0
         )

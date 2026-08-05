@@ -23,6 +23,7 @@ import logging
 from typing import Any
 
 from nonvisualaudio.paths import user_data_dir
+from nonvisualaudio.persistence import atomic_write_json
 
 log = logging.getLogger("nonvisualaudio.preferences")
 
@@ -62,10 +63,7 @@ def save(prefs: dict[str, Any]) -> bool:
     """
     path = _preferences_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as fh:
-            json.dump(prefs, fh, indent=2, ensure_ascii=False)
-            fh.write("\n")
+        atomic_write_json(path, prefs)
     except OSError as exc:
         log.warning("could not save preferences to %s: %s", path, exc)
         return False

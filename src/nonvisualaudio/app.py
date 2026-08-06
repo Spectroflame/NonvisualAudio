@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import traceback
 
 import wx
 
@@ -17,6 +16,15 @@ from nonvisualaudio.ui import macos_a11y
 from nonvisualaudio.ui import theme
 from nonvisualaudio.ui.error_dialog import show_error
 from nonvisualaudio.ui.main_window import MainWindow
+
+
+def _unexpected_main_loop_error() -> UserFacingError:
+    """Build the fixed fallback shown for an unexpected wx callback error."""
+    return UserFacingError(
+        title=t("error.app.crashed.title"),
+        body=t("error.app.crashed.body"),
+        hint=t("error.app.crashed.hint"),
+    )
 
 
 def _configure_logging() -> None:
@@ -71,7 +79,7 @@ class NonvisualAudioApp(wx.App):
         return True
 
     def OnExceptionInMainLoop(self) -> bool:  # noqa: N802 — wx convention
-        exc_type, exc, tb = sys.exc_info()
+        _, exc, _ = sys.exc_info()
         logging.getLogger("nonvisualaudio").exception(
             "unhandled exception in main loop: %s", exc
         )
@@ -79,15 +87,7 @@ class NonvisualAudioApp(wx.App):
         if isinstance(exc, UserFacingError):
             show_error(top, exc)
             return True
-        detail = "".join(traceback.format_exception_only(exc_type, exc)).strip()
-        show_error(
-            top,
-            UserFacingError(
-                title=t("error.app.crashed.title"),
-                body=t("error.app.crashed.body", detail=detail),
-                hint=t("error.app.crashed.hint"),
-            ),
-        )
+        show_error(top, _unexpected_main_loop_error())
         return True
 
 

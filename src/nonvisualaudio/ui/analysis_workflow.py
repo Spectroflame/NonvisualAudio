@@ -343,7 +343,7 @@ def _analyze_target(
     except UserFacingError as exc:
         log.warning("file %d/%d failed: %s", index + 1, target_count, exc)
         return exc
-    except Exception as exc:  # noqa: BLE001 -- defensive workflow boundary
+    except Exception:  # noqa: BLE001 -- defensive workflow boundary
         log.exception(
             "unexpected error on %s",
             logging_setup.path_for_log(target_path),
@@ -351,7 +351,7 @@ def _analyze_target(
         filename = Path(target_path).name
         return UserFacingError(
             title=t("worker.error.unexpected.title", filename=filename),
-            body=str(exc) or t("worker.error.unexpected.body"),
+            body=t("worker.error.unexpected.body"),
             hint=t("worker.error.unexpected.hint"),
         )
 
@@ -376,14 +376,14 @@ def _render_target_report(
             index=index,
             target_count=target_count,
         )
-    except Exception as exc:  # noqa: BLE001 -- report boundary
+    except Exception:  # noqa: BLE001 -- report boundary
         log.exception(
             "report builder failed for %s",
             logging_setup.path_for_log(target_path),
         )
         return UserFacingError(
             title=t("worker.error.report_format.title", filename=filename),
-            body=str(exc),
+            body=t("worker.error.report_format.body"),
             hint=t("worker.error.report_format.hint"),
         )
 
@@ -537,12 +537,12 @@ def _run_project(context: _RunContext, started_at: float) -> None:
     except UserFacingError as exc:
         callbacks.on_error(exc)
         return
-    except Exception as exc:  # noqa: BLE001 -- defensive workflow boundary
+    except Exception:  # noqa: BLE001 -- defensive workflow boundary
         log.exception("project pipeline crashed")
         callbacks.on_error(
             UserFacingError(
                 title=t("worker.error.project_failed.title"),
-                body=str(exc) or t("worker.error.project_failed.body"),
+                body=t("worker.error.project_failed.body"),
                 hint=t("worker.error.project_failed.hint"),
             )
         )
@@ -566,12 +566,12 @@ def _run_project(context: _RunContext, started_at: float) -> None:
                 request.genre_keys
             ),
         )
-    except Exception as exc:  # noqa: BLE001 -- report boundary
+    except Exception:  # noqa: BLE001 -- report boundary
         log.exception("project report builder crashed")
         callbacks.on_error(
             UserFacingError(
                 title=t("worker.error.project_failed.title"),
-                body=str(exc) or t("worker.error.project_failed.body"),
+                body=t("worker.error.project_failed.body"),
                 hint=t("worker.error.project_failed.hint"),
             )
         )

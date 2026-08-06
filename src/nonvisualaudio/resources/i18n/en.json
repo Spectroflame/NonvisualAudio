@@ -194,7 +194,7 @@
   "ui.results.export.default_filename": "nonvisualaudio_report",
   "ui.results.export.saved_hint": "Report exported to {filename}.",
   "ui.results.export.failed.title": "Could not write the report file",
-  "ui.results.export.failed.body": "NonvisualAudio could not save the report to {filename}. The file system reported: {details}.",
+  "ui.results.export.failed.body": "NonvisualAudio could not save the report to {filename}.",
   "ui.results.export.failed.hint": "Check that the destination folder is writable and that no other application has the file open, then try again.",
 
   "ui.error_dialog.body_name": "Error details",
@@ -371,7 +371,11 @@
   "worker.error.unexpected.body": "The audio pipeline raised an unexpected error.",
   "worker.error.unexpected.hint": "Try re-exporting the file as WAV or FLAC. If the problem persists, relaunch the app with NVA_DEBUG=1 to capture a detailed log.",
   "worker.error.report_format.title": "Could not format the report for {filename}",
+  "worker.error.report_format.body": "The analysis finished, but NonvisualAudio could not prepare the report for display.",
   "worker.error.report_format.hint": "The underlying analysis succeeded; please try again.",
+  "worker.error.internal.title": "Analysis stopped because of an unexpected problem",
+  "worker.error.internal.body": "NonvisualAudio could not finish this analysis. The selected audio files were not changed.",
+  "worker.error.internal.hint": "Try again. If the problem persists, save a diagnostic report from the Help menu so the cause can be investigated.",
   "worker.error.all_failed.title": "None of the {count} files could be analyzed",
   "worker.error.all_failed.body": "Each file failed for a different reason. Open the Details button to see them all.",
   "worker.error.ram_cancelled.title": "Analysis cancelled to protect memory",
@@ -406,8 +410,7 @@
   "error.decoder.engine.hint": "Quit NonvisualAudio, reinstall ffmpeg, and open the app again. If the problem persists, run NonvisualAudio from a terminal with NVA_DEBUG=1 set to see the exact error.",
   "error.decoder.generic.title": "Could not decode {name}",
   "error.decoder.generic.body": "The audio engine rejected this file. It may be corrupt, encrypted (for example a DRM-protected iTunes purchase), or in a format this ffmpeg build does not support.",
-  "error.decoder.generic.hint.tail": "Try re-exporting the file as WAV or FLAC from your editor. Technical detail from ffmpeg: {tail}",
-  "error.decoder.generic.hint.no_tail": "Try re-exporting the file as WAV or FLAC from your editor.",
+  "error.decoder.generic.hint": "Try re-exporting the file as WAV or FLAC from your editor.",
   "error.decoder.empty_output.title": "{name} contains no audio",
   "error.decoder.empty_output.body": "The audio engine opened the file but produced no samples. It may be an empty recording, a data-only container, or a video file without an audio track.",
   "error.decoder.empty_output.hint": "Pick a different file, or check the export settings that produced this one.",
@@ -421,7 +424,7 @@
   "error.decoder.empty.body": "The file has a size of zero bytes and cannot be decoded.",
   "error.decoder.empty.hint": "Re-export or re-download the file, then try again.",
   "error.decoder.unreadable.title": "Cannot read {name}",
-  "error.decoder.unreadable.body": "The operating system refused to read this file. Permissions may be restricted, or the drive may have disconnected. Details: {details}.",
+  "error.decoder.unreadable.body": "The operating system refused to read this file. Permissions may be restricted, or the drive may have disconnected.",
   "error.decoder.unreadable.hint": "Check that you have read access to the file and that the drive is available.",
 
   "error.loudness.no_summary.title": "Loudness measurement failed for {name}",
@@ -438,7 +441,7 @@
   "error.loudness.generic.hint": "Re-export the file as WAV or FLAC and try again.",
 
   "error.app.crashed.title": "Something went wrong inside NonvisualAudio",
-  "error.app.crashed.body": "The app hit an unexpected problem and recovered. Your selections were not lost, and you can try again.\n\nTechnical detail: {detail}",
+  "error.app.crashed.body": "The app hit an unexpected problem and recovered. Your selections were not lost, and you can try again.",
   "error.app.crashed.hint": "If this keeps happening, relaunch NonvisualAudio from a terminal with NVA_DEBUG=1 set — that writes a detailed log to the terminal so the problem can be diagnosed.",
 
   "report.heading.file_info": "File Info",

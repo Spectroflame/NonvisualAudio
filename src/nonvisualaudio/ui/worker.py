@@ -16,6 +16,7 @@ import wx
 from nonvisualaudio.analysis.memory import MemoryEstimate
 from nonvisualaudio.cancellation import Cancellation, CancelledError
 from nonvisualaudio.errors import UserFacingError
+from nonvisualaudio.localization import t
 from nonvisualaudio.reporting.builder import ReportSections
 from nonvisualaudio.reporting.templates import ReportDoc
 from nonvisualaudio.ui.analysis_workflow import (
@@ -115,6 +116,17 @@ class AnalysisWorker:
             run_analysis(self._request, callbacks, self._cancel)
         except CancelledError:
             log.info("analysis cancelled by user; no result posted")
+        except Exception:  # noqa: BLE001 -- last-resort worker/UI boundary
+            # A missed programming or library error must neither expose its
+            # text nor leave the main window stuck in its running state.
+            log.exception("unexpected error escaped the analysis workflow")
+            self._emit_error(
+                UserFacingError(
+                    title=t("worker.error.internal.title"),
+                    body=t("worker.error.internal.body"),
+                    hint=t("worker.error.internal.hint"),
+                )
+            )
 
 
 def start_analysis(

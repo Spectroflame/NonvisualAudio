@@ -194,7 +194,7 @@
   "ui.results.export.default_filename": "nonvisualaudio_report",
   "ui.results.export.saved_hint": "Report nach {filename} exportiert.",
   "ui.results.export.failed.title": "Report-Datei konnte nicht geschrieben werden",
-  "ui.results.export.failed.body": "NonvisualAudio konnte den Report nicht nach {filename} speichern. Das Dateisystem meldet: {details}.",
+  "ui.results.export.failed.body": "NonvisualAudio konnte den Report nicht nach {filename} speichern.",
   "ui.results.export.failed.hint": "Prüfe, ob der Zielordner beschreibbar ist und keine andere Anwendung die Datei geöffnet hat, dann erneut versuchen.",
 
   "ui.error_dialog.body_name": "Fehlerdetails",
@@ -371,7 +371,11 @@
   "worker.error.unexpected.body": "Die Audio-Pipeline hat einen unerwarteten Fehler ausgelöst.",
   "worker.error.unexpected.hint": "Die Datei als WAV oder FLAC neu exportieren. Wenn das Problem bleibt, die App mit NVA_DEBUG=1 starten, um ein ausführliches Log zu bekommen.",
   "worker.error.report_format.title": "Report für {filename} konnte nicht formatiert werden",
+  "worker.error.report_format.body": "Die Analyse ist abgeschlossen, aber NonvisualAudio konnte den Report nicht für die Anzeige vorbereiten.",
   "worker.error.report_format.hint": "Die eigentliche Analyse war erfolgreich; bitte erneut versuchen.",
+  "worker.error.internal.title": "Analyse wegen eines unerwarteten Problems beendet",
+  "worker.error.internal.body": "NonvisualAudio konnte diese Analyse nicht abschließen. Die ausgewählten Audio-Dateien wurden nicht verändert.",
+  "worker.error.internal.hint": "Erneut versuchen. Wenn das Problem bleibt, über das Hilfe-Menü einen Diagnosebericht speichern, damit sich die Ursache untersuchen lässt.",
   "worker.error.all_failed.title": "Keine der {count} Dateien konnte analysiert werden",
   "worker.error.all_failed.body": "Jede Datei ist aus einem anderen Grund gescheitert. Die Details-Schaltfläche zeigt alle Fehler.",
   "worker.error.ram_cancelled.title": "Analyse zum Schutz des Arbeitsspeichers abgebrochen",
@@ -406,8 +410,7 @@
   "error.decoder.engine.hint": "NonvisualAudio beenden, FFmpeg neu installieren und die App neu starten. Wenn es weiter auftritt, die App vom Terminal aus mit NVA_DEBUG=1 starten, um den genauen Fehler zu sehen.",
   "error.decoder.generic.title": "{name} konnte nicht dekodiert werden",
   "error.decoder.generic.body": "Die Audio-Engine hat diese Datei abgelehnt. Sie ist evtl. beschädigt, verschlüsselt (z. B. ein DRM-geschützter iTunes-Kauf) oder in einem Format, das dieser FFmpeg-Build nicht unterstützt.",
-  "error.decoder.generic.hint.tail": "Die Datei im Editor als WAV oder FLAC neu exportieren. Technisches Detail aus FFmpeg: {tail}",
-  "error.decoder.generic.hint.no_tail": "Die Datei im Editor als WAV oder FLAC neu exportieren.",
+  "error.decoder.generic.hint": "Die Datei im Editor als WAV oder FLAC neu exportieren.",
   "error.decoder.empty_output.title": "{name} enthält kein Audio",
   "error.decoder.empty_output.body": "Die Audio-Engine hat die Datei geöffnet, aber keine Samples geliefert. Es könnte eine leere Aufnahme, ein reiner Daten-Container oder eine Video-Datei ohne Tonspur sein.",
   "error.decoder.empty_output.hint": "Eine andere Datei wählen oder die Export-Einstellungen prüfen, mit denen diese hier entstanden ist.",
@@ -421,7 +424,7 @@
   "error.decoder.empty.body": "Die Datei hat null Byte Größe und kann nicht dekodiert werden.",
   "error.decoder.empty.hint": "Die Datei neu exportieren oder neu herunterladen und erneut versuchen.",
   "error.decoder.unreadable.title": "{name} kann nicht gelesen werden",
-  "error.decoder.unreadable.body": "Das Betriebssystem hat das Lesen verweigert. Möglicherweise fehlen die Rechte, oder die Platte wurde getrennt. Details: {details}.",
+  "error.decoder.unreadable.body": "Das Betriebssystem hat das Lesen verweigert. Möglicherweise fehlen die Rechte, oder die Platte wurde getrennt.",
   "error.decoder.unreadable.hint": "Prüfen, ob Leserechte auf die Datei vorhanden sind und ob das Laufwerk verfügbar ist.",
 
   "error.loudness.no_summary.title": "Lautheitsmessung von {name} fehlgeschlagen",
@@ -438,7 +441,7 @@
   "error.loudness.generic.hint": "Die Datei als WAV oder FLAC neu exportieren und erneut versuchen.",
 
   "error.app.crashed.title": "In NonvisualAudio ist etwas schiefgelaufen",
-  "error.app.crashed.body": "Die App hatte ein unerwartetes Problem und hat sich gefangen. Deine Auswahl ging nicht verloren; du kannst es erneut versuchen.\n\nTechnisches Detail: {detail}",
+  "error.app.crashed.body": "Die App hatte ein unerwartetes Problem und hat sich gefangen. Deine Auswahl ging nicht verloren; du kannst es erneut versuchen.",
   "error.app.crashed.hint": "Tritt es weiter auf, NonvisualAudio vom Terminal aus mit NVA_DEBUG=1 starten — das schreibt ein ausführliches Log auf die Konsole, mit dem sich das Problem untersuchen lässt.",
 
   "report.heading.file_info": "Datei-Info",

@@ -71,3 +71,32 @@ def test_worker_treats_cancellation_as_normal_exit(monkeypatch) -> None:
     assert done == []
     assert errors == []
     assert progress == []
+
+
+def test_worker_hides_unexpected_exception_and_emits_safe_error(monkeypatch) -> None:
+    done: list[object] = []
+    errors: list[object] = []
+    progress: list[object] = []
+
+    def immediate_call_after(callback, *args) -> None:
+        callback(*args)
+
+    def crashed_run(_request, _callbacks, _cancel) -> None:
+        raise RuntimeError("token=do-not-display /private/secret.wav")
+
+    monkeypatch.setattr(worker.wx, "CallAfter", immediate_call_after)
+    monkeypatch.setattr(worker, "run_analysis", crashed_run)
+    instance = _make_worker(
+        lambda result, partial: done.append((result, partial)),
+        errors.append,
+        lambda percent, label: progress.append((percent, label)),
+    )
+
+    instance._run_guarded()
+
+    assert done == []
+    assert progress == []
+    assert len(errors) == 1
+    message = errors[0].as_message()
+    assert "do-not-display" not in message
+    assert "/private/secret.wav" not in message

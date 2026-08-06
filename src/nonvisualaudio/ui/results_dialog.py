@@ -25,6 +25,15 @@ from nonvisualaudio.errors import UserFacingError
 log = logging.getLogger("nonvisualaudio.results_dialog")
 
 
+def _export_failed_error(filename: str) -> UserFacingError:
+    """Return the fixed UI error for an export write failure."""
+    return UserFacingError(
+        title=t("ui.results.export.failed.title"),
+        body=t("ui.results.export.failed.body", filename=filename),
+        hint=t("ui.results.export.failed.hint"),
+    )
+
+
 def _strip_macos_export_attrs(path: Path) -> None:
     """Drop macOS provenance / TCC attrs that block Chrome from rendering.
 
@@ -223,19 +232,11 @@ class ResultsDialog(wx.Dialog):
         rendered = self._render_for_extension(chosen.suffix.lower())
         try:
             chosen.write_text(rendered, encoding="utf-8")
-        except OSError as exc:
+        except OSError:
             log.exception("export failed for %s", logging_setup.path_for_log(chosen))
             show_error(
                 self,
-                UserFacingError(
-                    title=t("ui.results.export.failed.title"),
-                    body=t(
-                        "ui.results.export.failed.body",
-                        filename=chosen.name,
-                        details=exc.strerror or exc,
-                    ),
-                    hint=t("ui.results.export.failed.hint"),
-                ),
+                _export_failed_error(chosen.name),
             )
             return
         _strip_macos_export_attrs(chosen)

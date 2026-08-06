@@ -343,6 +343,40 @@ def test_project_pipeline_crash_becomes_project_error(monkeypatch) -> None:
     assert recorder.errors[0].title == analysis_workflow.t(
         "worker.error.project_failed.title"
     )
+    assert "boom" not in recorder.errors[0].as_message()
+
+
+def test_project_report_crash_hides_exception_text(monkeypatch) -> None:
+    recorder = _CallbackRecorder()
+    project = ProjectResult(
+        project_name="Album",
+        files=(_result("track.wav"),),
+        combined=_result("Combined"),
+    )
+    monkeypatch.setattr(
+        analysis_workflow,
+        "analyze_project",
+        lambda *_args, **_kwargs: project,
+    )
+    monkeypatch.setattr(
+        analysis_workflow,
+        "build_project_report",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("private codec state")
+        ),
+    )
+    request = analysis_workflow.AnalysisRequest.create(
+        ["track.wav"],
+        None,
+        None,
+        project_mode=True,
+    )
+
+    analysis_workflow.run_analysis(request, recorder.callbacks(), Cancellation())
+
+    assert recorder.done == []
+    assert len(recorder.errors) == 1
+    assert "private codec state" not in recorder.errors[0].as_message()
 
 
 def test_multi_file_reference_is_marked_as_project(monkeypatch) -> None:

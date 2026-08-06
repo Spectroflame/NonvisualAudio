@@ -214,20 +214,13 @@ def _ffmpeg_error_to_user_error(exc: FFmpegError, path: Path) -> AudioDecodeErro
             body=t("error.decoder.engine.body"),
             hint=t("error.decoder.engine.hint"),
         )
-    # Generic ffmpeg failure: include the most informative part of stderr.
-    stderr_tail = raw.split("\n", 1)[-1].strip()
-    snippet = stderr_tail.splitlines()
-    # ffmpeg often ends with the actionable line; take the last three non-empty.
-    tail = " ".join(ln.strip() for ln in snippet if ln.strip())[-400:]
-    hint = (
-        t("error.decoder.generic.hint.tail", tail=tail)
-        if tail
-        else t("error.decoder.generic.hint.no_tail")
-    )
+    # The raw runner error may contain ffmpeg stderr, paths, codec internals,
+    # or other untrusted input. It belongs in the diagnostic log, never in
+    # the user-facing error object that the UI renders verbatim.
     return AudioDecodeError(
         title=t("error.decoder.generic.title", name=name),
         body=t("error.decoder.generic.body"),
-        hint=hint,
+        hint=t("error.decoder.generic.hint"),
     )
 
 
@@ -328,9 +321,7 @@ def _validate_file(path: str | Path) -> Path:
     except OSError as exc:
         raise AudioDecodeError(
             title=t("error.decoder.unreadable.title", name=p.name),
-            body=t(
-                "error.decoder.unreadable.body", details=exc.strerror or exc
-            ),
+            body=t("error.decoder.unreadable.body"),
             hint=t("error.decoder.unreadable.hint"),
         ) from exc
     return p
@@ -784,7 +775,7 @@ def _try_streaming_soundfile(
         raise AudioDecodeError(
             title=t("error.decoder.generic.title", name=p.name),
             body=t("error.decoder.generic.body"),
-            hint=t("error.decoder.generic.hint.tail", tail=str(exc)),
+            hint=t("error.decoder.generic.hint"),
         ) from exc
 
     # Loudness via ffmpeg ebur128 — same call the batch soundfile path

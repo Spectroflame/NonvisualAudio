@@ -302,7 +302,6 @@ class MainWindow(wx.Frame):
         # beside it carries only what the analysis is currently doing.
         self.progress = wx.Gauge(panel, range=100, style=wx.GA_HORIZONTAL)
         a11y.set_a11y(self.progress, t("ui.label.progress_bar"))
-        self.progress.SetToolTip(t("ui.hint.progress_bar"))
         self.progress.Hide()
 
         # Read-only TextCtrl rather than StaticText so it sits in the
@@ -312,7 +311,6 @@ class MainWindow(wx.Frame):
         # skipped by the screen reader's focus traversal.
         self.progress_label = wx.TextCtrl(panel, style=wx.TE_READONLY)
         a11y.set_a11y(self.progress_label, t("ui.label.progress_stage"))
-        self.progress_label.SetToolTip(t("ui.hint.progress_stage"))
         self.progress_label.Hide()
 
         progress_row = wx.BoxSizer(wx.HORIZONTAL)
@@ -1214,7 +1212,6 @@ class MainWindow(wx.Frame):
             status = t("ui.progress.status.with_eta", stage=stage, eta=eta)
         a11y.update_name(self.progress, gauge_name)
         self.progress_label.ChangeValue(stage)
-        self.progress_label.SetToolTip(t("ui.progress.hint", stage=stage))
         self.SetStatusText(status)
 
     def _stop_running_ui(self) -> None:

@@ -68,9 +68,7 @@
   "ui.cancel_confirm.title": "Analyse abbrechen?",
   "ui.cancel_confirm.body": "Die laufende Analyse wirklich abbrechen? Bereits berechnete Ergebnisse früherer Analysen bleiben erhalten.",
   "ui.label.progress_bar": "Analyse-Fortschritt",
-  "ui.hint.progress_bar": "Fortschritt der laufenden Analyse in Prozent, zusammen mit der voraussichtlichen Restzeit.",
   "ui.label.progress_stage": "Aktuelle Analyse-Phase",
-  "ui.hint.progress_stage": "Zeigt, was die Analyse gerade tut, zum Beispiel „Dekodiere Audio“.",
   "ui.label.results": "Analyse-Ergebnis",
   "ui.hint.results": "Der vollständige Text-Report. Zeile für Zeile mit dem Screenreader lesen. Strg+C bzw. Cmd+C zum Kopieren.",
   "ui.label.copy_results": "Ergebnis in die Zwischenablage kopieren",
@@ -105,7 +103,6 @@
 
   "ui.progress.starting": "Startet...",
   "ui.progress.gauge.with_eta": "Analyse-Fortschritt, {eta}",
-  "ui.progress.hint": "Aktuelle Analyse-Phase: {stage}.",
   "ui.progress.status": "{stage}...",
   "ui.progress.status.with_eta": "{stage}... {eta}",
   "ui.progress.eta.under_30s": "weniger als 30 Sekunden verbleibend",

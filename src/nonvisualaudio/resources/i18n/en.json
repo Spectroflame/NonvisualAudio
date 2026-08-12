@@ -68,9 +68,7 @@
   "ui.cancel_confirm.title": "Cancel analysis?",
   "ui.cancel_confirm.body": "Really cancel the running analysis? Results already computed by earlier analyses are kept.",
   "ui.label.progress_bar": "Analysis progress",
-  "ui.hint.progress_bar": "Progress of the running analysis in percent, together with the estimated time remaining.",
   "ui.label.progress_stage": "Current analysis stage",
-  "ui.hint.progress_stage": "Shows what the analysis is currently doing, for example “Decoding audio”.",
   "ui.label.results": "Analysis results",
   "ui.hint.results": "The full text report. Read line by line with your screen reader. Press Control C or Command C to copy.",
   "ui.label.copy_results": "Copy results to clipboard",
@@ -105,7 +103,6 @@
 
   "ui.progress.starting": "Starting...",
   "ui.progress.gauge.with_eta": "Analysis progress, {eta}",
-  "ui.progress.hint": "Current analysis stage: {stage}.",
   "ui.progress.status": "{stage}...",
   "ui.progress.status.with_eta": "{stage}... {eta}",
   "ui.progress.eta.under_30s": "less than 30 seconds remaining",

@@ -4,10 +4,9 @@ The progress UI presents "progress + remaining time" as one element: the
 gauge keeps the percent as its value and folds the remaining-time
 estimate into its accessible *name*, while the neighbouring read-only
 label carries only the current stage. Neither control has an additional
-screen-reader help text; their mouse tooltips remain available. These
-tests pin that routing down so a future change can't silently restore
-redundant descriptions or send the percent, ETA, or stage to the wrong
-widget.
+screen-reader help text or mouse tooltip. These tests pin that routing
+down so a future change can't silently restore redundant descriptions
+or send the percent, ETA, or stage to the wrong widget.
 
 Like the project-prompt tests, this drives a real ``MainWindow`` behind a
 ``wx.App`` fixture and calls the progress handler directly.
@@ -63,10 +62,8 @@ def test_early_tick_keeps_gauge_name_plain(window: MainWindow):
     assert window.progress_label.GetHelpText() == ""
     assert window.progress._a11y_description == ""
     assert window.progress_label._a11y_description == ""
-    assert window.progress.GetToolTipText() == t("ui.hint.progress_bar")
-    assert window.progress_label.GetToolTipText() == t(
-        "ui.progress.hint", stage="Dekodiere Audio"
-    )
+    assert window.progress.GetToolTipText() == ""
+    assert window.progress_label.GetToolTipText() == ""
 
 
 def test_eta_rides_in_gauge_name_stage_in_label(window: MainWindow):
@@ -82,14 +79,22 @@ def test_eta_rides_in_gauge_name_stage_in_label(window: MainWindow):
     assert window.progress.GetValue() == 50
     assert window.progress_label.GetValue() == "Messe Lautheit"
 
-    base = t("ui.label.progress_bar")
+    eta = t("ui.progress.eta.under_30s")
     name = window.progress.GetName()
     # The name extends the bare label with the ETA, and carries no percent.
-    assert name.startswith(base)
-    assert len(name) > len(base)
+    assert name == t("ui.progress.gauge.with_eta", eta=eta)
     assert "50" not in name
     # The label likewise never carries the percent.
     assert "50" not in window.progress_label.GetValue()
+    assert window.GetStatusBar().GetStatusText() == t(
+        "ui.progress.status.with_eta", stage="Messe Lautheit", eta=eta
+    )
+    assert window.progress.GetHelpText() == ""
+    assert window.progress_label.GetHelpText() == ""
+    assert window.progress._a11y_description == ""
+    assert window.progress_label._a11y_description == ""
+    assert window.progress.GetToolTipText() == ""
+    assert window.progress_label.GetToolTipText() == ""
 
 
 def test_stale_token_is_ignored(window: MainWindow):

@@ -1,0 +1,3 @@
+# Test runner used by every platform job in .github/workflows/build.yml.
+# Keep this exact so a release build cannot pick up a new pytest implicitly.
+pytest==9.1.1

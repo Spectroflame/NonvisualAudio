@@ -27,10 +27,16 @@ OLD_MACOS_ARTIFACTS = (
     "NonvisualAudio-macOS-x86_64.zip",
 )
 WORKFLOW = ".github/workflows/build.yml"
+CI_REQUIREMENTS = "requirements-ci.txt"
 
 
 def _read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def _project_version() -> str:
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        return tomllib.load(fh)["project"]["version"]
 
 
 # --------------------------------------------------------------------------- #
@@ -54,8 +60,7 @@ def test_no_split_helper_artifacts() -> None:
 def test_liesmich_names_helper_and_version() -> None:
     liesmich = _read("packaging/macos/LIESMICH.txt")
     assert HELPER_NAME in liesmich
-    assert "2.1.1" in liesmich
-    assert "2.1.0" not in liesmich
+    assert liesmich.splitlines()[0] == f"NonvisualAudio {_project_version()}"
 
 
 # --------------------------------------------------------------------------- #
@@ -106,6 +111,9 @@ def test_platform_jobs_run_tests_before_pyinstaller() -> None:
         assert "-m pytest tests -q" in block, (
             f"job '{name}' does not run the complete test suite"
         )
+        assert f"-r {CI_REQUIREMENTS}" in block, (
+            f"job '{name}' does not install the pinned CI requirements"
+        )
         assert block.index("-m pytest tests -q") < block.index(
             "pyinstaller --clean"
         ), f"job '{name}' runs tests only after PyInstaller"
@@ -114,8 +122,23 @@ def test_platform_jobs_run_tests_before_pyinstaller() -> None:
 def test_linux_gui_tests_run_under_virtual_display() -> None:
     _, jobs = _split_global_and_jobs(_read(WORKFLOW))
     linux = _job_block(jobs, "linux")
-    assert "xvfb" in linux
+    system_install = linux[
+        linux.index("sudo apt-get install") : linux.index(
+            "- name: Install Python dependencies"
+        )
+    ]
+    assert re.search(r"^\s+xvfb\s*$", system_install, re.MULTILINE)
     assert "xvfb-run --auto-servernum python -m pytest tests -q" in linux
+
+
+def test_ci_test_runner_is_exactly_pinned() -> None:
+    requirements = [
+        line.strip()
+        for line in _read(CI_REQUIREMENTS).splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert len(requirements) == 1
+    assert re.fullmatch(r"pytest==\d+\.\d+\.\d+", requirements[0])
 
 
 # --------------------------------------------------------------------------- #
@@ -177,6 +200,4 @@ def test_only_release_job_grants_write() -> None:
 
 
 def test_pyproject_version_is_2_2_0() -> None:
-    with (ROOT / "pyproject.toml").open("rb") as fh:
-        data = tomllib.load(fh)
-    assert data["project"]["version"] == "2.2.0"
+    assert _project_version() == "2.2.0"

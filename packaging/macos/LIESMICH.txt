@@ -1,4 +1,4 @@
-NonvisualAudio 2.1.1
+NonvisualAudio 2.2.0
 
 macOS blockiert Apps, die nicht über den App Store kommen, beim ersten
 Start. So startest du NonvisualAudio trotzdem:

@@ -99,6 +99,25 @@ def test_workflow_verifies_macos_zip() -> None:
     assert "NonvisualAudio/LIESMICH.txt" in text
 
 
+def test_platform_jobs_run_tests_before_pyinstaller() -> None:
+    _, jobs = _split_global_and_jobs(_read(WORKFLOW))
+    for name in ("macos", "windows", "linux"):
+        block = _job_block(jobs, name)
+        assert "-m pytest tests -q" in block, (
+            f"job '{name}' does not run the complete test suite"
+        )
+        assert block.index("-m pytest tests -q") < block.index(
+            "pyinstaller --clean"
+        ), f"job '{name}' runs tests only after PyInstaller"
+
+
+def test_linux_gui_tests_run_under_virtual_display() -> None:
+    _, jobs = _split_global_and_jobs(_read(WORKFLOW))
+    linux = _job_block(jobs, "linux")
+    assert "xvfb" in linux
+    assert "xvfb-run --auto-servernum python -m pytest tests -q" in linux
+
+
 # --------------------------------------------------------------------------- #
 # Build workflow — permission scoping
 # --------------------------------------------------------------------------- #

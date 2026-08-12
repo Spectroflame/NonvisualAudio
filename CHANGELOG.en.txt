@@ -1,3 +1,42 @@
+NONVISUALAUDIO — VERSION 2.2.0
+
+This update adds material-aware speech analysis and greatly reduces
+memory use for long files.
+
+New
+
+- “Choose Genre / Profile...” now offers speech profiles alongside
+  music profiles and neutral analysis. The new “Raw Speech Recording”
+  profile evaluates unprocessed material without a LUFS target.
+- Loudness, dynamics, and frequency verdicts now adapt to music, spoken
+  material, or a neutral analysis when no profile is selected.
+- The Diagnostics dialog can show the current session log read-only.
+  The About dialog also opens the log folder directly, and each session
+  starts with a fresh log file.
+- When more than five files are added to the target area, the app asks
+  whether to analyze them separately or together in project mode.
+- Progress and estimated time remaining are now announced together in
+  one element.
+- Reference comparisons now explain when loudness matching can make the
+  comparison more meaningful. Stereo-width reporting is clearer too.
+
+Bug fixes and robustness
+
+- The true-peak timestamp now follows the loudest peak across all
+  channels instead of channel 1 only.
+- Project-mode measurements remain correct when files have different
+  channel counts.
+- Standards references in three bundled genre profiles were corrected.
+- Audio now flows through the analysis pipeline as a continuous stream.
+  This drastically reduces memory use for long files; ffmpeg runs also
+  have an effective time limit.
+- Preferences and custom genre profiles are saved atomically so an
+  interruption cannot leave a partial file behind.
+- User dialogs no longer expose technical error details. Logging is
+  further hardened against manipulated control characters and
+  misleading path fragments.
+
+
 NONVISUALAUDIO — VERSION 2.1.1
 
 Hotfix for the release package.

@@ -1,3 +1,44 @@
+NONVISUALAUDIO — VERSION 2.2.0
+
+Dieses Update erweitert die Analyse um Materialprofile für Sprache und
+senkt den Speicherbedarf bei langen Dateien deutlich.
+
+Neu
+
+- „Genre / Profil wählen…“ bietet neben Musikprofilen jetzt auch eine
+  neutrale Auswertung und Sprachprofile. Das neue Profil „Rohe
+  Sprachaufnahme“ beurteilt unbearbeitetes Material ohne LUFS-Ziel.
+- Lautheits-, Dynamik- und Frequenzurteile passen sich an Musik,
+  Sprachmaterial oder eine neutrale Analyse ohne gewähltes Profil an.
+- Im Diagnosedialog lässt sich das Protokoll der laufenden Sitzung
+  schreibgeschützt anzeigen. Der Über-Dialog öffnet außerdem direkt den
+  Protokollordner; jede Sitzung beginnt mit einer frischen Logdatei.
+- Werden mehr als fünf Dateien in den Zielbereich eingefügt, fragt die
+  App nach, ob sie einzeln oder gemeinsam im Projektmodus analysiert
+  werden sollen.
+- Fortschritt und geschätzte Restzeit werden jetzt gemeinsam in einem
+  Element ausgegeben.
+- Der Referenzvergleich erklärt nun, wann eine Lautheitsangleichung den
+  Vergleich aussagekräftiger macht. Auch die Ausgabe zur Stereo-Breite
+  wurde präzisiert.
+
+Fehlerbehebungen und Robustheit
+
+- Der True-Peak-Zeitstempel folgt jetzt der lautesten Spitze über alle
+  Kanäle statt ausschließlich Kanal 1.
+- Messungen im Projektmodus bleiben auch bei Dateien mit
+  unterschiedlichen Kanalzahlen korrekt.
+- Normbezüge in drei mitgelieferten Genre-Profilen wurden korrigiert.
+- Die Analyse verarbeitet Audiodaten jetzt durchgängig als Datenstrom.
+  Das senkt den Speicherbedarf langer Dateien drastisch; ffmpeg-Läufe
+  besitzen außerdem eine wirksame Zeitbegrenzung.
+- Einstellungen und eigene Genre-Profile werden atomar gespeichert,
+  damit ein Abbruch keine unvollständige Datei hinterlässt.
+- Technische Fehlerdetails bleiben aus Nutzerdialogen heraus. Das
+  Protokoll wurde gegen manipulierte Steuerzeichen und irreführende
+  Pfadangaben weiter gehärtet.
+
+
 NONVISUALAUDIO — VERSION 2.1.1
 
 Hotfix für das Release-Paket.

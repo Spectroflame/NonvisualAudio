@@ -86,9 +86,9 @@ tree contains zero network libraries.
     feedback that work is progressing (nothing is written to disk; the
     sample is held in memory and fed straight to PortAudio via
     sounddevice)
-  - One progress element announces the current pipeline step, percentage,
-    and an EMA-smoothed estimate of the remaining time — useful for
-    hours-long inputs like full audiobooks
+  - The progress gauge announces percentage and an EMA-smoothed estimate
+    of the remaining time; a separate focusable field reports the current
+    pipeline step — useful for hours-long inputs like full audiobooks
   - The Diagnostics dialog can show the current session log in a read-only,
     screen-reader-friendly viewer; the log folder is also reachable from
     the About dialog

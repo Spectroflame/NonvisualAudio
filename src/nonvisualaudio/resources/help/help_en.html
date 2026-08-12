@@ -163,12 +163,12 @@
     <kbd>Escape</kbd>; a short "Cancel analysis?" confirmation appears
     before the run is actually stopped.
   </dd>
-  <dt>Progress bar and status line</dt>
+  <dt>Progress gauge and current stage</dt>
   <dd>
-    Appear while an analysis is running. The status line also sits
-    in the tab order, so a screen reader can focus it to hear the
-    current phase, the percentage, and a continuously updated estimate
-    of the remaining time.
+    Appear as two elements while an analysis is running. The progress
+    gauge announces the percentage and a continuously updated estimate of
+    the remaining time. The separate focusable field beside it reports the
+    current stage and sits in the tab order for direct screen-reader access.
   </dd>
 </dl>
 <p>
@@ -228,7 +228,7 @@
   <kbd>About NonvisualAudio</kbd> (<kbd>F1</kbd>, or
   <kbd>Cmd+Shift+ß</kbd> on a German Mac keyboard) opens a compact
   About / Help dialog. It carries the version, description, licence,
-  credits, and the GitHub link, plus two action buttons:
+  credits, and the GitHub link. Its buttons offer these actions:
 </p>
 <ul>
   <li><kbd>Show README</kbd> opens this user guide in your default
@@ -236,7 +236,18 @@
   <li><kbd>Report a Bug</kbd> opens the project's GitHub issue
       tracker so bug reports take two clicks instead of digging
       through menus.</li>
+  <li><kbd>Generate Diagnostic Report</kbd> places a support report with
+      system information and the current log in the log folder.</li>
+  <li><kbd>Open Log Folder</kbd> shows that folder in the file manager.</li>
 </ul>
+<p>
+  <kbd>Generate Diagnostic Report...</kbd> (<kbd>Cmd+Shift+D</kbd> /
+  <kbd>Ctrl+Shift+D</kbd>) in the Help menu opens the Diagnostics dialog.
+  There, <kbd>Show Current Log</kbd> opens the current session log
+  read-only. Read it line by line with your screen reader; the newest
+  entries are at the end. Enable verbose logging with full file paths
+  only when support specifically asks for it.
+</p>
 </section>
 
 </section>
@@ -560,6 +571,9 @@
 <ul>
   <li>Project mode is always off when the app starts, so it cannot
       silently persist from an earlier session.</li>
+  <li>When more than five files are added to the target area, the app
+      asks <kbd>Use Project Mode?</kbd>. <kbd>Analyze as Project</kbd>
+      enables project mode; <kbd>Analyze Separately</kbd> leaves it off.</li>
   <li>If project mode is on but only one file is in the list, the
       app asks before analyzing: switch back to a regular single-file
       run, run the file as a one-track project anyway, or cancel to
@@ -639,6 +653,8 @@
   <dd>Start the analysis.</dd>
   <dt><kbd>Cmd+G</kbd> / <kbd>Ctrl+G</kbd></dt>
   <dd>Open the genre editor.</dd>
+  <dt><kbd>Cmd+Shift+D</kbd> / <kbd>Ctrl+Shift+D</kbd></dt>
+  <dd>Open the dialog for generating and reading diagnostic logs.</dd>
   <dt><kbd>Cmd+Q</kbd> / <kbd>Ctrl+Q</kbd></dt>
   <dd>Quit the app.</dd>
   <dt><kbd>F1</kbd>, or <kbd>Cmd+Shift+ß</kbd> on a German Mac keyboard</dt>
@@ -657,16 +673,21 @@
 <h2>12. Privacy and data</h2>
 <p>
   No data is ever sent over the network. NonvisualAudio has no
-  telemetry, no cloud, no analytics. A very small preferences file is
-  written to your user data folder only when you explicitly change
-  the language or theme. Custom genre profiles go into the same
-  folder. Locations:
+  telemetry, no cloud, no analytics. A small preferences file is written
+  to your user data folder when you change a saved setting. Custom genre
+  profiles go into the same folder. Locations:
 </p>
 <ul>
   <li>macOS: <code>~/Library/Application Support/NonvisualAudio/</code></li>
   <li>Windows: <code>%APPDATA%\NonvisualAudio\</code></li>
   <li>Linux: <code>~/.config/NonvisualAudio/</code></li>
 </ul>
+<p>
+  Each launch also starts a fresh log for the current session in the
+  operating system's log folder. By default it contains file names only,
+  not full paths or user names. The folder and the read-only log are
+  available from the Diagnostics dialog.
+</p>
 </section>
 
 </main>

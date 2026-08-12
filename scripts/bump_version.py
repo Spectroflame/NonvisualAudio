@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Bump the project version in pyproject.toml.
+"""Keep the project and packaged macOS readme versions in sync.
 
-The About dialog and the PyInstaller spec both read from
-``pyproject.toml`` (via ``nonvisualaudio.__version__`` or directly), so
-this is the only file that needs to change for a new release.
+The About dialog and the PyInstaller spec read from ``pyproject.toml``
+(via ``nonvisualaudio.__version__`` or directly). The macOS archive also
+ships ``packaging/macos/LIESMICH.txt``, whose heading must carry the same
+version. This script updates both surfaces together.
 
 Usage::
 
@@ -23,9 +24,12 @@ and the shipped binary's version bit-for-bit identical.
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Loose but strict enough: major.minor.patch with optional pre/build suffix.
@@ -43,6 +47,9 @@ _PYPROJECT_VERSION_LINE = re.compile(
     r'^(?P<prefix>\s*version\s*=\s*")(?P<version>[^"]*)(?P<suffix>".*)$',
     re.MULTILINE,
 )
+_LIESMICH_VERSION_LINE = re.compile(r"^NonvisualAudio\s+\S+\s*$")
+
+_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _parse_args() -> argparse.Namespace:
@@ -72,8 +79,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pyproject",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "pyproject.toml",
+        default=_ROOT / "pyproject.toml",
         help="Path to pyproject.toml (defaults to repo root).",
+    )
+    parser.add_argument(
+        "--liesmich",
+        type=Path,
+        default=_ROOT / "packaging" / "macos" / "LIESMICH.txt",
+        help="Path to the packaged macOS readme (defaults to repo packaging).",
     )
     return parser.parse_args()
 
@@ -90,12 +103,18 @@ def _normalise(version: str) -> str:
     return cleaned
 
 
+def _path_for_message(path: Path) -> str:
+    """Render an untrusted CLI path without terminal control characters."""
+    return ascii(os.fspath(path))
+
+
 def _current_version(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
     match = _PYPROJECT_VERSION_LINE.search(text)
     if not match:
         sys.exit(
-            f"bump_version: could not find a 'version = \"…\"' line in {path}."
+            "bump_version: could not find a 'version = \"…\"' line in "
+            f"{_path_for_message(path)}."
         )
     return match.group("version")
 
@@ -110,17 +129,15 @@ def _compose_marker_version(path: Path, raw_marker: str) -> str:
     return f"{_current_version(path)}{marker}"
 
 
-def _rewrite_pyproject(path: Path, new_version: str) -> str:
+def _updated_pyproject(path: Path, new_version: str) -> tuple[str, str]:
     original = path.read_text(encoding="utf-8")
     match = _PYPROJECT_VERSION_LINE.search(original)
     if not match:
         sys.exit(
-            f"bump_version: could not find a 'version = \"…\"' line in {path}."
+            "bump_version: could not find a 'version = \"…\"' line in "
+            f"{_path_for_message(path)}."
         )
     old_version = match.group("version")
-    if old_version == new_version:
-        print(f"bump_version: already at {new_version}; nothing to do.")
-        return old_version
     updated = (
         original[: match.start()]
         + match.group("prefix")
@@ -128,9 +145,71 @@ def _rewrite_pyproject(path: Path, new_version: str) -> str:
         + match.group("suffix")
         + original[match.end():]
     )
-    path.write_text(updated, encoding="utf-8")
-    print(f"bump_version: {path.name} {old_version} -> {new_version}")
-    return old_version
+    return original, updated
+
+
+def _updated_liesmich(path: Path, new_version: str) -> tuple[str, str]:
+    original = path.read_text(encoding="utf-8")
+    first_line, separator, remainder = original.partition("\n")
+    if not _LIESMICH_VERSION_LINE.fullmatch(first_line):
+        sys.exit(
+            "bump_version: could not find the expected "
+            "'NonvisualAudio <version>' heading in "
+            f"{_path_for_message(path)}."
+        )
+    updated = f"NonvisualAudio {new_version}{separator}{remainder}"
+    return original, updated
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Replace one existing UTF-8 text file without exposing a partial write."""
+    mode = stat.S_IMODE(path.stat().st_mode)
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary_path, mode)
+        os.replace(temporary_path, path)
+    finally:
+        try:
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _rewrite_version_files(
+    pyproject_path: Path, liesmich_path: Path, new_version: str
+) -> None:
+    pyproject_original, pyproject_updated = _updated_pyproject(
+        pyproject_path, new_version
+    )
+    liesmich_original, liesmich_updated = _updated_liesmich(
+        liesmich_path, new_version
+    )
+
+    pyproject_changed = pyproject_updated != pyproject_original
+    liesmich_changed = liesmich_updated != liesmich_original
+
+    if pyproject_changed:
+        _atomic_write_text(pyproject_path, pyproject_updated)
+    try:
+        if liesmich_changed:
+            _atomic_write_text(liesmich_path, liesmich_updated)
+    except Exception:
+        # The two files cannot be replaced by one filesystem transaction.
+        # If the second replace fails, restore the already-replaced first
+        # file atomically so the version surfaces do not diverge.
+        if pyproject_changed:
+            _atomic_write_text(pyproject_path, pyproject_original)
+        raise
+
+    if pyproject_changed or liesmich_changed:
+        print(f"bump_version: synchronized version {new_version}.")
+    else:
+        print(f"bump_version: already at {new_version}; nothing to do.")
 
 
 def _reinstall() -> None:
@@ -163,7 +242,7 @@ def main() -> None:
         new_version = _normalise(args.version)
     else:
         sys.exit("bump_version: provide a version argument or --marker.")
-    _rewrite_pyproject(args.pyproject, new_version)
+    _rewrite_version_files(args.pyproject, args.liesmich, new_version)
     if not args.no_reinstall:
         _reinstall()
     print(f"bump_version: done, pyproject.toml now reports {new_version}.")

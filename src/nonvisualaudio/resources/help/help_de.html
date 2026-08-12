@@ -168,12 +168,13 @@
     abbrechen; es folgt eine kurze Rückfrage „Analyse abbrechen?",
     bevor der Lauf tatsächlich gestoppt wird.
   </dd>
-  <dt>Fortschrittsbalken und Status-Zeile</dt>
+  <dt>Fortschrittsanzeige und aktuelle Phase</dt>
   <dd>
-    Erscheinen während einer laufenden Analyse. Die Status-Zeile
-    liegt im Tab-Order — der Screenreader kann also den Fokus
-    dorthin setzen, um die aktuelle Phase, den Prozentsatz und die
-    laufend aktualisierte geschätzte Restzeit vorgelesen zu bekommen.
+    Erscheinen während einer laufenden Analyse als zwei Elemente. Die
+    Fortschrittsanzeige nennt den Prozentsatz und die laufend aktualisierte
+    geschätzte Restzeit. Das separate, fokussierbare Feld daneben nennt
+    die aktuelle Phase und liegt im Tab-Order, damit es sich mit dem
+    Screenreader gezielt ansteuern lässt.
   </dd>
 </dl>
 <p>
@@ -238,15 +239,29 @@
   <kbd>Über NonvisualAudio</kbd> (<kbd>F1</kbd> bzw.
   <kbd>Cmd+Umschalt+ß</kbd> auf einer deutschen Mac-Tastatur) öffnet
   einen kompakten Über-/Hilfe-Dialog. Darin stehen Version,
-  Beschreibung, Lizenz, Credits und der GitHub-Link, plus zwei
-  Action-Buttons:
+  Beschreibung, Lizenz, Credits und der GitHub-Link. Die Schaltflächen
+  bieten folgende Aktionen:
 </p>
 <ul>
   <li><kbd>README anzeigen</kbd> öffnet dieses Handbuch in der gerade
       aktiven Oberflächensprache im Standard-Browser.</li>
   <li><kbd>Fehler melden</kbd> ruft die GitHub-Issues-Seite des
       Projekts auf, sodass Bugreports mit zwei Klicks landen.</li>
+  <li><kbd>Diagnosebericht erzeugen</kbd> legt einen Supportbericht mit
+      Systeminformationen und dem aktuellen Protokoll im
+      Protokollordner ab.</li>
+  <li><kbd>Protokollordner öffnen</kbd> zeigt diesen Ordner im
+      Dateimanager.</li>
 </ul>
+<p>
+  <kbd>Diagnosebericht erzeugen...</kbd> (<kbd>Cmd+Umschalt+D</kbd> /
+  <kbd>Strg+Umschalt+D</kbd>) im Hilfe-Menü öffnet den Diagnosedialog.
+  Dort kann <kbd>Aktuelles Protokoll anzeigen</kbd> das Protokoll der
+  laufenden Sitzung schreibgeschützt öffnen. Es lässt sich mit dem
+  Screenreader Zeile für Zeile lesen; die neuesten Einträge stehen am
+  Ende. Die ausführliche Protokollierung mit vollständigen Dateipfaden
+  nur aktivieren, wenn der Support ausdrücklich darum bittet.
+</p>
 </section>
 
 </section>
@@ -581,6 +596,10 @@
 <ul>
   <li>Beim App-Start ist der Projekt-Modus immer aus, damit er nicht
       versehentlich aus einer alten Sitzung „kleben" bleibt.</li>
+  <li>Wenn mehr als fünf Dateien in den Zielbereich aufgenommen werden,
+      fragt die App <kbd>Projektmodus verwenden?</kbd>. Mit
+      <kbd>Als Projekt analysieren</kbd> wird der Projekt-Modus aktiviert;
+      <kbd>Einzeln analysieren</kbd> lässt ihn aus.</li>
   <li>Wenn der Projekt-Modus an ist, aber nur eine Datei in der Liste
       steht, fragt die App vor der Analyse nach: lieber als normale
       Einzeldatei-Analyse fahren, als Ein-Track-Projekt durchziehen
@@ -666,6 +685,8 @@
   <dd>Analyse starten.</dd>
   <dt><kbd>Cmd+G</kbd> / <kbd>Strg+G</kbd></dt>
   <dd>Genre-Editor öffnen.</dd>
+  <dt><kbd>Cmd+Umschalt+D</kbd> / <kbd>Strg+Umschalt+D</kbd></dt>
+  <dd>Den Dialog zum Erzeugen und Lesen von Diagnoseprotokollen öffnen.</dd>
   <dt><kbd>Cmd+Q</kbd> / <kbd>Strg+Q</kbd></dt>
   <dd>App beenden.</dd>
   <dt><kbd>F1</kbd>, oder <kbd>Cmd+Umschalt+ß</kbd> auf deutscher Mac-Tastatur</dt>
@@ -684,16 +705,23 @@
 <h2>12. Datenschutz</h2>
 <p>
   Es werden keine Daten über das Netz gesendet. NonvisualAudio hat
-  keine Telemetrie, keine Cloud, keine Analytics. Eine winzige
-  Einstellungsdatei wird nur dann in deinen Benutzer-Datenordner
-  geschrieben, wenn du Sprache oder Farbschema im Menü explizit
-  änderst. Eigene Genre-Profile landen im gleichen Ordner. Orte:
+  keine Telemetrie, keine Cloud, keine Analytics. Eine kleine
+  Einstellungsdatei wird in deinen Benutzer-Datenordner geschrieben,
+  wenn du eine gespeicherte Einstellung änderst. Eigene Genre-Profile
+  landen im gleichen Ordner. Orte:
 </p>
 <ul>
   <li>macOS: <code>~/Library/Application Support/NonvisualAudio/</code></li>
   <li>Windows: <code>%APPDATA%\NonvisualAudio\</code></li>
   <li>Linux: <code>~/.config/NonvisualAudio/</code></li>
 </ul>
+<p>
+  Bei jedem Start entsteht außerdem ein frisches Protokoll der aktuellen
+  Sitzung im Protokollordner des Betriebssystems. Standardmäßig enthält
+  es nur Dateinamen, keine vollständigen Pfade oder Benutzernamen. Der
+  Ordner und das schreibgeschützte Protokoll sind über den Diagnosedialog
+  erreichbar.
+</p>
 </section>
 
 </main>

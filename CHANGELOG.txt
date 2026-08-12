@@ -26,6 +26,8 @@ Fehlerbehebungen und Robustheit
 
 - Der True-Peak-Zeitstempel folgt jetzt der lautesten Spitze über alle
   Kanäle statt ausschließlich Kanal 1.
+- Die True-Peak-Risikowarnung greift jetzt erst oberhalb von minus
+  0,3 dBTP.
 - Messungen im Projektmodus bleiben auch bei Dateien mit
   unterschiedlichen Kanalzahlen korrekt.
 - Normbezüge in drei mitgelieferten Genre-Profilen wurden korrigiert.

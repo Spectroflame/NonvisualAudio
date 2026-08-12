@@ -24,6 +24,7 @@ Bug fixes and robustness
 
 - The true-peak timestamp now follows the loudest peak across all
   channels instead of channel 1 only.
+- The true-peak risk warning now starts above minus 0.3 dBTP.
 - Project-mode measurements remain correct when files have different
   channel counts.
 - Standards references in three bundled genre profiles were corrected.

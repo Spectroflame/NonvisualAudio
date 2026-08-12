@@ -522,7 +522,7 @@
   "report.loudness.verdict.very_quiet.neutral.project": "Das Projekt liegt insgesamt auf einem sehr niedrigen Lautheitsniveau und lässt sehr viel Headroom.",
   "report.loudness.verdict.very_quiet.speech": "Die Datei ist deutlich leiser als der klassische Rundfunkpegel für Sprachproduktionen (EBU R128: minus 23 LUFS).",
   "report.loudness.verdict.very_quiet.speech.project": "Das Projekt ist insgesamt deutlich leiser als der klassische Rundfunkpegel für Sprachproduktionen (EBU R128: minus 23 LUFS).",
-  "report.loudness.true_peak.risk": "True Peak liegt bei oder über minus 0,5 dBTP — in diesem Bereich tritt Inter-Sample-Clipping bei verlustbehafteter Wiedergabe erfahrungsgemäß auf.",
+  "report.loudness.true_peak.risk": "True Peak liegt bei oder über minus 0,3 dBTP — in diesem Bereich tritt Inter-Sample-Clipping bei verlustbehafteter Wiedergabe erfahrungsgemäß auf.",
   "report.loudness.true_peak.close": "True Peak liegt nah an Vollaussteuerung.",
 
   "report.dynamics.crest": "Crest-Faktor: {value} dB (Differenz der Peaks zum Durchschnittspegel).",

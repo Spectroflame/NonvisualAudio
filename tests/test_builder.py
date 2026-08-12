@@ -118,6 +118,19 @@ def test_very_loud_file_is_flagged():
     assert "intersample" in report.lower()
 
 
+def test_true_peak_below_risk_threshold_is_only_close_to_full_scale():
+    loud = LoudnessMetrics(
+        integrated_lufs=-16.0,
+        short_term_max_lufs=-12.0,
+        true_peak_dbtp=-0.4,
+        loudness_range_lu=8.0,
+    )
+    report = build_report(_make_result(loudness=loud))
+    loudness = report.split("Loudness Summary")[1].split("\n\n")[0]
+    assert "close to full scale" in loudness.lower()
+    assert "intersample clipping" not in loudness.lower()
+
+
 def test_frequency_section_names_the_loudest_band_as_the_anchor():
     # Sub -14, bass -11, low_mid -9, mid -8, presence -10, air -18.
     # Loudest: mid (-8). Quietest: air (-18). Spread: 10 dB.

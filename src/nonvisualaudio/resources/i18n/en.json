@@ -522,7 +522,7 @@
   "report.loudness.verdict.very_quiet.neutral.project": "The project sits at a very low loudness level overall, leaving a great deal of headroom.",
   "report.loudness.verdict.very_quiet.speech": "The file is clearly quieter than the classic broadcast level for spoken-word productions (EBU R128: minus 23 LUFS).",
   "report.loudness.verdict.very_quiet.speech.project": "The project is overall clearly quieter than the classic broadcast level for spoken-word productions (EBU R128: minus 23 LUFS).",
-  "report.loudness.true_peak.risk": "True peak is at or above minus 0.5 dBTP — that's the range where intersample clipping on lossy playback tends to become an issue.",
+  "report.loudness.true_peak.risk": "True peak is at or above minus 0.3 dBTP — that's the range where intersample clipping on lossy playback tends to become an issue.",
   "report.loudness.true_peak.close": "True peak is close to full scale.",
 
   "report.dynamics.crest": "Crest factor: {value} dB (difference between peaks and average level).",

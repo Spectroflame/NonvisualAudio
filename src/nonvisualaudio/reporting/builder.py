@@ -406,7 +406,7 @@ def _loudness_section(
         t_subject(_material_key(verdict_key, material, tonality), project=project)
     )
 
-    if tp > -0.5:
+    if tp > -0.3:
         lines.append(t("report.loudness.true_peak.risk"))
     elif tp > -1.0:
         lines.append(t("report.loudness.true_peak.close"))

@@ -18,19 +18,26 @@ tree contains zero network libraries.
 - **Project mode** for albums and audio dramas: turn the toggle on and
   every selected file is treated as one continuous piece. Loudness,
   dynamics, and frequency balance are measured over the whole set as if
-  it were a single bounced file (loudness via ffmpeg's `concat` filter
-  feeding `ebur128`, dynamics and spectrum via numpy concatenation), and
+  it were a single bounced file (ffmpeg's `concat` filter feeds loudness,
+  dynamics, spectrum, and stereo analysis as a continuous stream), and
   a Cross-Track Consistency block flags how much per-track integrated
   loudness varies and which track is loudest / quietest. The mode
-  resets to off on every launch so it cannot silently persist
+  resets to off on every launch so it cannot silently persist. When more
+  than five target files are added, the app asks whether to analyze them
+  separately or together in project mode
 - **Splittable report**: a Choose Report Sections dialog lets the user
   enable only the blocks they want — only loudness, only frequency
   balance, only dynamics, etc. The selection is remembered between
   launches; the default is every section enabled
-- **42 genre references** across 13 categories (Audio Drama, Podcast,
-  Spoken Word, Pop, Rock, Rap & Hip Hop, R&B & Soul, Reggae, Jazz, Folk &
-  Country, Electronic, Classical, Film & Cinema) — pick any number of them
-  per analysis
+- **43 genre and analysis profiles** across 14 categories (Audio Drama,
+  Podcast, Spoken Word, Speech, Pop, Rock, Rap & Hip Hop, R&B & Soul,
+  Reggae, Jazz, Folk & Country, Electronic, Classical, Film & Cinema) —
+  pick any number of them per analysis. The “Raw Speech Recording” profile
+  has no LUFS target, so unprocessed speech is not judged like a finished
+  master
+- **Material-aware reporting**: loudness, dynamics, frequency balance, and
+  overall verdicts adapt to music or spoken-word profiles. With no profile
+  selected, the report stays neutral instead of assuming a music genre
 - **Reference comparison**: supply a second audio file — or several files /
   a folder — as the reference. A single file is compared one-to-one; a
   multi-file reference is combined into a "reference project" with the
@@ -69,8 +76,9 @@ tree contains zero network libraries.
     straight through the platform's native accessibility bridge
   - Modal results window focused on a read-only text control, where
     the screen reader starts reading the report immediately
-  - Checkbox-based genre picker (the most reliably announced control
-    across VoiceOver, NVDA and Orca)
+  - The **Choose Genre / Profile** button opens a checkbox-based profile
+    picker (the most reliably announced control across VoiceOver, NVDA and
+    Orca)
   - Friendly error dialog with a clear headline, an explanation, and a
     concrete next step — batch failures continue to process the other
     files and summarise the problems in the report itself
@@ -78,9 +86,12 @@ tree contains zero network libraries.
     feedback that work is progressing (nothing is written to disk; the
     sample is held in memory and fed straight to PortAudio via
     sounddevice)
-  - Progress bar reports the current pipeline step and an EMA-smoothed
-    estimate of the remaining time — useful for hours-long inputs
-    like full audiobooks
+  - One progress element announces the current pipeline step, percentage,
+    and an EMA-smoothed estimate of the remaining time — useful for
+    hours-long inputs like full audiobooks
+  - The Diagnostics dialog can show the current session log in a read-only,
+    screen-reader-friendly viewer; the log folder is also reachable from
+    the About dialog
   - All numbers in the report are spelled out ("minus 21.4 LUFS" rather
     than "-21.4") so screen readers speak them naturally
   - No Markdown symbols in output: just ALL CAPS section headings and
@@ -177,7 +188,7 @@ NVA_DEBUG=1 python -m nonvisualaudio
 pytest
 ```
 
-Around 200 unit tests cover templates, report builder, splittable-report
+More than 500 unit tests cover templates, report builder, splittable-report
 section selection, project-mode aggregation and rendering,
 genre/reference comparison, dynamics, spectrum analysis, stereo-image
 metrics, TXT/HTML/Markdown export, drop/paste, themes, and
@@ -247,8 +258,11 @@ The four layers are strictly top-to-bottom:
 
 - No `urllib`, `requests`, `httpx`, `socket`, or any other network module
   is imported anywhere in the source. Verifiable by `grep`.
-- Logging is disabled by default (`WARNING` level) and goes to stderr
-  only. Set `NVA_DEBUG=1` to enable DEBUG output during development.
+- Each launch starts a fresh per-session diagnostic log. At the default
+  privacy setting it records file basenames but not full paths or user
+  names; full-path logging is an explicit option in the Diagnostics dialog.
+  Stderr remains at `WARNING` by default. Set `NVA_DEBUG=1` to enable DEBUG
+  output on stderr during development.
 - Preferences file (small JSON) and user-genre overrides live under
   the OS data dir; nothing is written until the user changes a
   setting or saves a custom genre. No telemetry.

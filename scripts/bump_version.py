@@ -130,7 +130,8 @@ def _compose_marker_version(path: Path, raw_marker: str) -> str:
 
 
 def _updated_pyproject(path: Path, new_version: str) -> tuple[str, str]:
-    original = path.read_text(encoding="utf-8")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        original = handle.read()
     match = _PYPROJECT_VERSION_LINE.search(original)
     if not match:
         sys.exit(
@@ -149,8 +150,12 @@ def _updated_pyproject(path: Path, new_version: str) -> tuple[str, str]:
 
 
 def _updated_liesmich(path: Path, new_version: str) -> tuple[str, str]:
-    original = path.read_text(encoding="utf-8")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        original = handle.read()
     first_line, separator, remainder = original.partition("\n")
+    if separator and first_line.endswith("\r"):
+        first_line = first_line[:-1]
+        separator = "\r\n"
     if not _LIESMICH_VERSION_LINE.fullmatch(first_line):
         sys.exit(
             "bump_version: could not find the expected "

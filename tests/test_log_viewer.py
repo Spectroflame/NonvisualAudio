@@ -24,7 +24,9 @@ def log_dir(tmp_path, monkeypatch) -> Path:
 
 def _write_log(log_dir: Path, text: str) -> Path:
     path = log_dir / "nonvisualaudio.log"
-    path.write_text(text, encoding="utf-8")
+    # These tests exercise tail selection, not platform text translation.
+    # Fixed bytes keep their fixtures identical on Unix and Windows.
+    path.write_bytes(text.encode("utf-8"))
     return path
 
 
@@ -90,6 +92,13 @@ def test_short_log_is_not_truncated(log_dir):
     tail = diagnostics.read_log_tail(limit=1024)
     assert tail.truncated is False
     assert tail.text == "just a few bytes\n"
+
+
+def test_crlf_log_is_preserved(log_dir):
+    _write_log(log_dir, "first entry\r\nsecond entry\r\n")
+    tail = diagnostics.read_log_tail(limit=1024)
+    assert tail.truncated is False
+    assert tail.text == "first entry\r\nsecond entry\r\n"
 
 
 def test_refresh_sees_appended_content(log_dir):

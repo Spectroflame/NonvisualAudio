@@ -63,8 +63,13 @@ def test_split_streams_line_callback_gets_each_stderr_line() -> None:
         [sys.executable, "-c", _ECHO_BOTH],
         stderr_line_callback=lines.append,
     )
-    assert b"line one\n" in lines
-    assert b"line two\n" in lines
+    # The callback deliberately exposes raw subprocess bytes, including
+    # the child's native LF or CRLF line ending.
+    newline = b"\r\n" if sys.platform.startswith("win") else b"\n"
+    assert lines == [
+        b"line one" + newline,
+        b"line two" + newline,
+    ]
 
 
 def test_split_streams_survives_raising_line_callback() -> None:

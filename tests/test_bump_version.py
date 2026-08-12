@@ -24,16 +24,21 @@ def _load_script() -> ModuleType:
     return module
 
 
-def _fixture_files(tmp_path: Path) -> tuple[Path, Path]:
+def _fixture_files(tmp_path: Path, newline: str = "\n") -> tuple[Path, Path]:
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test-project"\nversion = "2.2.0"\n',
-        encoding="utf-8",
+    pyproject.write_bytes(
+        (
+            f"[project]{newline}"
+            f'name = "test-project"{newline}'
+            f'version = "2.2.0"{newline}'
+        ).encode("utf-8")
     )
     liesmich = tmp_path / "LIESMICH.txt"
-    liesmich.write_text(
-        "NonvisualAudio 2.2.0\n\nInstallationshinweise.\n",
-        encoding="utf-8",
+    liesmich.write_bytes(
+        (
+            f"NonvisualAudio 2.2.0{newline}{newline}"
+            f"Installationshinweise.{newline}"
+        ).encode("utf-8")
     )
     return pyproject, liesmich
 
@@ -64,16 +69,23 @@ def _version(pyproject: Path) -> str:
         return tomllib.load(handle)["project"]["version"]
 
 
-def test_absolute_version_updates_both_files(tmp_path: Path) -> None:
-    pyproject, liesmich = _fixture_files(tmp_path)
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_absolute_version_updates_both_files(tmp_path: Path, newline: str) -> None:
+    pyproject, liesmich = _fixture_files(tmp_path, newline)
 
     result = _run(pyproject, liesmich, "v2.2.1")
 
     assert result.returncode == 0, result.stderr
     assert _version(pyproject) == "2.2.1"
-    assert liesmich.read_text(encoding="utf-8").splitlines()[0] == (
-        "NonvisualAudio 2.2.1"
-    )
+    assert pyproject.read_bytes() == (
+        f"[project]{newline}"
+        f'name = "test-project"{newline}'
+        f'version = "2.2.1"{newline}'
+    ).encode("utf-8")
+    assert liesmich.read_bytes() == (
+        f"NonvisualAudio 2.2.1{newline}{newline}"
+        f"Installationshinweise.{newline}"
+    ).encode("utf-8")
 
 
 def test_marker_version_updates_both_files(tmp_path: Path) -> None:
@@ -126,11 +138,12 @@ def test_cli_path_for_error_message_escapes_terminal_controls() -> None:
     assert r"\x1b" in rendered
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
 def test_second_replace_failure_rolls_back_first_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, newline: str
 ) -> None:
     module = _load_script()
-    pyproject, liesmich = _fixture_files(tmp_path)
+    pyproject, liesmich = _fixture_files(tmp_path, newline)
     original_pyproject = pyproject.read_bytes()
     original_liesmich = liesmich.read_bytes()
     atomic_write = module._atomic_write_text

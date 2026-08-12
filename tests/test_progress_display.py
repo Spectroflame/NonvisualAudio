@@ -3,9 +3,11 @@
 The progress UI presents "progress + remaining time" as one element: the
 gauge keeps the percent as its value and folds the remaining-time
 estimate into its accessible *name*, while the neighbouring read-only
-label carries only the current stage. These tests pin that routing down
-so a future key rename or format change can't silently send the percent,
-the ETA, or the stage to the wrong widget.
+label carries only the current stage. Neither control has an additional
+screen-reader help text; their mouse tooltips remain available. These
+tests pin that routing down so a future change can't silently restore
+redundant descriptions or send the percent, ETA, or stage to the wrong
+widget.
 
 Like the project-prompt tests, this drives a real ``MainWindow`` behind a
 ``wx.App`` fixture and calls the progress handler directly.
@@ -57,6 +59,14 @@ def test_early_tick_keeps_gauge_name_plain(window: MainWindow):
     assert window.progress_label.GetValue() == "Dekodiere Audio"
     # No remaining-time estimate folded into the gauge name yet.
     assert window.progress.GetName() == t("ui.label.progress_bar")
+    assert window.progress.GetHelpText() == ""
+    assert window.progress_label.GetHelpText() == ""
+    assert window.progress._a11y_description == ""
+    assert window.progress_label._a11y_description == ""
+    assert window.progress.GetToolTipText() == t("ui.hint.progress_bar")
+    assert window.progress_label.GetToolTipText() == t(
+        "ui.progress.hint", stage="Dekodiere Audio"
+    )
 
 
 def test_eta_rides_in_gauge_name_stage_in_label(window: MainWindow):
